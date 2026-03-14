@@ -443,7 +443,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## 👨‍💻 作者
 
-- **开发者**：黄辉翔
+- **开发者**：Huang huixiang
 - **项目地址**：https://github.com/nplszfl/erp
 
 ---
