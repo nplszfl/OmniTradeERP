@@ -1,0 +1,49 @@
+server:
+  port: 8088
+
+spring:
+  application:
+    name: erp-inventory-prediction-service
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/erp_inventory_prediction_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 1
+      timeout: 3000
+
+# Swagger配置
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+
+# 预测模型配置
+prediction:
+  model:
+    prophet:
+      enabled: true
+      confidence-interval: 0.9
+    arima:
+      enabled: true
+      order-p: 1
+      order-d: 1
+      order-q: 1
+  safety-stock:
+    days: 30
+    volatility-factor: 0.5
+  turnover:
+    low-threshold: 1.0
+    high-threshold: 3.0
+
+# 应用配置
+app:
+  name: 库存预测服务
+  version: 1.5.0
+  author: 火球鼠

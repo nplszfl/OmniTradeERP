@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.oracle.database.jdbc</groupId>
+  <artifactId>ojdbc-bom</artifactId>
+  <version>23.3.0.23.09</version>
+  <packaging>pom</packaging>  
+  
+  <properties>
+    <version.lib.ojdbc>23.3.0.23.09</version.lib.ojdbc>
+  </properties>
+
+  <!--
+      ojdbc-bom.pom: Bill of Materials (BOM) to pick and choose the
+  	  artifacts that developers want.
+  	  Refer to "DIY Using the BOM file" section of the Maven Central Guide
+  	  https://www.oracle.com/database/technologies/maven-central-guide.html#DIY
+    -->
+  <name>ojdbc-bom</name>
+  <description> Bill of Materials (BOM) for JDBC driver and other additional jars</description>
+  <url>https://www.oracle.com/database/technologies/maven-central-guide.html</url>
+  <inceptionYear>1997</inceptionYear>
+
+  <licenses>
+    <license>
+      <name>Oracle Free Use Terms and Conditions (FUTC)</name>
+      <url>https://www.oracle.com/downloads/licenses/oracle-free-license.html</url>
+    </license>
+  </licenses>
+ 
+  <developers>
+    <developer>
+      <organization>Oracle America, Inc.</organization>
+      <organizationUrl>http://www.oracle.com</organizationUrl>
+    </developer>
+  </developers>
+  
+  <scm>
+    <url></url>
+  </scm>
+  
+  <dependencyManagement>
+    <dependencies>
+    <!-- JDBC driver: Certified with JDK11, JDK12, JDK13, JDK14 and JDK15 (compatibility with JDBC 4.3)
+         Refer to 'Use Case 1' of section 'DIY Using the BOM file'.
+         https://www.oracle.com/database/technologies/maven-central-guide.html#DIY -->
+    <dependency>
+      <groupId>com.oracle.database.jdbc</groupId>
+      <artifactId>ojdbc11</artifactId>
+      <version>${version.lib.ojdbc}</version>
+    </dependency>
+    <!-- JDBC driver - compiled with JDK8 (compatibility with JDBC 4.2),
+      certified with JDK8, JDK11, JDK12, JDK13, JDK14 and JDK15.
+      Refer to 'Use Case 1' of section 'DIY Using the BOM file'.
+      https://www.oracle.com/database/technologies/maven-central-guide.html#DIY -->
+    <dependency>
+      <groupId>com.oracle.database.jdbc</groupId>
+      <artifactId>ojdbc8</artifactId>
+      <version>${version.lib.ojdbc}</version>
+    </dependency>
+    <!-- Universal Connection Pool (UCP) that provides the connection pool capabilities.
+         Refer to 'Use Case 2' and 'Use Case 9' of section 'DIY Using the BOM file'.
+         https://www.oracle.com/database/technologies/maven-central-guide.html#DIY -->
+    <dependency>
+      <groupId>com.oracle.database.jdbc</groupId>
+      <artifactId>ucp</artifactId>
+      <version>${version.lib.ojdbc}</version>
+    </dependency>
+    <!-- Universal Connection Pool (UCP) compiled with JDK11 that provides the connection pool capabilities.
+         Refer to 'Use Case 2' and 'Use Case 9' of section 'DIY Using the BOM file'.
+         https://www.oracle.com/database/technologies/maven-central-guide.html#DIY -->
+    <dependency>
+      <groupId>com.oracle.database.jdbc</groupId>
+      <artifactId>ucp11</artifactId>
+      <version>${version.lib.ojdbc}</version>
+    </dependency>
+    <!-- A dedicated path for ingesting high volume of data into Oracle database.
+         Refer to 'Use Case 12' of section 'DIY Using the BOM file'.
+         https://www.oracle.com/database/technologies/maven-central-guide.html#DIY -->
+    <dependency>
+      <groupId>com.oracle.database.jdbc</groupId>
+      <artifactId>rsi</artifactId>
+      <version>${version.lib.ojdbc}</version>
+    </dependency>
+
+    <!-- Library for connecting to the Oracle database using Oracle Wallets. 
+         oraclepki.jar is required for 
+         connecting to Autonomous Database.
+         Refer to 'Use Case 3' and 'Use Case 10' of 'DIY Using the BOM file'.
+         https://www.oracle.com/database/technologies/maven-central-guide.html#DIY -->
+    <!-- The Oracle PKI provider used for Oracle Wallets -->
+    <dependency>
+      <groupId>com.oracle.database.security</groupId>
+      <artifactId>oraclepki</artifactId>
+      <version>${version.lib.ojdbc}</version>
+    </dependency>
+
+    <!-- Libraries recommended for High Availability support.
+         Make sure to have ons.jar and simplefan.jar along with ucp.jar.
+         Refer to 'Use Case 4' and 'Use Case 11' of 'DIY Using the BOM file'.
+         https://www.oracle.com/database/technologies/maven-central-guide.html#DIY -->
+    <!-- Simple Fast Application Notification (FAN) library -->
+    <dependency>
+      <groupId>com.oracle.database.ha</groupId>
+      <artifactId>simplefan</artifactId>
+      <version>${version.lib.ojdbc}</version>
+    </dependency>
+    <!-- Oracle Notification System (ONS) library for FAN events -->
+    <dependency>
+      <groupId>com.oracle.database.ha</groupId>
+      <artifactId>ons</artifactId>
+      <version>${version.lib.ojdbc}</version>
+    </dependency>
+    <!-- Libraries recommended for NLS or Internationalization.
+         Refer to 'Use Case 6' of 'DIY Using the BOM file'.
+        https://www.oracle.com/database/technologies/maven-central-guide.html#DIY -->
+    <dependency>
+      <groupId>com.oracle.database.nls</groupId>
+      <artifactId>orai18n</artifactId>
+      <version>${version.lib.ojdbc}</version>
+    </dependency>
+    <!-- Libraries to support java.sql.SQLXML interface.
+         Refer to 'Use Case 5' of 'DIY Using the BOM file'.
+         https://www.oracle.com/database/technologies/maven-central-guide.html#DIY -->
+    <dependency>
+      <groupId>com.oracle.database.xml</groupId>
+      <artifactId>xdb</artifactId>
+      <version>${version.lib.ojdbc}</version>
+    </dependency>
+    <!-- The Oracle Database XML Parser library.
+    Refer to 'Use Case 5' of 'DIY Using the BOM file'.
+         https://www.oracle.com/database/technologies/maven-central-guide.html#DIY -->
+    <dependency>
+      <groupId>com.oracle.database.xml</groupId>
+      <artifactId>xmlparserv2</artifactId>
+      <version>${version.lib.ojdbc}</version>
+    </dependency>
+    <!-- The Oracle Dynamic Monitoring System (i.e., observability) library.
+         Refer to 'Use Case 7' of 'DIY Using the BOM file'.
+         https://www.oracle.com/database/technologies/maven-central-guide.html#DIY -->
+    <dependency>
+      <groupId>com.oracle.database.observability</groupId>
+      <artifactId>dms</artifactId>
+      <version>${version.lib.ojdbc}</version>
+    </dependency>
+    <!-- ojdbc11-production.pom bundles ojdbc11.jar with all the companion artifacts. -->
+    <dependency>
+      <groupId>com.oracle.database.jdbc</groupId>
+      <artifactId>ojdbc11-production</artifactId>
+      <version>${version.lib.ojdbc}</version>
+      <type>pom</type>
+    </dependency>
+    <!-- ojdbc8-production.pom bundles ojdbc8.jar with all the companion artifacts. -->
+    <dependency>
+      <groupId>com.oracle.database.jdbc</groupId>
+      <artifactId>ojdbc8-production</artifactId>
+      <version>${version.lib.ojdbc}</version>
+      <type>pom</type>
+    </dependency>
+
+  </dependencies>
+  </dependencyManagement>
+  
+</project>

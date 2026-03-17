@@ -1,0 +1,68 @@
+server:
+  port: 8089
+
+spring:
+  application:
+    name: erp-ai-assistant-service
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 2
+      timeout: 3000
+
+# Swagger配置
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+
+# LLM API配置
+llm:
+  # OpenAI配置
+  openai:
+    enabled: false
+    api-key: ${OPENAI_API_KEY:}
+    base-url: https://api.openai.com/v1
+    model: gpt-4
+    max-tokens: 2000
+    temperature: 0.7
+
+  # DeepSeek配置
+  deepseek:
+    enabled: true
+    api-key: ${DEEPSEEK_API_KEY:}
+    base-url: https://api.deepseek.com/v1
+    model: deepseek-chat
+    max-tokens: 2000
+    temperature: 0.7
+
+# RAG配置
+rag:
+  enabled: true
+  vector-db:
+    type: redis  # redis, milvus, pinecone
+    dimension: 1536
+  retrieval:
+    top-k: 3
+    similarity-threshold: 0.7
+
+# 知识库配置
+knowledge:
+  refresh-interval: 3600  # 秒
+  default-language: zh
+  categories:
+    - 订单
+    - 物流
+    - 产品
+    - 售后
+    - 价格
+    - 库存
+
+# 应用配置
+app:
+  name: AI智能客服服务
+  version: 1.5.0
+  author: 火球鼠

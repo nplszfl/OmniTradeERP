@@ -1,0 +1,491 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Copyright 2010-2023 the original author or authors.
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+       https://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.mybatis</groupId>
+    <artifactId>mybatis-parent</artifactId>
+    <version>40</version>
+    <relativePath />
+  </parent>
+
+  <artifactId>mybatis-spring</artifactId>
+  <version>3.0.3</version>
+  <packaging>jar</packaging>
+
+  <name>mybatis-spring</name>
+  <description>An easy-to-use Spring bridge for MyBatis sql mapping framework.</description>
+  <url>http://www.mybatis.org/spring/</url>
+
+  <contributors>
+    <contributor>
+      <name>Alex Rykov</name>
+      <email>Alex.Rykov@gmail.com</email>
+    </contributor>
+
+    <contributor>
+      <name>Andrius Juozapaitis</name>
+      <email>andriusj@gmail.com</email>
+    </contributor>
+
+    <contributor>
+      <name>Giovanni Cuccu</name>
+      <email>giovanni.cuccu@gmail.com</email>
+    </contributor>
+
+    <contributor>
+      <name>Kay Huber</name>
+      <email>kay.huber@gmail.com</email>
+    </contributor>
+
+    <contributor>
+      <name>Lishu Luo</name>
+      <email>lishu.luo@gmail.com</email>
+    </contributor>
+
+    <contributor>
+      <name>Michael Lanyon</name>
+      <email>lanyonm@gmail.com</email>
+    </contributor>
+
+    <contributor>
+      <name>Raj Nagappan</name>
+      <email>raj@velocitylabs.com</email>
+    </contributor>
+
+    <contributor>
+      <name>Tomas Pinos</name>
+      <email>tomas.pinos@gmail.com</email>
+    </contributor>
+  </contributors>
+
+  <scm>
+    <connection>scm:git:ssh://git@github.com/mybatis/spring.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/mybatis/spring.git</developerConnection>
+    <tag>mybatis-spring-3.0.3</tag>
+    <url>http://github.com/mybatis/spring</url>
+  </scm>
+  <issueManagement>
+    <system>GitHub Issue Management</system>
+    <url>https://github.com/mybatis/spring/issues</url>
+  </issueManagement>
+  <ciManagement>
+    <system>GitHub Actions</system>
+    <url>https://github.com/mybatis/spring/actions</url>
+  </ciManagement>
+  <distributionManagement>
+    <site>
+      <id>gh-pages-scm</id>
+      <name>Mybatis GitHub Pages</name>
+      <url>scm:git:ssh://git@github.com/mybatis/spring.git</url>
+    </site>
+  </distributionManagement>
+
+  <properties>
+    <clirr.comparisonVersion>2.1.0</clirr.comparisonVersion>
+    <findbugs.onlyAnalyze>org.mybatis.spring.*,org.mybatis.spring.mapper.*,org.mybatis.spring.support.*,org.mybatis.spring.transaction.*</findbugs.onlyAnalyze>
+    <gcu.product>Spring</gcu.product>
+    <osgi.import>org.springframework.batch.*;resolution:=optional,*</osgi.import>
+    <osgi.dynamicImport>*</osgi.dynamicImport>
+
+    <!-- Maven compiler options -->
+    <java.version>17</java.version>
+    <java.release.version>17</java.release.version>
+
+    <derby.version>10.17.1.0</derby.version>
+    <mybatis.version>3.5.14</mybatis.version>
+    <spring.version>6.1.0</spring.version>
+    <spring-batch.version>5.0.3</spring-batch.version>
+    <module.name>org.mybatis.spring</module.name>
+
+    <junit.version>5.10.1</junit.version>
+
+    <!-- Reproducible Builds -->
+    <project.build.outputTimestamp>1700476303</project.build.outputTimestamp>
+
+    <!-- Set byte buddy to experimental -->
+    <net.bytebuddy.experimental>true</net.bytebuddy.experimental>
+  </properties>
+
+  <dependencies>
+    <!-- Compile dependencies -->
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis</artifactId>
+      <version>${mybatis.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-context</artifactId>
+      <version>${spring.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-jdbc</artifactId>
+      <version>${spring.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.batch</groupId>
+      <artifactId>spring-batch-infrastructure</artifactId>
+      <version>${spring-batch.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- Test dependencies -->
+
+    <dependency>
+      <groupId>com.atomikos</groupId>
+      <artifactId>transactions-jdbc</artifactId>
+      <version>6.0.0</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.derby</groupId>
+      <artifactId>derby</artifactId>
+      <version>${derby.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-engine</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.jboss.byteman</groupId>
+      <artifactId>byteman-bmunit</artifactId>
+      <version>4.0.22</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-test</artifactId>
+      <version>${spring.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-web</artifactId>
+      <version>${spring.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.batch</groupId>
+      <artifactId>spring-batch-core</artifactId>
+      <version>${spring-batch.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.batch</groupId>
+      <artifactId>spring-batch-test</artifactId>
+      <version>${spring-batch.version}</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>junit</groupId>
+          <artifactId>junit</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <dependency>
+      <groupId>org.hsqldb</groupId>
+      <artifactId>hsqldb</artifactId>
+      <version>2.7.2</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>2.0.9</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-core</artifactId>
+      <version>5.7.0</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <version>3.24.2</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>com.mockrunner</groupId>
+      <artifactId>mockrunner-core</artifactId>
+      <version>2.0.7</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>commons-logging</groupId>
+          <artifactId>commons-logging</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.kirkk</groupId>
+          <artifactId>jaranalyzer</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>jdom</groupId>
+          <artifactId>jdom</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>nekohtml</groupId>
+          <artifactId>nekohtml</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>junit</groupId>
+          <artifactId>junit</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>com.mockrunner</groupId>
+      <artifactId>mockrunner-ejb</artifactId>
+      <version>2.0.7</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>commons-beanutils</groupId>
+          <artifactId>commons-beanutils</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.mockejb</groupId>
+          <artifactId>mockejb</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>com.mockrunner</groupId>
+      <artifactId>mockrunner-jdbc</artifactId>
+      <version>2.0.7</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>commons-logging</groupId>
+          <artifactId>commons-logging</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <dependency>
+      <groupId>jakarta.transaction</groupId>
+      <artifactId>jakarta.transaction-api</artifactId>
+      <version>2.0.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>jakarta.servlet</groupId>
+      <artifactId>jakarta.servlet-api</artifactId>
+      <version>6.0.0</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>net.bytebuddy</groupId>
+      <artifactId>byte-buddy</artifactId>
+      <version>1.14.9</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>net.bytebuddy</groupId>
+      <artifactId>byte-buddy-agent</artifactId>
+      <version>1.14.9</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <repositories>
+    <repository>
+      <id>sonatype-oss-snapshots</id>
+      <name>Sonatype OSS Snapshots Repository</name>
+      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+    </repository>
+    <repository>
+      <releases>
+        <enabled>false</enabled>
+      </releases>
+      <id>spring-snapshot</id>
+      <name>Spring Snapshots</name>
+      <url>https://repo.spring.io/snapshot</url>
+    </repository>
+    <repository>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+      <id>spring-milestone</id>
+      <name>Spring Milestone</name>
+      <url>https://repo.spring.io/milestone</url>
+    </repository>
+  </repositories>
+
+  <pluginRepositories>
+    <pluginRepository>
+      <releases>
+        <enabled>false</enabled>
+      </releases>
+      <id>spring-snapshot</id>
+      <name>Spring Snapshots</name>
+      <url>https://repo.spring.io/snapshot</url>
+    </pluginRepository>
+    <pluginRepository>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+      <id>spring-milestone</id>
+      <name>Spring Milestone</name>
+      <url>https://repo.spring.io/milestone</url>
+    </pluginRepository>
+  </pluginRepositories>
+
+  <build>
+
+    <resources>
+      <resource>
+        <targetPath>META-INF</targetPath>
+        <directory>${project.basedir}</directory>
+        <includes>
+          <include>LICENSE</include>
+          <include>NOTICE</include>
+        </includes>
+      </resource>
+      <resource>
+        <directory>${project.basedir}/src/main/resources</directory>
+      </resource>
+    </resources>
+    <testResources>
+      <testResource>
+        <directory>${project.build.testSourceDirectory}</directory>
+        <excludes>
+          <exclude>**/*.java</exclude>
+        </excludes>
+      </testResource>
+    </testResources>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemProperties>
+            <property>
+              <name>derby.stream.error.file</name>
+              <value>${project.build.directory}/derby.log</value>
+            </property>
+            <property>
+              <name>com.atomikos.icatch.log_base_dir</name>
+              <value>${project.build.directory}</value>
+            </property>
+          </systemProperties>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <executions>
+          <!-- prepare site content by filtering ${project.*} values-->
+          <execution>
+            <id>filter-site</id>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <phase>pre-site</phase>
+            <configuration>
+              <outputDirectory>${project.build.directory}/site-src</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>src/site</directory>
+                  <filtering>true</filtering>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-site-plugin</artifactId>
+        <configuration>
+          <locales>en,es,zh_CN,ja,ko</locales>
+          <siteDirectory>${project.build.directory}/site-src</siteDirectory>
+        </configuration>
+      </plugin>
+      <!-- We are not modular yet but use automatic module names, javadoc plugin has well known incorrect determination of modular, patch it -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <additionalOptions combine.children="append">
+            <option>--add-modules</option>
+            <option>java.sql</option>
+            <option>--add-modules</option>
+            <option>java.xml</option>
+          </additionalOptions>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+ <profiles>
+    <profile>
+      <id>pre16</id>
+      <activation>
+        <jdk>(,16)</jdk>
+      </activation>
+      <properties>
+          <derby.version>10.15.2.0</derby.version>
+      </properties>
+    </profile>
+    <profile>
+      <id>17</id>
+      <activation>
+        <jdk>[17,)</jdk>
+      </activation>
+      <properties>
+          <derby.version>10.16.1.1</derby.version>
+      </properties>
+    </profile>
+    <profile>
+      <id>19</id>
+      <activation>
+        <jdk>[19,)</jdk>
+      </activation>
+      <properties>
+          <derby.version>10.17.1.0</derby.version>
+      </properties>
+    </profile>
+  </profiles>
+</project>
