@@ -19,7 +19,7 @@
         <!-- Gateway -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud.com/cloud.spring-boot-starter-gateway</artifactId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
         </dependency>
 
         <!-- Nacos Discovery -->

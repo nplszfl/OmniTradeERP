@@ -81,7 +81,6 @@
         <dependency>
             <groupId>com.alibaba.fastjson2</groupId>
             <artifactId>fastjson2</artifactId>
-        </dependency与其他依赖保持一致
         </dependency>
 
         <!-- Lombok -->

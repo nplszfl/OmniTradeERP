@@ -1,0 +1,38 @@
+FROM maven:3.9-eclipse-temurin-21 AS builder
+
+WORKDIR /app
+
+# 复制pom.xml并下载依赖
+COPY pom.xml .
+COPY erp-common/pom.xml ./erp-common/
+COPY erp-ai-assistant-service/pom.xml ./erp-ai-assistant-service/
+
+RUN mvn dependency:go-offline -B
+
+# 复制源代码
+COPY . .
+
+# 编译打包
+RUN mvn clean package -DskipTests -B
+
+FROM eclipse-temurin:21-jre-alpine
+
+WORKDIR /app
+
+# 安装时区数据
+RUN apk add --no-cache tzdata && \
+    cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    echo "Asia/Shanghai" > /etc/timezone && \
+    apk del tzdata
+
+# 复制jar包
+COPY --from=builder /app/erp-ai-assistant-service/target/*.jar ./ai-assistant-service.jar
+
+ENV JAVA_OPTS="-Xms512m -Xmx1024m -XX:+UseG1GC"
+
+EXPOSE 8090
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8090/actuator/health || exit 1
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar ai-assistant-service.jar"]
