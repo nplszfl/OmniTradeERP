@@ -109,7 +109,7 @@
 
         <!-- Lombok -->
         <dependency>
-            <groupId>com.projectlombok</groupId>
+            <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
