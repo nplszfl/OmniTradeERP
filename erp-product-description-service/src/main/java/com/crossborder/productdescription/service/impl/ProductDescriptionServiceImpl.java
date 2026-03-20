@@ -1,14 +1,23 @@
 package com.crossborder.productdescription.service.impl;
 
+import com.crossborder.productdescription.config.LLMConfig;
 import com.crossborder.productdescription.dto.DescriptionGenerationRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
 import com.crossborder.productdescription.service.ProductDescriptionService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
+
+import org.springframework.http.MediaType;
 
 /**
  * 产品描述生成服务实现
@@ -21,6 +30,11 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
 
     // 模拟描述模板
     private final Map<String, String> templates = new HashMap<>();
+
+    @Autowired
+    private LLMConfig llmConfig;
+
+    private final RestTemplate restTemplate = new RestTemplate();
 
     public ProductDescriptionServiceImpl() {
         initTemplates();
@@ -304,38 +318,71 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     /**
      * 调用LLM API（模拟）
      */
+    /**
+     * 调用LLM API生成描述
+     * 优先使用真实API，fallback到模拟生成
+     */
     private String callLLMAPI(String prompt, DescriptionGenerationRequest request) {
-        // TODO: 实际应该调用OpenAI/DeepSeek API
-        // 这里使用模拟的智能描述
-
-        String productName = request.getProductName();
-        List<String> features = request.getFeatures();
-
-        StringBuilder description = new StringBuilder();
-
-        description.append("【").append(productName).append("】\n\n");
-
-        if (features != null && !features.isEmpty()) {
-            description.append("产品特点：\n");
-            for (int i = 0; i < features.size(); i++) {
-                description.append((i + 1)).append(". ")
-                        .append(features.get(i)).append("\n");
+        if (llmConfig.isConfigured()) {
+            try {
+                log.info("调用LLM API生成产品描述 - Provider: {}", llmConfig.getProvider());
+                return callRealLLMAPI(prompt);
+            } catch (Exception e) {
+                log.error("LLM API调用失败，使用模拟生成", e);
+                return generateMockDescription(request);
             }
-            description.append("\n");
         }
-
-        description.append("这是一款").append(productName).append("，具有优秀的性能和可靠的质量。");
-        description.append("采用先进的技术和工艺，确保产品的稳定性和耐用性。");
-        description.append("适用于多种使用场景，是您的理想选择。");
-
-        // SEO优化
-        if (request.getKeywords() != null && !request.getKeywords().isEmpty()) {
-            description.append("\n\n关键词：");
-            description.append(String.join("、", request.getKeywords()));
-        }
-
-        return description.toString();
+        return generateMockDescription(request);
     }
+
+    /**
+     * 调用真实LLM API
+     */
+    private String callRealLLMAPI(String prompt) {
+        String apiUrl = llmConfig.getBaseUrl() + "/v1/chat/completions";
+        
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("model", llmConfig.getModel());
+        
+        List<Map<String, String>> messages = new ArrayList<>();
+        messages.add(Map.of("role", "system", "content", 
+            "你是一个专业的电商产品描述撰写专家，擅长生成吸引人的产品描述和SEO优化的内容。"));
+        messages.add(Map.of("role", "user", "content", prompt));
+        requestBody.put("messages", messages);
+        
+        Map<String, Object> params = new HashMap<>();
+        params.put("temperature", llmConfig.getTemperature());
+        params.put("max_tokens", llmConfig.getMaxTokens());
+        requestBody.putAll(params);
+        
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(llmConfig.getApiKey());
+        
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+        
+        try {
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    apiUrl, HttpMethod.POST, entity, Map.class);
+            
+            if (response.getBody() != null) {
+                List<Map<String, Object>> choices = (List<Map<String, Object>>) response.getBody().get("choices");
+                if (choices != null && !choices.isEmpty()) {
+                    Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
+                    return (String) message.get("content");
+                }
+            }
+            throw new RuntimeException("LLM API响应为空");
+        } catch (Exception e) {
+            log.error("LLM API调用失败: {}", e.getMessage());
+            throw new RuntimeException("LLM API调用失败", e);
+        }
+    }
+
+    /**
+     * 生成模拟描述
+     */
+    private String generateMockDescription(DescriptionGenerationRequest request) {
 
     /**
      * SEO优化
