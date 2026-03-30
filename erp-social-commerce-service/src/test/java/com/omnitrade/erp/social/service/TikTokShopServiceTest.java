@@ -161,6 +161,8 @@ class TikTokShopServiceTest {
     @Test
     @DisplayName("DTO转实体转换")
     void testToEntity() {
+        when(repository.save(any(TikTokShopConfig.class))).thenReturn(testConfig);
+
         var entity = service.create(testDTO);
 
         assertNotNull(entity);

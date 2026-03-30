@@ -1,0 +1,42 @@
+server:
+  port: 8087
+
+spring:
+  application:
+    name: erp-analytics-service
+  
+  datasource:
+    url: jdbc:mysql://localhost:3306/omnitrade_erp?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+
+# Analytics specific configuration
+analytics:
+  dashboard:
+    refresh-interval: 30000  # 30 seconds
+    max-data-points: 1000
+  prediction:
+    default-forecast-days: 30
+    min-historical-days: 7
+  roi:
+    default-period-days: 30
+    currency: USD
+  competitor:
+    update-interval: 3600000  # 1 hour
+    max-competitors: 50
+
+# Logging
+logging:
+  level:
+    com.crossborder.analytics: DEBUG
+    org.springframework: INFO

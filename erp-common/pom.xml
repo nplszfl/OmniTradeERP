@@ -8,7 +8,7 @@
     <parent>
         <groupId>com.crossborder</groupId>
         <artifactId>cross-border-erp</artifactId>
-        <version>1.0.0</version>
+        <version>1.0.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>erp-common</artifactId>

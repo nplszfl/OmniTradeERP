@@ -226,7 +226,6 @@ class LiveStreamServiceTest {
     @DisplayName("更新直播信息")
     void testUpdate() {
         when(repository.findById(1L)).thenReturn(Optional.of(testStream));
-        when(influencerRepository.findById(1L)).thenReturn(Optional.of(testInfluencer));
         when(repository.save(any(LiveStream.class))).thenReturn(testStream);
 
         LiveStreamDTO updateDTO = LiveStreamDTO.builder()

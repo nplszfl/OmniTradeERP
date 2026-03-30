@@ -7,7 +7,7 @@
 
     <groupId>com.crossborder</groupId>
     <artifactId>cross-border-erp</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Cross Border ERP</name>
@@ -44,6 +44,7 @@
         <module>erp-pricing-service</module>
         <module>erp-inventory-prediction-service</module>
         <module>erp-social-commerce-service</module>
+        <!-- <module>erp-analytics-service</module> -->
     </modules>
 
     <dependencyManagement>
