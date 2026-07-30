@@ -24,7 +24,7 @@ public class SwaggerConfig {
                         .description("平台API对接相关接口文档")
                         .version("1.0.0")
                         .contact(new Contact()
-                                .name("黄辉翔")
+                                .name("nplszfl")
                                 .email("support@example.com"))
                         .license(new License()
                                 .name("MIT License")
