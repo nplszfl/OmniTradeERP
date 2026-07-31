@@ -90,7 +90,7 @@
         <!-- Order Module -->
         <dependency>
             <groupId>com.crossborder</groupId>
-            <artifactId>erp-order</artifactId>
+            <artifactId>erp-order-service</artifactId>
         </dependency>
 
         <!-- Hutool -->

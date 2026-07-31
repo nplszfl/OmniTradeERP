@@ -39,7 +39,6 @@
         <module>erp-customer-service</module>
         <module>erp-supplier-service</module>
         <module>erp-inventory-alert-service</module>
-        <module>erp-order</module>
         <module>erp-order-service</module>
         <module>erp-platform-api</module>
         <module>erp-platform-service</module>
@@ -200,12 +199,12 @@
             </dependency>
             <dependency>
                 <groupId>com.crossborder</groupId>
-                <artifactId>erp-order</artifactId>
+                <artifactId>erp-platform-api</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.crossborder</groupId>
-                <artifactId>erp-platform-api</artifactId>
+                <artifactId>erp-order-service</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>
