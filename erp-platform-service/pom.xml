@@ -150,6 +150,11 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+            <dependency>
+            <groupId>com.crossborder</groupId>
+            <artifactId>erp-platform-api</artifactId>
+        </dependency>
+
     </dependencies>
 
     <build>
