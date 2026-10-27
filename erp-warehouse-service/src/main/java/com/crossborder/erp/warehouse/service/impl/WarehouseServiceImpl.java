@@ -7,7 +7,9 @@ import com.crossborder.erp.warehouse.dto.*;
 import com.crossborder.erp.warehouse.entity.*;
 import com.crossborder.erp.warehouse.enums.InboundType;
 import com.crossborder.erp.warehouse.enums.OutboundType;
+import com.crossborder.erp.warehouse.enums.PickStatus;
 import com.crossborder.erp.warehouse.enums.WarehouseStatus;
+import com.crossborder.erp.warehouse.enums.WaveStatus;
 import com.crossborder.erp.warehouse.mapper.*;
 import com.crossborder.erp.warehouse.service.WarehouseService;
 import com.crossborder.erp.warehouse.vo.*;
@@ -46,6 +48,13 @@ public class WarehouseServiceImpl implements WarehouseService {
     private final WarehouseLocationMapper locationMapper;
     private final InventoryBatchMapper batchMapper;
     private final PackingMaterialMapper packingMaterialMapper;
+    private final InboundOrderMapper inboundOrderMapper;
+    private final InboundDetailMapper inboundDetailMapper;
+    private final OutboundOrderMapper outboundOrderMapper;
+    private final OutboundDetailMapper outboundDetailMapper;
+    private final StockTransferMapper transferMapper;
+    private final WavePickingMapper waveMapper;
+    private final WavePickingDetailMapper waveDetailMapper;
 
     // ==================== 仓库管理 ====================
 
@@ -67,6 +76,12 @@ public class WarehouseServiceImpl implements WarehouseService {
         Page<Warehouse> page = new Page<>(query.getPage(), query.getSize());
         LambdaQueryWrapper<Warehouse> wrapper = new LambdaQueryWrapper<>();
         
+        // 关键词：仓库编码 OR 仓库名称
+        if (query.getKeyword() != null && !query.getKeyword().trim().isEmpty()) {
+            String keyword = query.getKeyword().trim();
+            wrapper.and(w -> w.like(Warehouse::getWarehouseCode, keyword)
+                    .or().like(Warehouse::getName, keyword));
+        }
         if (query.getWarehouseCode() != null) {
             wrapper.like(Warehouse::getWarehouseCode, query.getWarehouseCode());
         }
@@ -820,81 +835,226 @@ public class WarehouseServiceImpl implements WarehouseService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createWavePicking(WavePicking wave, List<WavePickingDetail> details) {
+        if (details == null || details.isEmpty()) {
+            throw new BusinessException("波次明细不能为空");
+        }
+
         wave.setWaveNo(generateWaveNo());
-        wave.setWaveStatus("PENDING");
-        
-        int orderCount = (int) details.stream().map(WavePickingDetail::getOrderId).distinct().count();
-        int skuCount = (int) details.stream().map(WavePickingDetail::getProductId).distinct().count();
-        int totalQty = details.stream().mapToInt(d -> d.getPickQuantity() != null ? d.getPickQuantity() : 0).sum();
-        
+        wave.setWaveStatus(WaveStatus.CREATED.getCode());
+
+        int orderCount = (int) details.stream()
+                .map(WavePickingDetail::getOrderId)
+                .filter(Objects::nonNull)
+                .distinct().count();
+        int skuCount = (int) details.stream()
+                .map(WavePickingDetail::getProductId)
+                .filter(Objects::nonNull)
+                .distinct().count();
+        int totalQty = details.stream()
+                .mapToInt(d -> d.getPickQuantity() != null ? d.getPickQuantity() : 0).sum();
+
         wave.setOrderCount(orderCount);
         wave.setSkuCount(skuCount);
         wave.setTotalQuantity(totalQty);
         wave.setPickedQuantity(0);
         wave.setCreateTime(LocalDateTime.now());
         wave.setUpdateTime(LocalDateTime.now());
-        
-        // 这里需要waveMapper，但简化处理
-        // waveMapper.insert(wave);
-        
-        log.info("创建波次: {}", wave.getWaveNo());
+
+        waveMapper.insert(wave);
+
+        for (WavePickingDetail detail : details) {
+            detail.setWaveId(wave.getId());
+            detail.setPickedQuantity(detail.getPickedQuantity() != null ? detail.getPickedQuantity() : 0);
+            detail.setPickStatus(PickStatus.PENDING.getCode());
+            detail.setCreateTime(LocalDateTime.now());
+            detail.setUpdateTime(LocalDateTime.now());
+            waveDetailMapper.insert(detail);
+        }
+
+        log.info("创建波次: {}, 订单数={}, SKU数={}, 总数量={}", wave.getWaveNo(), orderCount, skuCount, totalQty);
         return wave.getId();
     }
 
     @Override
     public WavePicking getWavePicking(Long waveId) {
-        // return waveMapper.selectById(waveId);
-        return null;
+        return waveMapper.selectById(waveId);
     }
 
     @Override
     public Page<WavePicking> listWavePickings(String status, int page, int size) {
-        // return waveMapper.selectPage(page, wrapper);
-        return null;
+        Page<WavePicking> pageObj = new Page<>(page, size);
+        LambdaQueryWrapper<WavePicking> wrapper = new LambdaQueryWrapper<>();
+
+        if (status != null && !status.trim().isEmpty()) {
+            wrapper.eq(WavePicking::getWaveStatus, status);
+        }
+
+        wrapper.orderByDesc(WavePicking::getCreateTime);
+        return waveMapper.selectPage(pageObj, wrapper);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void assignWavePicking(Long waveId, String userId) {
-        // WavePicking wave = waveMapper.selectById(waveId);
-        // wave.setAssignUser(userId);
-        // wave.setAssignTime(LocalDateTime.now());
-        // wave.setWaveStatus("ASSIGNED");
-        // waveMapper.updateById(wave);
+        WavePicking wave = requireWave(waveId);
+        if (!WaveStatus.CREATED.getCode().equals(wave.getWaveStatus())) {
+            throw new BusinessException("仅已创建的波次可以分配，当前状态: " + wave.getWaveStatus());
+        }
+
+        wave.setAssignUser(userId);
+        wave.setAssignTime(LocalDateTime.now());
+        wave.setWaveStatus(WaveStatus.ASSIGNED.getCode());
+        wave.setUpdateTime(LocalDateTime.now());
+        waveMapper.updateById(wave);
+
+        log.info("分配波次: {}, 拣货员={}", wave.getWaveNo(), userId);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void startWavePicking(Long waveId) {
-        // WavePicking wave = waveMapper.selectById(waveId);
-        // wave.setStartTime(LocalDateTime.now());
-        // wave.setWaveStatus("PICKING");
-        // waveMapper.updateById(wave);
+        WavePicking wave = requireWave(waveId);
+        if (!WaveStatus.ASSIGNED.getCode().equals(wave.getWaveStatus())) {
+            throw new BusinessException("仅已分配的波次可以开始拣货，当前状态: " + wave.getWaveStatus());
+        }
+
+        wave.setStartTime(LocalDateTime.now());
+        wave.setWaveStatus(WaveStatus.PICKING.getCode());
+        wave.setUpdateTime(LocalDateTime.now());
+        waveMapper.updateById(wave);
+
+        // 待拣明细同步进入拣货中
+        LambdaQueryWrapper<WavePickingDetail> detailWrapper = new LambdaQueryWrapper<>();
+        detailWrapper.eq(WavePickingDetail::getWaveId, waveId)
+                .eq(WavePickingDetail::getPickStatus, PickStatus.PENDING.getCode());
+        List<WavePickingDetail> pendingDetails = waveDetailMapper.selectList(detailWrapper);
+        for (WavePickingDetail detail : pendingDetails) {
+            detail.setPickStatus(PickStatus.PICKING.getCode());
+            detail.setUpdateTime(LocalDateTime.now());
+            waveDetailMapper.updateById(detail);
+        }
+
+        log.info("开始波次拣货: {}, 待拣明细={} 条", wave.getWaveNo(), pendingDetails.size());
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void confirmPick(Long detailId, Integer pickedQuantity, String picker) {
-        // 更新拣货明细
-        // 更新库存
+        WavePickingDetail detail = waveDetailMapper.selectById(detailId);
+        if (detail == null) {
+            throw new BusinessException("拣货明细不存在: " + detailId);
+        }
+        if (pickedQuantity == null || pickedQuantity < 0) {
+            throw new BusinessException("拣货数量不能为负数");
+        }
+        int expected = detail.getPickQuantity() != null ? detail.getPickQuantity() : 0;
+        if (pickedQuantity > expected) {
+            throw new BusinessException("拣货数量超出待拣数量: 期望 " + expected + "，实际 " + pickedQuantity);
+        }
+
+        detail.setPickedQuantity(pickedQuantity);
+        detail.setPickStatus(pickedQuantity >= expected
+                ? PickStatus.PICKED.getCode()
+                : PickStatus.PICKING.getCode());
+        detail.setPickTime(LocalDateTime.now());
+        detail.setPicker(picker);
+        detail.setUpdateTime(LocalDateTime.now());
+        waveDetailMapper.updateById(detail);
+
+        // 汇总已拣数量回写波次
+        refreshWavePickedQuantity(detail.getWaveId());
+
+        log.info("确认拣货: 明细={}, 数量={}/{}, 拣货人={}",
+                detailId, pickedQuantity, expected, picker);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void completeWavePicking(Long waveId) {
-        // WavePicking wave = waveMapper.selectById(waveId);
-        // wave.setCompleteTime(LocalDateTime.now());
-        // wave.setWaveStatus("COMPLETED");
-        // waveMapper.updateById(wave);
-        // 
-        // // 生成出库单
+        WavePicking wave = requireWave(waveId);
+        if (!WaveStatus.PICKING.getCode().equals(wave.getWaveStatus())) {
+            throw new BusinessException("仅拣货中的波次可以完成，当前状态: " + wave.getWaveStatus());
+        }
+
+        LambdaQueryWrapper<WavePickingDetail> detailWrapper = new LambdaQueryWrapper<>();
+        detailWrapper.eq(WavePickingDetail::getWaveId, waveId)
+                .ne(WavePickingDetail::getPickStatus, PickStatus.PICKED.getCode())
+                .ne(WavePickingDetail::getPickStatus, PickStatus.CANCELLED.getCode());
+        List<WavePickingDetail> unfinished = waveDetailMapper.selectList(detailWrapper);
+        if (!unfinished.isEmpty()) {
+            throw new BusinessException("存在未完成的拣货明细: " + unfinished.size() + " 条");
+        }
+
+        wave.setCompleteTime(LocalDateTime.now());
+        wave.setWaveStatus(WaveStatus.COMPLETED.getCode());
+        wave.setUpdateTime(LocalDateTime.now());
+        waveMapper.updateById(wave);
+
+        log.info("完成波次拣货: {}", wave.getWaveNo());
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void cancelWavePicking(Long waveId, String reason) {
-        // 释放锁定的库存
-        // 更新波次状态
+        WavePicking wave = requireWave(waveId);
+        if (WaveStatus.COMPLETED.getCode().equals(wave.getWaveStatus())) {
+            throw new BusinessException("已完成的波次不能取消");
+        }
+        if (WaveStatus.CANCELLED.getCode().equals(wave.getWaveStatus())) {
+            throw new BusinessException("波次已取消");
+        }
+
+        // 未完成的明细标记为已取消
+        LambdaQueryWrapper<WavePickingDetail> detailWrapper = new LambdaQueryWrapper<>();
+        detailWrapper.eq(WavePickingDetail::getWaveId, waveId)
+                .ne(WavePickingDetail::getPickStatus, PickStatus.PICKED.getCode());
+        List<WavePickingDetail> unfinished = waveDetailMapper.selectList(detailWrapper);
+        for (WavePickingDetail detail : unfinished) {
+            detail.setPickStatus(PickStatus.CANCELLED.getCode());
+            detail.setUpdateTime(LocalDateTime.now());
+            waveDetailMapper.updateById(detail);
+        }
+
+        wave.setWaveStatus(WaveStatus.CANCELLED.getCode());
+        wave.setCompleteTime(LocalDateTime.now());
+        wave.setRemark(reason);
+        wave.setUpdateTime(LocalDateTime.now());
+        waveMapper.updateById(wave);
+
+        log.info("取消波次: {}, 原因={}, 取消明细={} 条", wave.getWaveNo(), reason, unfinished.size());
+    }
+
+    /**
+     * 获取波次，不存在时抛业务异常
+     */
+    private WavePicking requireWave(Long waveId) {
+        WavePicking wave = waveMapper.selectById(waveId);
+        if (wave == null) {
+            throw new BusinessException("波次不存在: " + waveId);
+        }
+        return wave;
+    }
+
+    /**
+     * 汇总波次明细的已拣数量，回写波次主表
+     */
+    private void refreshWavePickedQuantity(Long waveId) {
+        if (waveId == null) {
+            return;
+        }
+        LambdaQueryWrapper<WavePickingDetail> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(WavePickingDetail::getWaveId, waveId)
+                .eq(WavePickingDetail::getPickStatus, PickStatus.PICKED.getCode());
+        List<WavePickingDetail> pickedDetails = waveDetailMapper.selectList(wrapper);
+        int pickedQty = pickedDetails.stream()
+                .mapToInt(d -> d.getPickedQuantity() != null ? d.getPickedQuantity() : 0).sum();
+
+        WavePicking wave = waveMapper.selectById(waveId);
+        if (wave != null) {
+            wave.setPickedQuantity(pickedQty);
+            wave.setUpdateTime(LocalDateTime.now());
+            waveMapper.updateById(wave);
+        }
     }
 
     // ==================== 包装材料管理 ====================
@@ -1169,10 +1329,4 @@ public class WarehouseServiceImpl implements WarehouseService {
                 + String.format("%03d", new Random().nextInt(1000));
     }
 
-    // 缺少的Mapper，需要添加
-    private final InboundOrderMapper inboundOrderMapper;
-    private final InboundDetailMapper inboundDetailMapper;
-    private final OutboundOrderMapper outboundOrderMapper;
-    private final OutboundDetailMapper outboundDetailMapper;
-    private final StockTransferMapper transferMapper;
 }

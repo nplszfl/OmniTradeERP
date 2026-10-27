@@ -45,9 +45,9 @@ export interface WarehouseLocation {
 }
 
 export const warehouseApi = {
-  // 获取仓库列表
+  // 获取启用状态的仓库列表（后端返回裸数组，直接给下拉框用）
   getWarehouses: (params?: { status?: number }) =>
-    request.get<any, Warehouse[]>('/warehouse/list', { params }),
+    request.get<any, Warehouse[]>('/warehouse/all', { params }),
 
   // 分页查询仓库
   getWarehouseList: (params: { current: number; size: number; keyword?: string }) =>

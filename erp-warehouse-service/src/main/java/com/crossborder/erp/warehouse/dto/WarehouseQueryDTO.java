@@ -11,6 +11,8 @@ import lombok.Data;
 @Data
 public class WarehouseQueryDTO {
     private Long id;
+    /** 关键词：同时模糊匹配仓库编码与仓库名称 */
+    private String keyword;
     private String warehouseCode;
     private String name;
     private String country;
