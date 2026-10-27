@@ -171,7 +171,7 @@ spec:
       - name: inventory-service
         image: nplszfl/erp-inventory-service:latest
         ports:
-        - containerPort: 8085
+        - containerPort: 8094
           name: http
         env:
         - name: NACOS_SERVER_ADDR
@@ -198,13 +198,13 @@ spec:
         livenessProbe:
           httpGet:
             path: /actuator/health
-            port: 8085
+            port: 8094
           initialDelaySeconds: 60
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /actuator/health
-            port: 8085
+            port: 8094
           initialDelaySeconds: 30
           periodSeconds: 5
 ---
@@ -217,8 +217,8 @@ metadata:
     app: erp-inventory-service
 spec:
   ports:
-  - port: 8085
-    targetPort: 8085
+  - port: 8094
+    targetPort: 8094
     name: http
   selector:
     app: erp-inventory-service
@@ -321,7 +321,7 @@ spec:
       - name: finance-service
         image: nplszfl/erp-finance-service:latest
         ports:
-        - containerPort: 8087
+        - containerPort: 8090
           name: http
         env:
         - name: NACOS_SERVER_ADDR
@@ -348,13 +348,13 @@ spec:
         livenessProbe:
           httpGet:
             path: /actuator/health
-            port: 8087
+            port: 8090
           initialDelaySeconds: 60
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /actuator/health
-            port: 8087
+            port: 8090
           initialDelaySeconds: 30
           periodSeconds: 5
 ---
@@ -367,8 +367,8 @@ metadata:
     app: erp-finance-service
 spec:
   ports:
-  - port: 8087
-    targetPort: 8087
+  - port: 8090
+    targetPort: 8090
     name: http
   selector:
     app: erp-finance-service
