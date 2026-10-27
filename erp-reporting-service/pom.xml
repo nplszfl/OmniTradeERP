@@ -41,6 +41,18 @@
             <groupId>com.alibaba</groupId>
             <artifactId>easyexcel</artifactId>
             <version>3.3.3</version>
+            <exclusions>
+                <!--
+                  easyexcel 传递依赖 poi-ooxml-schemas:4.1.2（内含按 xmlbeans 3.x 编译的
+                  CTWorkbook 等 schema 类），会覆盖 poi-ooxml-lite:5.2.5 中的同名类，
+                  导致 new XSSFWorkbook() 抛 NoSuchFieldError，
+                  三个报表导出接口（/report/*/export）全部 500。此处排除以统一到 POI 5.2.5。
+                -->
+                <exclusion>
+                    <groupId>org.apache.poi</groupId>
+                    <artifactId>poi-ooxml-schemas</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.apache.poi</groupId>
