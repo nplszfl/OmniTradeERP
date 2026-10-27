@@ -1,5 +1,6 @@
 package com.crossborder.productdescription.service.impl;
 
+import com.crossborder.productdescription.config.LLMConfig;
 import com.crossborder.productdescription.dto.DescriptionGenerationRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
 import com.crossborder.productdescription.service.ProductDescriptionService;
@@ -21,7 +22,9 @@ class ProductDescriptionServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        productDescriptionService = new ProductDescriptionServiceImpl();
+        // LLM 未配置时走模拟生成（原先字段注入在非 Spring 环境下为 null，
+        // 导致 callLLMAPI 抛 NPE 被 catch 吞掉，响应变成「生成失败」）
+        productDescriptionService = new ProductDescriptionServiceImpl(new LLMConfig());
     }
 
     @Test
@@ -351,7 +354,9 @@ class ProductDescriptionServiceImplTest {
 
         // 验证结果
         assertNotNull(response);
-        assertTrue(response.getGenerationTime() > 0);
+        // 模拟生成可能在 1ms 内完成，耗时为 0 属于正常，只校验已记录且非负
+        assertNotNull(response.getGenerationTime());
+        assertTrue(response.getGenerationTime() >= 0);
     }
 
     @Test

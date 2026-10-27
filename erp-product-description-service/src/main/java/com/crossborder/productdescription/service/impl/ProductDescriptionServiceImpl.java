@@ -5,7 +5,6 @@ import com.crossborder.productdescription.dto.DescriptionGenerationRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
 import com.crossborder.productdescription.service.ProductDescriptionService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -31,12 +30,12 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     // 模拟描述模板
     private final Map<String, String> templates = new HashMap<>();
 
-    @Autowired
-    private LLMConfig llmConfig;
+    private final LLMConfig llmConfig;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
-    public ProductDescriptionServiceImpl() {
+    public ProductDescriptionServiceImpl(LLMConfig llmConfig) {
+        this.llmConfig = llmConfig;
         initTemplates();
     }
 
@@ -323,7 +322,7 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
      * 优先使用真实API，fallback到模拟生成
      */
     private String callLLMAPI(String prompt, DescriptionGenerationRequest request) {
-        if (llmConfig.isConfigured()) {
+        if (llmConfig != null && llmConfig.isConfigured()) {
             try {
                 log.info("调用LLM API生成产品描述 - Provider: {}", llmConfig.getProvider());
                 return callRealLLMAPI(prompt);
