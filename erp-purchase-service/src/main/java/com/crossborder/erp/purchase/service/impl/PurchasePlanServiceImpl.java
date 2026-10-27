@@ -1,5 +1,6 @@
 package com.crossborder.erp.purchase.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.crossborder.erp.purchase.mapper.PurchasePlanMapper;
 import com.crossborder.erp.purchase.service.PurchasePlanService;
@@ -48,7 +49,15 @@ public class PurchasePlanServiceImpl extends ServiceImpl<PurchasePlanMapper, Pur
 
     @Override
     public com.baomidou.mybatisplus.core.metadata.IPage<PurchasePlan> queryPlans(int page, int size, String status, String warehouseId) {
-        return null;
+        LambdaQueryWrapper<PurchasePlan> wrapper = new LambdaQueryWrapper<>();
+        if (status != null && !status.isBlank()) {
+            wrapper.eq(PurchasePlan::getStatus, status);
+        }
+        if (warehouseId != null && !warehouseId.isBlank()) {
+            wrapper.eq(PurchasePlan::getWarehouseId, warehouseId);
+        }
+        wrapper.orderByDesc(PurchasePlan::getRequiredDate);
+        return page(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size), wrapper);
     }
 
     @Override

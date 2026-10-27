@@ -1,5 +1,6 @@
 package com.crossborder.erp.purchase.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.crossborder.erp.purchase.mapper.PurchaseForecastMapper;
 import com.crossborder.erp.purchase.service.PurchaseForecastService;
@@ -44,6 +45,14 @@ public class PurchaseForecastServiceImpl extends ServiceImpl<PurchaseForecastMap
 
     @Override
     public com.baomidou.mybatisplus.core.metadata.IPage<PurchaseForecast> queryForecasts(int page, int size, Long productId, String warehouseId) {
-        return null;
+        LambdaQueryWrapper<PurchaseForecast> wrapper = new LambdaQueryWrapper<>();
+        if (productId != null) {
+            wrapper.eq(PurchaseForecast::getProductId, productId);
+        }
+        if (warehouseId != null) {
+            wrapper.eq(PurchaseForecast::getWarehouseId, warehouseId);
+        }
+        wrapper.orderByDesc(PurchaseForecast::getForecastDate);
+        return page(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size), wrapper);
     }
 }
