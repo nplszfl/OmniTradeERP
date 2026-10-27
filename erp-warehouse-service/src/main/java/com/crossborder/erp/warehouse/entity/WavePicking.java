@@ -4,6 +4,13 @@ import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import java.time.LocalDateTime;
+import lombok.Data;
 
 /**
  * 波次拣货实体
@@ -22,6 +29,7 @@ public class WavePicking {
     private Integer orderCount;
     private Integer skuCount;
     private Integer totalQuantity;
+    private Integer pickedQuantity;
 
     private String priority;
     private String assignUser;
@@ -36,32 +44,4 @@ public class WavePicking {
 
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
-}
-
-/**
- * 波次明细
- */
-@Data
-@TableName("wms_wave_picking_detail")
-class WavePickingDetail {
-    @TableId(type = IdType.AUTO)
-    private Long id;
-
-    private Long waveId;
-    private Long orderId;
-    private String orderNo;
-    private Long productId;
-    private String skuCode;
-
-    private Integer pickQuantity;
-    private Integer pickedQuantity;
-    private Long fromLocationId;
-    private String fromLocationCode;
-
-    private String pickStatus;
-    private LocalDateTime pickTime;
-    private String picker;
-
-    @TableField(fill = FieldFill.INSERT)
-    private LocalDateTime createTime;
 }

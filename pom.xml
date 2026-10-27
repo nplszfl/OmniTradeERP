@@ -56,12 +56,12 @@
         <module>erp-product-description-service</module>
         <!--
           以下 3 个模块仍缺 entity/mapper/vo，编译不通过，待补齐后启用：
-            erp-assembly / erp-finance-service / erp-inventory-service / erp-warehouse-service
+            erp-assembly / erp-finance-service / erp-inventory-service
         -->
         <!-- <module>erp-assembly</module> -->
         <!-- <module>erp-finance-service</module> -->
         <!-- <module>erp-inventory-service</module> -->
-        <!-- <module>erp-warehouse-service</module> -->
+        <module>erp-warehouse-service</module>
     </modules>
 
     <dependencyManagement>

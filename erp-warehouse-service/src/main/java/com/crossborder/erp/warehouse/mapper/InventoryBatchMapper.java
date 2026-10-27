@@ -3,6 +3,8 @@ package com.crossborder.erp.warehouse.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.crossborder.erp.warehouse.entity.InventoryBatch;
 import org.apache.ibatis.annotations.Mapper;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Mapper;
 
 /**
  * 库存批次Mapper

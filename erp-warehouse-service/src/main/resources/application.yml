@@ -1,0 +1,69 @@
+server:
+  port: 8092
+
+spring:
+  application:
+    name: erp-warehouse-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_HOST:mse-d5a70466-nacos-ans.mse.aliyuncs.com}:${NACOS_PORT:-8848}
+        namespace: erp-dev
+        group: DEFAULT_GROUP
+      config:
+        server-addr: ${NACOS_HOST:mse-d5a70466-nacos-ans.mse.aliyuncs.com}:${NACOS_PORT:-8848}
+        namespace: erp-dev
+        group: DEFAULT_GROUP
+        file-extension: yml
+        shared-configs:
+          - data-id: erp-warehouse-service.yml
+            group: DEFAULT_GROUP
+            refresh: true
+        import-check:
+          enabled: false
+    sentinel:
+      transport:
+        dashboard: localhost:8858
+        port: 8724
+        eager: true
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/erp_warehouse?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+    username: root
+    password: root
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      connection-timeout: 30000
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+      id-type: ASSIGN_ID
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: '*'
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    root: INFO
+    com.crossborder.erp: DEBUG

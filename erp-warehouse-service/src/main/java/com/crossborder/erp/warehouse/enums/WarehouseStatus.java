@@ -2,6 +2,8 @@ package com.crossborder.erp.warehouse.enums;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 
 /**
  * 仓库状态枚举

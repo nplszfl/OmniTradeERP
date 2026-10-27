@@ -24,6 +24,15 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.crossborder.erp.common.exception.BusinessException;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
 
 /**
  * 仓库服务实现 - 完整版
@@ -1161,9 +1170,9 @@ public class WarehouseServiceImpl implements WarehouseService {
     }
 
     // 缺少的Mapper，需要添加
-    private InboundOrderMapper inboundOrderMapper;
-    private InboundDetailMapper inboundDetailMapper;
-    private OutboundOrderMapper outboundOrderMapper;
-    private OutboundDetailMapper outboundDetailMapper;
-    private StockTransferMapper transferMapper;
+    private final InboundOrderMapper inboundOrderMapper;
+    private final InboundDetailMapper inboundDetailMapper;
+    private final OutboundOrderMapper outboundOrderMapper;
+    private final OutboundDetailMapper outboundDetailMapper;
+    private final StockTransferMapper transferMapper;
 }
