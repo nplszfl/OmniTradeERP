@@ -1,0 +1,49 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: erp-customer-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_HOST:mse-d5a70466-nacos-ans.mse.aliyuncs.com}:${NACOS_PORT:-8848}
+        namespace: erp-dev
+        group: DEFAULT_GROUP
+      config:
+        server-addr: ${NACOS_HOST:mse-d5a70466-nacos-ans.mse.aliyuncs.com}:${NACOS_PORT:-8848}
+        namespace: erp-dev
+        group: DEFAULT_GROUP
+        file-extension: yml
+        import-check:
+          enabled: false
+    sentinel:
+      transport:
+        dashboard: localhost:8858
+        port: 8722
+      eager: true
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/erp_customer?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:root}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: assign_id
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: '*'
+
+logging:
+  level:
+    com.crossborder.erp.customer: DEBUG
+    org.springframework: INFO

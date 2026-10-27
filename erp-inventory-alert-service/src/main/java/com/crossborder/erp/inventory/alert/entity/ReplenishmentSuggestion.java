@@ -106,6 +106,12 @@ public class ReplenishmentSuggestion {
     private String status;
 
     /**
+     * 紧急程度：HIGH(高)、MEDIUM(中)、LOW(低)
+     * 由服务层根据当前库存与安全库存的缺口比例计算
+     */
+    private String urgencyLevel;
+
+    /**
      * 备注
      */
     private String remark;

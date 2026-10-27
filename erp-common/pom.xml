@@ -58,12 +58,6 @@
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
         </dependency>
 
-        <!-- Spring Data JPA (for MultiTenantRepository) -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
-        </dependency>
-
         <!-- MySQL驱动 -->
         <dependency>
             <groupId>com.mysql</groupId>

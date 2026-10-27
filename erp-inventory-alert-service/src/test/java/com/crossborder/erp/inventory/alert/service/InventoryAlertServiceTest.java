@@ -7,10 +7,13 @@ import com.crossborder.erp.inventory.alert.mapper.InventoryAlertRuleMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
+import org.springframework.util.ReflectionUtils;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,6 +33,7 @@ public class InventoryAlertServiceTest {
     private AlertNotifyService alertNotifyService;
     private ReplenishmentSuggestionService replenishmentSuggestionService;
     private AlertStatisticsService alertStatisticsService;
+    private InventoryAlertRuleMapper inventoryAlertRuleMapper;
 
     @BeforeEach
     void setUp() {
@@ -37,6 +41,7 @@ public class InventoryAlertServiceTest {
         alertNotifyService = mock(AlertNotifyService.class);
         replenishmentSuggestionService = mock(ReplenishmentSuggestionService.class);
         alertStatisticsService = mock(AlertStatisticsService.class);
+        inventoryAlertRuleMapper = mock(InventoryAlertRuleMapper.class);
 
         inventoryAlertService = new InventoryAlertService(
                 alertRecordService,
@@ -44,12 +49,36 @@ public class InventoryAlertServiceTest {
                 replenishmentSuggestionService,
                 alertStatisticsService
         );
+        // ServiceImpl 内部通过 baseMapper 落库，单元测试中注入 mock mapper
+        injectBaseMapper(inventoryAlertService, inventoryAlertRuleMapper);
+        when(inventoryAlertRuleMapper.insert(any(InventoryAlertRule.class))).thenAnswer(invocation -> {
+            InventoryAlertRule rule = invocation.getArgument(0);
+            rule.setId(1L);
+            return 1;
+        });
+    }
+
+    /**
+     * 通过反射把 mock mapper 注入 ServiceImpl 的 baseMapper 字段
+     * （ServiceImpl 未提供公开 setter）
+     */
+    private void injectBaseMapper(InventoryAlertService service, InventoryAlertRuleMapper mapper) {
+        try {
+            Field field = ReflectionUtils.findField(ServiceImpl.class, "baseMapper");
+            if (field == null) {
+                throw new IllegalStateException("未找到 ServiceImpl.baseMapper 字段");
+            }
+            ReflectionUtils.makeAccessible(field);
+            field.set(service, mapper);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("注入 baseMapper 失败", e);
+        }
     }
 
     @Test
     @DisplayName("测试创建预警规则 - 默认值设置")
     void testCreateRule_DefaultValues() {
-        // 准备测试数据
+        // 准备测试数据（不预设默认值，由 Service 填充）
         InventoryAlertRule rule = new InventoryAlertRule();
         rule.setProductId(1001L);
         rule.setSku("SKU-TEST-001");
@@ -62,21 +91,17 @@ public class InventoryAlertServiceTest {
         assertNull(rule.getAdvanceDays());
         assertNull(rule.getNotifyType());
 
-        // 模拟保存
-        when(inventoryAlertService.save(any())).thenReturn(true);
+        // 执行创建（Service 内部设置默认值并落库）
+        Long ruleId = inventoryAlertService.createRule(rule);
 
-        // 执行创建（需要手动调用时设置默认值）
-        rule.setEnabled(true);
-        rule.setAlertType("LOW");
-        rule.setMinStock(0);
-        rule.setAdvanceDays(3);
-        rule.setNotifyType("ALL");
-
+        assertNotNull(ruleId);
         assertTrue(rule.getEnabled());
         assertEquals("LOW", rule.getAlertType());
         assertEquals(0, rule.getMinStock());
         assertEquals(3, rule.getAdvanceDays());
         assertEquals("ALL", rule.getNotifyType());
+        // 校验规则确实落库
+        verify(inventoryAlertRuleMapper, times(1)).insert(any(InventoryAlertRule.class));
     }
 
     @Test

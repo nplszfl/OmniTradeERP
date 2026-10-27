@@ -59,7 +59,10 @@ public class ReplenishmentSuggestionService extends ServiceImpl<ReplenishmentSug
         int buffer = (int) (suggestedQty * 0.2);
         suggestedQty = suggestedQty + buffer;
         suggestion.setSuggestedQuantity(Math.max(suggestedQty, 1)); // 至少补1件
-        
+
+        // 计算紧急程度（基于当前库存与安全库存的缺口比例）
+        suggestion.setUrgencyLevel(calculateUrgencyLevel(alert.getCurrentStock(), rule.getSafeStock()));
+
         // 设置建议日期（当天）
         suggestion.setSuggestedDate(LocalDateTime.now());
         
@@ -208,6 +211,34 @@ public class ReplenishmentSuggestionService extends ServiceImpl<ReplenishmentSug
                 .eq(StringUtils.hasText(warehouseId), ReplenishmentSuggestion::getWarehouseId, warehouseId)
                 .eq(ReplenishmentSuggestion::getStatus, "PENDING")
                 .count();
+    }
+
+    /**
+     * 计算补货紧急程度
+     * 依据当前库存相对安全库存的缺口比例：
+     * - 缺口 &gt;= 80%  → HIGH   （库存几乎耗尽，需立即补货）
+     * - 缺口 &gt;= 50%  → MEDIUM （库存已明显低于安全线）
+     * - 其余           → LOW    （库存尚可，按计划补货）
+     *
+     * @param currentStock 当前库存
+     * @param safeStock    安全库存
+     * @return HIGH / MEDIUM / LOW
+     */
+    private String calculateUrgencyLevel(Integer currentStock, Integer safeStock) {
+        if (currentStock == null || safeStock == null || safeStock <= 0) {
+            return "LOW";
+        }
+        if (currentStock <= 0) {
+            return "HIGH";
+        }
+        double gapRatio = (double) (safeStock - currentStock) / safeStock;
+        if (gapRatio >= 0.8) {
+            return "HIGH";
+        }
+        if (gapRatio >= 0.5) {
+            return "MEDIUM";
+        }
+        return "LOW";
     }
 
     /**

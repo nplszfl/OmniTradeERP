@@ -25,6 +25,11 @@ public class CustomerGroup {
     private String description;
 
     /**
+     * 分组成员数量（冗余统计字段，由服务层维护）
+     */
+    private Integer memberCount;
+
+    /**
      * 排序
      */
     private Integer sortOrder;

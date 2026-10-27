@@ -30,6 +30,11 @@ public class CustomerFollowRecord {
     private String content;
 
     /**
+     * 本次跟进时间
+     */
+    private LocalDateTime followTime;
+
+    /**
      * 下次跟进时间
      */
     private LocalDateTime nextFollowTime;
@@ -48,6 +53,11 @@ public class CustomerFollowRecord {
      * 跟进人姓名
      */
     private String followUserName;
+
+    /**
+     * 跟进人姓名（跟进人展示名）
+     */
+    private String followerName;
 
     /**
      * 备注

@@ -1,0 +1,37 @@
+server:
+  port: 0
+
+spring:
+  application:
+    name: erp-purchase-service-test
+  datasource:
+    driver-class-name: org.h2.Driver
+    url: jdbc:h2:mem:purchase_test;DB_CLOSE_DELAY=-1;MODE=MySQL;DATABASE_TO_LOWER=TRUE
+    username: sa
+    password: ''
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+        import-check:
+          enabled: false
+    sentinel:
+      enabled: false
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: assign_id
+
+logging:
+  level:
+    com.crossborder.erp.purchase: DEBUG
+    org.springframework: WARN

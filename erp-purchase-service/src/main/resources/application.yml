@@ -1,23 +1,41 @@
 server:
-  port: 8087
+  port: 8093
 spring:
   application:
     name: erp-purchase-service
   datasource:
-    url: jdbc:postgresql://localhost:5432/erp_db
-    username: postgres
-    password: postgres
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/erp_purchase?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:root}
   cloud:
     nacos:
       discovery:
-        enabled: true
-        server-addr: localhost:8848
+        server-addr: ${NACOS_HOST:localhost}:${NACOS_PORT:-8848}
+        namespace: erp-dev
+        group: DEFAULT_GROUP
+      config:
+        server-addr: ${NACOS_HOST:localhost}:${NACOS_PORT:-8848}
+        namespace: erp-dev
+        group: DEFAULT_GROUP
+        file-extension: yml
+        import-check:
+          enabled: false
 
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
   global-config:
     db-config:
-      logic-delete-field: deleted
-      logic-delete-value: 1
-      logic-not-delete-value: 0
+      id-type: assign_id
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: '*'
+
+logging:
+  level:
+    com.crossborder.erp.purchase: DEBUG
+    org.springframework: INFO

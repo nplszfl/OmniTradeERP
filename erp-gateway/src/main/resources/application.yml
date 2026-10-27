@@ -67,6 +67,20 @@ spring:
             - Path=/api/customer/**
           filters:
             - StripPrefix=1
+        # 报表服务
+        - id: reporting-service
+          uri: lb://erp-reporting-service
+          predicates:
+            - Path=/api/report/**
+          filters:
+            - StripPrefix=1
+        # 采购服务
+        - id: purchase-service
+          uri: lb://erp-purchase-service
+          predicates:
+            - Path=/api/purchase/**
+          filters:
+            - StripPrefix=1
         # 仓储管理服务
         - id: warehouse-service
           uri: lb://erp-warehouse-service

@@ -132,6 +132,16 @@
                     <executions>
                         <execution>
                             <goals><goal>repackage</goal></goals>
+                            <configuration>
+                                <!--
+                                  可执行 jar 加 classifier=exec：
+                                  1. 主 artifact 保持为普通 jar（classes 在根目录），供 erp-platform-api / erp-platform-service 等模块作为依赖编译
+                                  2. 附带 -exec.jar 的 fat jar 供 docker / start.sh 部署
+                                  注意：不要设置 <id>，否则会与 root pom pluginManagement 中的默认 repackage 执行并存，
+                                  导致不带 classifier 的 repackage 再次覆盖主 artifact。
+                                -->
+                                <classifier>exec</classifier>
+                            </configuration>
                         </execution>
                     </executions>
             </plugin>

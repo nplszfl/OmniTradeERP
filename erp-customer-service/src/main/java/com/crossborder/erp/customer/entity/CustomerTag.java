@@ -25,6 +25,11 @@ public class CustomerTag {
     private String color;
 
     /**
+     * 标签描述
+     */
+    private String description;
+
+    /**
      * 排序
      */
     private Integer sortOrder;

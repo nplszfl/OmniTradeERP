@@ -57,7 +57,7 @@ echo "✅ 网关服务已启动 (PID: $GATEWAY_PID)"
 
 # 启动订单服务
 echo "启动订单服务..."
-java -jar erp-order-service/target/erp-order-service-1.0.0.jar > logs/order-service.log 2>&1 &
+java -jar erp-order-service/target/erp-order-service-1.0.0-exec.jar > logs/order-service.log 2>&1 &
 ORDER_PID=$!
 echo "✅ 订单服务已启动 (PID: $ORDER_PID)"
 

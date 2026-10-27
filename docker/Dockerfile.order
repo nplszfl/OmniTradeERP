@@ -25,8 +25,8 @@ RUN apk add --no-cache tzdata && \
     echo "Asia/Shanghai" > /etc/timezone && \
     apk del tzdata
 
-# 复制jar包
-COPY --from=builder /app/erp-order-service/target/*.jar ./order-service.jar
+# 复制jar包（可执行 fat jar 带 -exec classifier）
+COPY --from=builder /app/erp-order-service/target/erp-order-service-*-exec.jar ./order-service.jar
 
 ENV JAVA_OPTS="-Xms512m -Xmx1024m -XX:+UseG1GC"
 
