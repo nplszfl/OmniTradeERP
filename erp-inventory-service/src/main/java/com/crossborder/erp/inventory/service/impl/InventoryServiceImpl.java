@@ -51,6 +51,11 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     public List<Inventory> listInventories(InventoryQuery query) {
+        return pageInventories(query).getRecords();
+    }
+
+    @Override
+    public Page<Inventory> pageInventories(InventoryQuery query) {
         LambdaQueryWrapper<Inventory> wrapper = new LambdaQueryWrapper<>();
         
         if (query.getWarehouseId() != null) {
@@ -69,7 +74,7 @@ public class InventoryServiceImpl implements InventoryService {
         wrapper.orderByDesc(Inventory::getUpdateTime);
         
         Page<Inventory> page = new Page<>(query.getPage(), query.getSize());
-        return inventoryMapper.selectPage(page, wrapper).getRecords();
+        return inventoryMapper.selectPage(page, wrapper);
     }
 
     @Override
@@ -166,6 +171,9 @@ public class InventoryServiceImpl implements InventoryService {
             decreaseInventory(productId, fromWarehouseId, quantity, "调拨出库: " + remark);
             // 入库到目标仓库
             increaseInventory(productId, toWarehouseId, quantity, "调拨入库: " + remark);
+            // 出库完成后必须释放预留：货已实际出库，不再处于锁定状态。
+            // 否则源仓库会一直挂着这笔锁定（locked 不减、available 少算），可用库存被永久吞掉。
+            releaseInventory(productId, fromWarehouseId, quantity, "调拨出库释放预留");
 
             log.info("调拨成功: 商品ID={}, 从仓库{}调拨{}个到仓库{}", productId, fromWarehouseId, quantity, toWarehouseId);
         } catch (Exception e) {
@@ -229,11 +237,15 @@ public class InventoryServiceImpl implements InventoryService {
         
         List<InventoryLock> locks = lockMapper.selectList(wrapper);
         int remaining = quantity;
+        // 实际释放数量：只能释放真正锁定住的部分。
+        // 否则在没有对应锁定记录时，available 会被凭空加高，可用库存虚增。
+        int released = 0;
         
         for (InventoryLock lock : locks) {
             if (remaining <= 0) break;
             
             int unlockQty = Math.min(lock.getLockQuantity() - lock.getUsedQuantity(), remaining);
+            if (unlockQty <= 0) continue;
             lock.setUsedQuantity(lock.getUsedQuantity() + unlockQty);
             if (lock.getUsedQuantity() >= lock.getLockQuantity()) {
                 lock.setLockStatus(LockStatus.RELEASED);
@@ -242,11 +254,12 @@ public class InventoryServiceImpl implements InventoryService {
             lockMapper.updateById(lock);
             
             remaining -= unlockQty;
+            released += unlockQty;
         }
 
-        // 更新库存
-        inventory.setAvailableQuantity(inventory.getAvailableQuantity() + quantity);
-        inventory.setLockedQuantity(inventory.getLockedQuantity() - quantity);
+        // 更新库存（按实际释放数量回补）
+        inventory.setAvailableQuantity(inventory.getAvailableQuantity() + released);
+        inventory.setLockedQuantity(inventory.getLockedQuantity() - released);
         inventory.setUpdateTime(LocalDateTime.now());
         inventoryMapper.updateById(inventory);
 
@@ -296,37 +309,32 @@ public class InventoryServiceImpl implements InventoryService {
     public InventoryAlertStats getAlertStats(Long warehouseId) {
         InventoryAlertStats stats = new InventoryAlertStats();
         
+        // 各维度分别构造查询条件。
+        // 之前用 new LambdaQueryWrapper<>(wrapper) 拷贝 wrapper，泛型无法推断，编译不过；
+        // 改成各自独立构造，条件更直观。
+        stats.setPendingCount(alertMapper.selectCount(
+                alertWrapper(warehouseId).eq(InventoryAlert::getAlertStatus, AlertStatus.PENDING)));
+        stats.setProcessedCount(alertMapper.selectCount(
+                alertWrapper(warehouseId).eq(InventoryAlert::getAlertStatus, AlertStatus.PROCESSED)));
+        stats.setLowStockCount(alertMapper.selectCount(
+                alertWrapper(warehouseId).eq(InventoryAlert::getAlertType, AlertType.LOW_STOCK)));
+        stats.setOutOfStockCount(alertMapper.selectCount(
+                alertWrapper(warehouseId).eq(InventoryAlert::getAlertType, AlertType.OUT_OF_STOCK)));
+        stats.setSlowMovingCount(alertMapper.selectCount(
+                alertWrapper(warehouseId).eq(InventoryAlert::getAlertType, AlertType.SLOW_MOVING)));
+        
+        return stats;
+    }
+
+    /**
+     * 构造库存预警查询条件
+     */
+    private LambdaQueryWrapper<InventoryAlert> alertWrapper(Long warehouseId) {
         LambdaQueryWrapper<InventoryAlert> wrapper = new LambdaQueryWrapper<>();
         if (warehouseId != null) {
             wrapper.eq(InventoryAlert::getWarehouseId, warehouseId);
         }
-        
-        // 待处理预警
-        LambdaQueryWrapper<InventoryAlert> pendingWrapper = new LambdaQueryWrapper<>(wrapper);
-        pendingWrapper.eq(InventoryAlert::getAlertStatus, AlertStatus.PENDING);
-        stats.setPendingCount(alertMapper.selectCount(pendingWrapper));
-        
-        // 已处理预警
-        LambdaQueryWrapper<InventoryAlert> processedWrapper = new LambdaQueryWrapper<>(wrapper);
-        processedWrapper.eq(InventoryAlert::getAlertStatus, AlertStatus.PROCESSED);
-        stats.setProcessedCount(alertMapper.selectCount(processedWrapper));
-        
-        // 低库存预警
-        LambdaQueryWrapper<InventoryAlert> lowWrapper = new LambdaQueryWrapper<>(wrapper);
-        lowWrapper.eq(InventoryAlert::getAlertType, AlertType.LOW_STOCK);
-        stats.setLowStockCount(alertMapper.selectCount(lowWrapper));
-        
-        // 缺货预警
-        LambdaQueryWrapper<InventoryAlert> outWrapper = new LambdaQueryWrapper<>(wrapper);
-        outWrapper.eq(InventoryAlert::getAlertType, AlertType.OUT_OF_STOCK);
-        stats.setOutOfStockCount(alertMapper.selectCount(outWrapper));
-        
-        // 滞销预警
-        LambdaQueryWrapper<InventoryAlert> slowWrapper = new LambdaQueryWrapper<>(wrapper);
-        slowWrapper.eq(InventoryAlert::getAlertType, AlertType.SLOW_MOVING);
-        stats.setSlowMovingCount(alertMapper.selectCount(slowWrapper));
-        
-        return stats;
+        return wrapper;
     }
 
     // ==================== 库存盘点 ====================
@@ -408,9 +416,11 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     public List<Inventory> getLowStockInventory(Integer threshold) {
+        // 用「可用数量」判定低库存：锁定中的库存不能用于出库，
+        // 用总数量会把已锁定的库存误判成库存充足。
         LambdaQueryWrapper<Inventory> wrapper = new LambdaQueryWrapper<>();
-        wrapper.le(Inventory::getQuantity, threshold)
-               .orderByAsc(Inventory::getQuantity);
+        wrapper.le(Inventory::getAvailableQuantity, threshold)
+               .orderByAsc(Inventory::getAvailableQuantity);
         return inventoryMapper.selectList(wrapper);
     }
 
@@ -429,20 +439,17 @@ public class InventoryServiceImpl implements InventoryService {
                 .collect(Collectors.groupingBy(InventoryLog::getProductId, 
                         Collectors.summingInt(InventoryLog::getQuantity)));
         
-        // 筛选滞销商品
-        List<Long> slowProductIds = salesMap.entrySet().stream()
-                .filter(e -> e.getValue() < minSales)
-                .map(Map.Entry::getKey)
+        // 候选滞销商品：所有还有库存的 SKU
+        LambdaQueryWrapper<Inventory> candidateWrapper = new LambdaQueryWrapper<>();
+        candidateWrapper.gt(Inventory::getQuantity, 0);
+        List<Inventory> candidates = inventoryMapper.selectList(candidateWrapper);
+        
+        // 滞销判定：期间销量低于阈值。
+        // 注意：完全没有出库记录的商品销量为 0，也属于滞销。
+        // 之前的实现只从「有出库记录」的商品里筛，销量为 0 的滞销品反而被漏掉。
+        return candidates.stream()
+                .filter(inv -> salesMap.getOrDefault(inv.getProductId(), 0) < minSales)
                 .collect(Collectors.toList());
-        
-        if (slowProductIds.isEmpty()) {
-            return Collections.emptyList();
-        }
-        
-        LambdaQueryWrapper<Inventory> wrapper = new LambdaQueryWrapper<>();
-        wrapper.in(Inventory::getProductId, slowProductIds)
-               .gt(Inventory::getQuantity, 0);
-        return inventoryMapper.selectList(wrapper);
     }
 
     @Override
@@ -664,13 +671,43 @@ public class InventoryServiceImpl implements InventoryService {
     private void checkAndCreateAlert(Inventory inventory) {
         AlertType alertType = null;
         
-        if (inventory.getQuantity() == 0) {
+        // 以「可用数量」判定：锁定中的库存并不能用于出库
+        int available = inventory.getAvailableQuantity() == null ? 0 : inventory.getAvailableQuantity();
+        int safety = inventory.getSafetyStock() == null ? 0 : inventory.getSafetyStock();
+        
+        if (available == 0) {
             alertType = AlertType.OUT_OF_STOCK;
-        } else if (inventory.getQuantity() < inventory.getSafetyStock()) {
+        } else if (available < safety) {
             alertType = AlertType.LOW_STOCK;
         }
         
+        // 同步刷新库存状态。
+        // 之前只建预警不改状态，导致统计里的正常/预警/危险数量永远是「全部正常」。
+        InventoryStatus currentStatus = alertType == null ? InventoryStatus.NORMAL
+                : (alertType == AlertType.OUT_OF_STOCK ? InventoryStatus.DANGER : InventoryStatus.WARNING);
+        if (inventory.getStatus() != currentStatus) {
+            inventory.setStatus(currentStatus);
+            inventory.setUpdateTime(LocalDateTime.now());
+            inventoryMapper.updateById(inventory);
+        }
+        
         if (alertType != null) {
+            // 关闭同一条库存上"已不成立"的待处理预警。
+            // 例：库存从 5 降到 0，先前的低库存预警已经过时，
+            // 若不关闭，待处理预警会一直堆积（低库存 + 缺货两条）。
+            LambdaQueryWrapper<InventoryAlert> staleWrapper = new LambdaQueryWrapper<>();
+            staleWrapper.eq(InventoryAlert::getInventoryId, inventory.getId())
+                        .eq(InventoryAlert::getAlertStatus, AlertStatus.PENDING)
+                        .ne(InventoryAlert::getAlertType, alertType);
+            for (InventoryAlert stale : alertMapper.selectList(staleWrapper)) {
+                stale.setAlertStatus(AlertStatus.PROCESSED);
+                stale.setHandler("系统");
+                stale.setHandleTime(LocalDateTime.now());
+                stale.setHandleRemark("库存状态已变化，预警自动关闭");
+                stale.setUpdateTime(LocalDateTime.now());
+                alertMapper.updateById(stale);
+            }
+
             // 检查是否已存在未处理的预警
             LambdaQueryWrapper<InventoryAlert> wrapper = new LambdaQueryWrapper<>();
             wrapper.eq(InventoryAlert::getInventoryId, inventory.getId())

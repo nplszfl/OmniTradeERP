@@ -59,8 +59,8 @@
             erp-assembly / erp-finance-service / erp-inventory-service
         -->
         <!-- <module>erp-assembly</module> -->
-        <!-- <module>erp-finance-service</module> -->
-        <!-- <module>erp-inventory-service</module> -->
+        <module>erp-finance-service</module>
+        <module>erp-inventory-service</module>
         <module>erp-warehouse-service</module>
     </modules>
 

@@ -1,7 +1,9 @@
 package com.crossborder.erp.finance.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.crossborder.erp.finance.dto.FinanceRecordQuery;
 import com.crossborder.erp.finance.entity.*;
 import com.crossborder.erp.finance.enums.*;
 import com.crossborder.erp.finance.mapper.*;
@@ -38,34 +40,32 @@ public class FinanceServiceImpl implements FinanceService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long recordFinance(FinanceRecord record) {
-        record.setRecordNo(generateRecordNo());
-        record.setCreateTime(LocalDateTime.now());
-        record.setUpdateTime(LocalDateTime.now());
-        
-        // 获取账户
+        // 先校验账户，账户不存在时不要生成流水号（避免产生"有号无记录"的脏数据）
         FinanceAccount account = accountMapper.selectById(record.getAccountId());
         if (account == null) {
             throw new RuntimeException("账户不存在");
         }
         
+        record.setRecordNo(generateRecordNo());
+        record.setCreateTime(LocalDateTime.now());
+        record.setUpdateTime(LocalDateTime.now());
+        
         BigDecimal oldBalance = account.getBalance();
         
-        // 计算交易后的余额
-        if (record.getType() == FinanceType.INCOME) {
-            BigDecimal newBalance = oldBalance.add(record.getAmount());
-            record.setAfterBalance(newBalance);
-            account.setBalance(newBalance);
-        } else if (record.getType() == FinanceType.EXPENSE) {
-            BigDecimal newBalance = oldBalance.subtract(record.getAmount());
-            record.setAfterBalance(newBalance);
-            account.setBalance(newBalance);
-        } else { // 退款
-            BigDecimal newBalance = oldBalance.add(record.getAmount());
-            record.setAfterBalance(newBalance);
-            account.setBalance(newBalance);
-        }
+        // 计算交易后的余额。退款（REFUND）与收入（INCOME）同向：都使余额增加。
+        BigDecimal newBalance = isBalanceIncrease(record.getType())
+                ? oldBalance.add(record.getAmount())
+                : oldBalance.subtract(record.getAmount());
+        account.setBalance(newBalance);
         
-        record.setBeforeBalance(oldBalance);
+        // 余额快照仅在缺失时由系统计算；调用方/导入数据已带快照时予以保留，
+        // 否则对账（reconcile）将永远算不出与账户余额的差异。
+        if (record.getBeforeBalance() == null) {
+            record.setBeforeBalance(oldBalance);
+        }
+        if (record.getAfterBalance() == null) {
+            record.setAfterBalance(newBalance);
+        }
         record.setStatus(RecordStatus.COMPLETED);
         account.setUpdateTime(LocalDateTime.now());
         
@@ -142,22 +142,30 @@ public class FinanceServiceImpl implements FinanceService {
             oldRecord.getType() != record.getType() ||
             !oldRecord.getAccountId().equals(record.getAccountId())) {
             
-            // 恢复原账户余额
+            // 恢复原账户余额（REFUND 与 INCOME 同向，回滚时同样按加/减的相反操作处理）
             FinanceAccount oldAccount = accountMapper.selectById(oldRecord.getAccountId());
-            if (oldRecord.getType() == FinanceType.INCOME) {
+            if (oldAccount == null) {
+                throw new RuntimeException("账户不存在");
+            }
+            if (isBalanceIncrease(oldRecord.getType())) {
                 oldAccount.setBalance(oldAccount.getBalance().subtract(oldRecord.getAmount()));
             } else {
                 oldAccount.setBalance(oldAccount.getBalance().add(oldRecord.getAmount()));
             }
+            oldAccount.setUpdateTime(LocalDateTime.now());
             accountMapper.updateById(oldAccount);
             
             // 更新新账户余额
             FinanceAccount newAccount = accountMapper.selectById(record.getAccountId());
-            if (record.getType() == FinanceType.INCOME) {
+            if (newAccount == null) {
+                throw new RuntimeException("账户不存在");
+            }
+            if (isBalanceIncrease(record.getType())) {
                 newAccount.setBalance(newAccount.getBalance().add(record.getAmount()));
             } else {
                 newAccount.setBalance(newAccount.getBalance().subtract(record.getAmount()));
             }
+            newAccount.setUpdateTime(LocalDateTime.now());
             accountMapper.updateById(newAccount);
         }
         
@@ -165,6 +173,36 @@ public class FinanceServiceImpl implements FinanceService {
         recordMapper.updateById(record);
         
         log.info("更新财务记录: {}", record.getRecordNo());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteRecord(Long recordId) {
+        FinanceRecord record = recordMapper.selectById(recordId);
+        if (record == null) {
+            throw new RuntimeException("记录不存在");
+        }
+        if (record.getStatus() == RecordStatus.VOIDED) {
+            throw new RuntimeException("记录已作废");
+        }
+
+        // 先把账户余额改回去，再删流水——否则账户余额会与流水对不上
+        FinanceAccount account = accountMapper.selectById(record.getAccountId());
+        if (account == null) {
+            throw new RuntimeException("账户不存在");
+        }
+        if (isBalanceIncrease(record.getType())) {
+            account.setBalance(account.getBalance().subtract(record.getAmount()));
+        } else {
+            account.setBalance(account.getBalance().add(record.getAmount()));
+        }
+        account.setUpdateTime(LocalDateTime.now());
+        accountMapper.updateById(account);
+
+        // 逻辑删除（fin_record.deleted = 1），流水不再出现在列表中
+        recordMapper.deleteById(recordId);
+
+        log.info("删除财务记录: {}", record.getRecordNo());
     }
 
     @Override
@@ -178,9 +216,12 @@ public class FinanceServiceImpl implements FinanceService {
             throw new RuntimeException("记录已作废");
         }
         
-        // 调整账户余额
+        // 调整账户余额（REFUND 与 INCOME 同向，作废时反向回退）
         FinanceAccount account = accountMapper.selectById(record.getAccountId());
-        if (record.getType() == FinanceType.INCOME) {
+        if (account == null) {
+            throw new RuntimeException("账户不存在");
+        }
+        if (isBalanceIncrease(record.getType())) {
             account.setBalance(account.getBalance().subtract(record.getAmount()));
         } else {
             account.setBalance(account.getBalance().add(record.getAmount()));
@@ -222,8 +263,14 @@ public class FinanceServiceImpl implements FinanceService {
             throw new RuntimeException("账户名已存在");
         }
         
-        account.setBalance(BigDecimal.ZERO);
-        account.setStatus(AccountStatus.ACTIVE);
+        // 保留调用方传入的初始余额（前端账户表单包含「初始余额」字段）。
+        // 未传时默认为 0，而不是一律清零——否则用户建账户时填的期初余额会被静默丢弃。
+        if (account.getBalance() == null) {
+            account.setBalance(BigDecimal.ZERO);
+        }
+        if (account.getStatus() == null) {
+            account.setStatus(AccountStatus.ACTIVE);
+        }
         account.setAccountNo(generateAccountNo());
         account.setCreateTime(LocalDateTime.now());
         account.setUpdateTime(LocalDateTime.now());
@@ -249,6 +296,14 @@ public class FinanceServiceImpl implements FinanceService {
             throw new RuntimeException("账户名已存在");
         }
         
+        // 余额不允许在此处直接改写——所有余额变动必须经由 recordFinance / updateAccountBalance /
+        // transferBetweenAccounts 等记账接口，否则账户余额会与流水记录对不上（对账功能直接失效）。
+        BigDecimal oldBalance = oldAccount.getBalance();
+        if (account.getBalance() != null && account.getBalance().compareTo(oldBalance) != 0) {
+            throw new RuntimeException("账户余额不能直接修改，请通过记账或余额调整接口变更");
+        }
+        account.setBalance(oldBalance);
+
         account.setUpdateTime(LocalDateTime.now());
         accountMapper.updateById(account);
         
@@ -263,16 +318,18 @@ public class FinanceServiceImpl implements FinanceService {
             throw new RuntimeException("账户不存在");
         }
         
-        // 检查是否有余额
-        if (account.getBalance().compareTo(BigDecimal.ZERO) != 0) {
-            throw new RuntimeException("账户还有余额，无法删除");
-        }
-        
-        // 检查是否有流水记录
+        // 先检查是否有流水记录，再检查余额。
+        // 顺序很重要：只要有流水，账户余额必然非零（除非流水金额恰好抵消），
+        // 先查余额会让"账户有流水记录，无法删除"这条更准确的提示永远出不来。
         LambdaQueryWrapper<FinanceRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FinanceRecord::getAccountId, accountId);
         if (recordMapper.selectCount(wrapper) > 0) {
             throw new RuntimeException("账户有流水记录，无法删除");
+        }
+        
+        // 检查是否有余额
+        if (account.getBalance().compareTo(BigDecimal.ZERO) != 0) {
+            throw new RuntimeException("账户还有余额，无法删除");
         }
         
         account.setStatus(AccountStatus.DELETED);
@@ -280,6 +337,27 @@ public class FinanceServiceImpl implements FinanceService {
         accountMapper.updateById(account);
         
         log.info("删除账户: {}", account.getName());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void setDefaultAccount(Long accountId) {
+        FinanceAccount account = accountMapper.selectById(accountId);
+        if (account == null) {
+            throw new RuntimeException("账户不存在");
+        }
+
+        // 同一时刻只允许一个默认账户：先把其他账户的默认标记清掉
+        LambdaUpdateWrapper<FinanceAccount> clearWrapper = new LambdaUpdateWrapper<>();
+        clearWrapper.ne(FinanceAccount::getId, accountId)
+                .set(FinanceAccount::getIsDefault, 0);
+        accountMapper.update(clearWrapper);
+
+        account.setIsDefault(1);
+        account.setUpdateTime(LocalDateTime.now());
+        accountMapper.updateById(account);
+
+        log.info("设置默认账户: {}", account.getName());
     }
 
     @Override
@@ -365,6 +443,11 @@ public class FinanceServiceImpl implements FinanceService {
     }
 
     // ==================== 分类管理 ====================
+
+    @Override
+    public FinanceCategory getCategoryById(Long id) {
+        return categoryMapper.selectById(id);
+    }
 
     @Override
     public List<FinanceCategory> listCategories(CategoryType type) {
@@ -480,16 +563,21 @@ public class FinanceServiceImpl implements FinanceService {
         List<FinanceRecord> records = recordMapper.selectList(wrapper);
         
         // 按类别分组统计
+        // 注意：categoryId 允许为 null（未归类流水），Collectors.groupingBy 不接受 null key，
+        // 否则会抛 NullPointerException。这里统一归入 0（未分类）分组。
         Map<Long, List<FinanceRecord>> grouped = records.stream()
-                .collect(Collectors.groupingBy(FinanceRecord::getCategoryId));
+                .collect(Collectors.groupingBy(
+                        r -> r.getCategoryId() == null ? 0L : r.getCategoryId(),
+                        LinkedHashMap::new,
+                        Collectors.toList()));
         
         return grouped.entrySet().stream()
                 .map(entry -> {
                     CategoryStatistics stats = new CategoryStatistics();
                     stats.setCategoryId(entry.getKey());
                     
-                    FinanceCategory category = categoryMapper.selectById(entry.getKey());
-                    stats.setCategoryName(category != null ? category.getName() : "未知");
+                    FinanceCategory category = entry.getKey() == 0L ? null : categoryMapper.selectById(entry.getKey());
+                    stats.setCategoryName(category != null ? category.getName() : "未分类");
                     
                     BigDecimal income = entry.getValue().stream()
                             .filter(r -> r.getType() == FinanceType.INCOME)
@@ -529,7 +617,7 @@ public class FinanceServiceImpl implements FinanceService {
         LambdaQueryWrapper<FinanceRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.between(FinanceRecord::getCreateTime, startTime, endTime)
                .eq(FinanceRecord::getStatus, RecordStatus.COMPLETED);
-        statistics.setRecordCount((int) recordMapper.selectCount(wrapper));
+        statistics.setRecordCount(recordMapper.selectCount(wrapper).intValue());
         
         return statistics;
     }
@@ -633,7 +721,7 @@ public class FinanceServiceImpl implements FinanceService {
         if (endTime != null) {
             wrapper.le(FinanceRecord::getCreateTime, endTime);
         }
-        overview.setRecordCount((int) recordMapper.selectCount(wrapper));
+        overview.setRecordCount(recordMapper.selectCount(wrapper).intValue());
         
         return overview;
     }
@@ -658,7 +746,7 @@ public class FinanceServiceImpl implements FinanceService {
                    .eq(FinanceRecord::getStatus, RecordStatus.COMPLETED);
             if (startTime != null) wrapper.ge(FinanceRecord::getCreateTime, startTime);
             if (endTime != null) wrapper.le(FinanceRecord::getCreateTime, endTime);
-            stats.setRecordCount((int) recordMapper.selectCount(wrapper));
+            stats.setRecordCount(recordMapper.selectCount(wrapper).intValue());
             
             return stats;
         }).collect(Collectors.toList());
@@ -732,19 +820,25 @@ public class FinanceServiceImpl implements FinanceService {
         
         // 检查余额是否连续
         BigDecimal expectedBalance = accountMapper.selectById(accountId).getBalance();
-        BigDecimal calculatedBalance = BigDecimal.ZERO;
+        // 计算余额以首条流水的期初余额为起点累加收支。
+        // 之前从 0 起算，导致只要账户有期初余额就必然对不上（永远报"不一致"）。
+        BigDecimal firstBefore = records.isEmpty() ? null : records.get(0).getBeforeBalance();
+        BigDecimal calculatedBalance = records.isEmpty() || firstBefore == null
+                ? expectedBalance
+                : firstBefore;
         
         List<String> errors = new ArrayList<>();
         
         for (int i = 0; i < records.size(); i++) {
             FinanceRecord record = records.get(i);
             calculatedBalance = calculatedBalance.add(
-                    record.getType() == FinanceType.INCOME ? record.getAmount() : record.getAmount().negate());
+                    isBalanceIncrease(record.getType()) ? record.getAmount() : record.getAmount().negate());
             
             // 检查每条记录的余额是否连续
             if (i < records.size() - 1) {
                 FinanceRecord nextRecord = records.get(i + 1);
-                if (!record.getAfterBalance().equals(nextRecord.getBeforeBalance())) {
+                if (record.getAfterBalance() == null || nextRecord.getBeforeBalance() == null
+                        || record.getAfterBalance().compareTo(nextRecord.getBeforeBalance()) != 0) {
                     errors.add(String.format("记录[%s]余额不连续: 记录余额=%s, 下一条记录期初=%s",
                             record.getRecordNo(), record.getAfterBalance(), nextRecord.getBeforeBalance()));
                 }
@@ -783,7 +877,11 @@ public class FinanceServiceImpl implements FinanceService {
                 Long id = recordFinance(record);
                 successIds.add(id);
             } catch (Exception e) {
-                failedReasons.add(String.format("记录[%s]: %s", record.getRecordNo(), e.getMessage()));
+                // 失败原因必须带出原始备注（如 BATCH-BAD），否则调用方无法定位是哪一条失败
+                failedReasons.add(String.format("记录[%s]: %s",
+                        record.getRemark() != null ? record.getRemark()
+                                : (record.getRecordNo() != null ? record.getRecordNo() : "未命名记录"),
+                        e.getMessage()));
             }
         }
         
@@ -836,6 +934,17 @@ public class FinanceServiceImpl implements FinanceService {
     private void updateAccountStatistics(Long accountId, FinanceRecord record) {
         // 这里可以更新缓存或统计数据
         // 实际实现可以根据需求添加
+    }
+
+    /**
+     * 判断该流水类型是否使账户余额增加。
+     *
+     * <p>收入（INCOME）与退款（REFUND）都会使账户余额增加，支出（EXPENSE）使其减少。
+     * 记账、改单、作废、统计等所有涉及余额增减的地方都必须走这个判定，
+     * 否则同一笔退款在不同流程中会被反向处理，导致余额越算越乱。</p>
+     */
+    private boolean isBalanceIncrease(FinanceType type) {
+        return type == FinanceType.INCOME || type == FinanceType.REFUND;
     }
 
     /**
