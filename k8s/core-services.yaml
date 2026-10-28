@@ -21,7 +21,7 @@ spec:
       - name: user-service
         image: nplszfl/erp-user-service:latest
         ports:
-        - containerPort: 8081
+        - containerPort: 8084
           name: http
         env:
         - name: NACOS_SERVER_ADDR
@@ -48,13 +48,13 @@ spec:
         livenessProbe:
           httpGet:
             path: /actuator/health
-            port: 8081
+            port: 8084
           initialDelaySeconds: 60
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /actuator/health
-            port: 8081
+            port: 8084
           initialDelaySeconds: 30
           periodSeconds: 5
 ---
@@ -67,8 +67,8 @@ metadata:
     app: erp-user-service
 spec:
   ports:
-  - port: 8081
-    targetPort: 8081
+  - port: 8084
+    targetPort: 8084
     name: http
   selector:
     app: erp-user-service
@@ -96,7 +96,7 @@ spec:
       - name: product-service
         image: nplszfl/erp-product-service:latest
         ports:
-        - containerPort: 8082
+        - containerPort: 8083
           name: http
         env:
         - name: NACOS_SERVER_ADDR
@@ -123,13 +123,13 @@ spec:
         livenessProbe:
           httpGet:
             path: /actuator/health
-            port: 8082
+            port: 8083
           initialDelaySeconds: 60
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /actuator/health
-            port: 8082
+            port: 8083
           initialDelaySeconds: 30
           periodSeconds: 5
 ---
@@ -142,8 +142,8 @@ metadata:
     app: erp-product-service
 spec:
   ports:
-  - port: 8082
-    targetPort: 8082
+  - port: 8083
+    targetPort: 8083
     name: http
   selector:
     app: erp-product-service
@@ -246,7 +246,7 @@ spec:
       - name: warehouse-service
         image: nplszfl/erp-warehouse-service:latest
         ports:
-        - containerPort: 8086
+        - containerPort: 8092
           name: http
         env:
         - name: NACOS_SERVER_ADDR
@@ -273,13 +273,13 @@ spec:
         livenessProbe:
           httpGet:
             path: /actuator/health
-            port: 8086
+            port: 8092
           initialDelaySeconds: 60
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /actuator/health
-            port: 8086
+            port: 8092
           initialDelaySeconds: 30
           periodSeconds: 5
 ---
@@ -292,8 +292,8 @@ metadata:
     app: erp-warehouse-service
 spec:
   ports:
-  - port: 8086
-    targetPort: 8086
+  - port: 8092
+    targetPort: 8092
     name: http
   selector:
     app: erp-warehouse-service
