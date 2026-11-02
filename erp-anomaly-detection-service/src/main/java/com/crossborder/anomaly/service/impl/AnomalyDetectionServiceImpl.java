@@ -5,6 +5,7 @@ import com.crossborder.anomaly.dto.OrderFeatures;
 import com.crossborder.anomaly.engine.AIScorer;
 import com.crossborder.anomaly.engine.RuleEngine;
 import com.crossborder.anomaly.service.AnomalyDetectionService;
+import com.crossborder.anomaly.service.AnomalyRecordService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ public class AnomalyDetectionServiceImpl implements AnomalyDetectionService {
 
     private final RuleEngine ruleEngine;
     private final AIScorer aiScorer;
+    private final AnomalyRecordService anomalyRecordService;
 
     @Override
     public AnomalyDetectionResult detect(OrderFeatures features) {
@@ -43,6 +45,15 @@ public class AnomalyDetectionServiceImpl implements AnomalyDetectionService {
         result.setAiScore(aiScore);
         result.setRuleScore(ruleScore);
         result.setDetectionLatencyMs(System.currentTimeMillis() - start);
+
+        // 5. 落库 —— 检测结果必须留下来，否则业务方没法查历史 / 人工复核 / 统计异常率
+        try {
+            Long recordId = anomalyRecordService.saveDetection(features, result);
+            log.info("检测结果已落库: recordId={}, orderId={}", recordId, features.getOrderId());
+        } catch (Exception e) {
+            // 落库失败不能影响检测结果返回（检测本身是无状态的纯计算）
+            log.error("检测结果落库失败: orderId={}", features.getOrderId(), e);
+        }
 
         log.info("异常检测完成: orderId={}, riskScore={}, level={}, isAnomaly={}, latency={}ms",
             features.getOrderId(), result.getRiskScore(), result.getRiskLevel(),

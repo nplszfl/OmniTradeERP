@@ -1,10 +1,14 @@
 package com.crossborder.erp.common.config;
 
+import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
+import org.apache.ibatis.reflection.MetaObject;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.context.annotation.Bean;
+
+import java.time.LocalDateTime;
 
 /**
  * MyBatis-Plus 插件配置
@@ -40,5 +44,34 @@ public class MybatisPlusConfig {
         pagination.setMaxLimit(500L);
         interceptor.addInnerInterceptor(pagination);
         return interceptor;
+    }
+
+    /**
+     * 审计字段自动填充
+     *
+     * <p>⚠️ 全项目<b>从来没有</b>注册过 MetaObjectHandler，
+     * 而几十个实体都标了 {@code @TableField(fill = FieldFill.INSERT)} ——
+     * 这些 fill 注解全是摆设，createTime / updateTime 靠数据库默认值兜底，
+     * 结果就是 insert 之后内存里的实体 createTime 还是 null
+     * （库里的值是对的，但刚 insert 完就拿 createTime 去展示/判断的代码会拿到 null）。</p>
+     *
+     * <p>用 strictInsertFill / strictUpdateFill：只有标了对应 fill 注解的字段才会被填，
+     * 不会误伤其他实体。</p>
+     */
+    @Bean
+    public MetaObjectHandler auditMetaObjectHandler() {
+        return new MetaObjectHandler() {
+            @Override
+            public void insertFill(MetaObject metaObject) {
+                LocalDateTime now = LocalDateTime.now();
+                strictInsertFill(metaObject, "createTime", LocalDateTime.class, now);
+                strictInsertFill(metaObject, "updateTime", LocalDateTime.class, now);
+            }
+
+            @Override
+            public void updateFill(MetaObject metaObject) {
+                strictUpdateFill(metaObject, "updateTime", LocalDateTime.class, LocalDateTime.now());
+            }
+        };
     }
 }

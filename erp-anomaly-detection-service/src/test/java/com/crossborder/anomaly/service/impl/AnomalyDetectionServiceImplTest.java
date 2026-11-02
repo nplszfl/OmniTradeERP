@@ -23,7 +23,7 @@ class AnomalyDetectionServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new AnomalyDetectionServiceImpl(new RuleEngine(), new AIScorer());
+        service = new AnomalyDetectionServiceImpl(new RuleEngine(), new AIScorer(), new NoopAnomalyRecordService());
     }
 
     @Test

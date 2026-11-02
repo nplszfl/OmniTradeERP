@@ -2,6 +2,13 @@ server:
   port: 8084
 
 spring:
+  config:
+    # ⚠️ 必须有这行：classpath 上有 spring-cloud-starter-alibaba-nacos-config 时，
+    #    Spring Cloud 的 ConfigDataMissingEnvironmentPostProcessor 会检查
+    #    spring.config.import，没配就直接抛 "No spring.config.import set" → 服务起不来。
+    #    optional: 前缀表示 Nacos 不可达时不阻塞启动（降级用本地配置）。
+    import:
+      - optional:nacos:${spring.application.name}.yml
   application:
     name: erp-user-service
   cloud:

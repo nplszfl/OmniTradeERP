@@ -7,6 +7,15 @@ spring:
   application:
     name: erp-anomaly-detection-service
 
+  config:
+    # ⚠️ 必须有这行：只要 classpath 上有 spring-cloud-starter-alibaba-nacos-config，
+    #    Spring Cloud 的 ConfigDataMissingEnvironmentPostProcessor 就会检查
+    #    spring.config.import，没配就直接抛
+    #    "No spring.config.import set" → 服务根本起不来。
+    #    optional: 前缀表示 Nacos 不可达时不阻塞启动（降级用本地配置）。
+    import:
+      - optional:nacos:${spring.application.name}.yml
+
   profiles:
     active: dev
 
