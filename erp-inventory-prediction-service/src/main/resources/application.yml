@@ -2,6 +2,18 @@ server:
   port: 8088
 
 spring:
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+        namespace: ${NACOS_NAMESPACE:erp-dev}
+        group: DEFAULT_GROUP
+      config:
+        server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+        namespace: ${NACOS_NAMESPACE:erp-dev}
+        group: DEFAULT_GROUP
+        file-extension: yml
+        refresh-enabled: true
   application:
     name: erp-inventory-prediction-service
   datasource:

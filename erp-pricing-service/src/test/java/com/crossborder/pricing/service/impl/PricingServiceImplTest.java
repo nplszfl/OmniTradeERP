@@ -1,5 +1,6 @@
 package com.crossborder.pricing.service.impl;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.pricing.dto.PricingRequest;
 import com.crossborder.pricing.dto.PricingResponse;
 import com.crossborder.pricing.service.CompetitorScrapeService;
@@ -288,33 +289,33 @@ class PricingServiceImplTest {
     // ========== calculateBasePrice 边界 ==========
 
     @Test
-    @DisplayName("calculateBasePrice - costPrice 为 null 抛 IllegalArgumentException")
+    @DisplayName("calculateBasePrice - costPrice 为 null 抛 BizException（客户端错误 → HTTP 400）")
     void calculateBasePrice_nullCostPrice_throws() {
         PricingRequest req = baseRequest();
         req.setCostPrice(null);
         req.setEnableCompetitorAnalysis(false);
 
-        assertThrows(IllegalArgumentException.class, () -> service.calculateOptimalPrice(req));
+        assertThrows(BizException.class, () -> service.calculateOptimalPrice(req));
     }
 
     @Test
-    @DisplayName("calculateBasePrice - costPrice 为 0 抛 IllegalArgumentException")
+    @DisplayName("calculateBasePrice - costPrice 为 0 抛 BizException（客户端错误 → HTTP 400）")
     void calculateBasePrice_zeroCostPrice_throws() {
         PricingRequest req = baseRequest();
         req.setCostPrice(BigDecimal.ZERO);
         req.setEnableCompetitorAnalysis(false);
 
-        assertThrows(IllegalArgumentException.class, () -> service.calculateOptimalPrice(req));
+        assertThrows(BizException.class, () -> service.calculateOptimalPrice(req));
     }
 
     @Test
-    @DisplayName("calculateBasePrice - costPrice 为负数抛 IllegalArgumentException")
+    @DisplayName("calculateBasePrice - costPrice 为负数抛 BizException（客户端错误 → HTTP 400）")
     void calculateBasePrice_negativeCostPrice_throws() {
         PricingRequest req = baseRequest();
         req.setCostPrice(new BigDecimal("-1.00"));
         req.setEnableCompetitorAnalysis(false);
 
-        assertThrows(IllegalArgumentException.class, () -> service.calculateOptimalPrice(req));
+        assertThrows(BizException.class, () -> service.calculateOptimalPrice(req));
     }
 
     // ========== batchCalculateOptimalPrice ==========

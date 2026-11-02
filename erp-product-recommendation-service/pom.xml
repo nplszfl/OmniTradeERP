@@ -24,6 +24,11 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>com.crossborder</groupId>
+            <artifactId>erp-common</artifactId>
+        </dependency>
+
         <!-- Spring Boot Web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

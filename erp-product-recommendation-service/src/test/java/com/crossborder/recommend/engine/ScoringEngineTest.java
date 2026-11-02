@@ -1,5 +1,6 @@
 package com.crossborder.recommend.engine;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.recommend.dto.CandidateFeatures;
 import com.crossborder.recommend.dto.RecommendationScore;
 import org.junit.jupiter.api.BeforeEach;
@@ -280,13 +281,13 @@ class ScoringEngineTest {
     @DisplayName("setActiveWeights: 非法权重应抛异常")
     void setActiveWeightsInvalid() {
         // 长度不对
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(BizException.class,
             () -> engine.setActiveWeights(new double[]{0.5, 0.5}));
         // 总和不对
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(BizException.class,
             () -> engine.setActiveWeights(new double[]{0.5, 0.2, 0.2, 0.1, 0.1}));
         // 负数
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(BizException.class,
             () -> engine.setActiveWeights(new double[]{0.4, -0.1, 0.3, 0.2, 0.2}));
     }
 

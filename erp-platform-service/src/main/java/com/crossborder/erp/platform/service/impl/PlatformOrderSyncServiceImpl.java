@@ -1,6 +1,7 @@
 package com.crossborder.erp.platform.service.impl;
 
 import com.crossborder.erp.common.constant.PlatformType;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
 import com.crossborder.erp.platform.api.PlatformOrderSync;
@@ -28,7 +29,7 @@ public class PlatformOrderSyncServiceImpl implements PlatformOrderSyncService {
         PlatformOrderSync sync = platformSyncMap.get(platform.toLowerCase());
         if (sync == null) {
             log.warn("不支持的平台: {}", platform);
-            throw new RuntimeException("暂不支持该平台: " + platform);
+            throw new BizException("暂不支持该平台: " + platform);
         }
 
         log.info("开始同步平台订单: platform={}, shopId={}", platform, shopId);
@@ -39,7 +40,7 @@ public class PlatformOrderSyncServiceImpl implements PlatformOrderSyncService {
     public Order getOrderByNo(String platform, String platformOrderNo, String shopId) {
         PlatformOrderSync sync = platformSyncMap.get(platform.toLowerCase());
         if (sync == null) {
-            throw new RuntimeException("暂不支持该平台: " + platform);
+            throw new BizException("暂不支持该平台: " + platform);
         }
 
         return sync.getOrderByNo(platformOrderNo, shopId);
@@ -49,7 +50,7 @@ public class PlatformOrderSyncServiceImpl implements PlatformOrderSyncService {
     public boolean validateConfig(String platform, String shopId) {
         PlatformOrderSync sync = platformSyncMap.get(platform.toLowerCase());
         if (sync == null) {
-            throw new RuntimeException("暂不支持该平台: " + platform);
+            throw new BizException("暂不支持该平台: " + platform);
         }
 
         return sync.validateConfig(shopId);

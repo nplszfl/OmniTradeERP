@@ -1,6 +1,7 @@
 package com.crossborder.erp.inventory.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.common.result.Result;
 import com.crossborder.erp.inventory.entity.Inventory;
 import com.crossborder.erp.inventory.entity.InventoryLog;
@@ -115,7 +116,7 @@ public class InventoryController {
     public Result<Map<String, Object>> detail(@PathVariable Long id) {
         Inventory inventory = inventoryService.getInventoryById(id);
         if (inventory == null) {
-            throw new IllegalArgumentException("库存记录不存在");
+            throw new BizException("库存记录不存在");
         }
         return Result.success(toInventoryVO(inventory));
     }
@@ -186,7 +187,7 @@ public class InventoryController {
 
         Inventory inventory = inventoryService.getInventoryById(inventoryId);
         if (inventory == null) {
-            throw new IllegalArgumentException("库存记录不存在");
+            throw new BizException("库存记录不存在");
         }
         Long productId = inventory.getProductId();
         Long warehouseId = inventory.getWarehouseId();
@@ -215,7 +216,7 @@ public class InventoryController {
         Long fromInventoryId = asLong(body.get("fromInventoryId"));
         Inventory from = inventoryService.getInventoryById(fromInventoryId);
         if (from == null) {
-            throw new IllegalArgumentException("源库存记录不存在");
+            throw new BizException("源库存记录不存在");
         }
         inventoryService.transferInventory(from.getProductId(), from.getWarehouseId(),
                 asLong(body.get("toWarehouseId")), asInt(body.get("quantity")),

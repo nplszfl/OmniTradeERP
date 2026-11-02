@@ -1,5 +1,6 @@
 package com.omnitrade.erp.social.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.omnitrade.erp.social.client.TikTokApiClient;
 import com.omnitrade.erp.social.dto.LiveStreamDTO;
 import com.omnitrade.erp.social.model.LiveStream;
@@ -101,7 +102,7 @@ public class LiveStreamMonitorService {
                 .orElseThrow(() -> new RuntimeException("直播不存在: " + liveStreamId));
         
         if (liveStream.getStreamId() == null) {
-            throw new RuntimeException("直播streamId不存在，无法同步数据");
+            throw new BizException("直播streamId不存在，无法同步数据");
         }
         
         TikTokShopConfig shop = shopConfigRepository.findByShopId(liveStream.getPlatform().name())
@@ -315,7 +316,7 @@ public class LiveStreamMonitorService {
     
     private void refreshToken(TikTokShopConfig shop) {
         if (shop.getRefreshToken() == null) {
-            throw new RuntimeException("Refresh Token不存在，无法刷新");
+            throw new BizException("Refresh Token不存在，无法刷新");
         }
         
         try {

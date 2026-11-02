@@ -25,6 +25,7 @@
     </properties>
 
     <dependencies>
+
         <!-- JUnit Jupiter (Test) -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>

@@ -2,6 +2,7 @@ package com.crossborder.erp.user.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.user.dto.LoginRequest;
 import com.crossborder.erp.user.dto.LoginResponse;
 import com.crossborder.erp.user.dto.RegisterRequest;
@@ -53,15 +54,15 @@ public class AuthServiceImpl extends ServiceImpl<UserMapper, User> implements Au
         User user = getOne(wrapper);
 
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw new BizException("用户不存在");
         }
 
         if (user.getStatus() == 0) {
-            throw new RuntimeException("用户已被禁用");
+            throw new BizException("用户已被禁用");
         }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new RuntimeException("密码错误");
+            throw new BizException("密码错误");
         }
 
         // 生成Token
@@ -106,7 +107,7 @@ public class AuthServiceImpl extends ServiceImpl<UserMapper, User> implements Au
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getUsername, request.getUsername());
         if (getOne(wrapper) != null) {
-            throw new RuntimeException("用户名已存在");
+            throw new BizException("用户名已存在");
         }
 
         User user = new User();
@@ -125,12 +126,12 @@ public class AuthServiceImpl extends ServiceImpl<UserMapper, User> implements Au
     public LoginResponse refreshToken(String refreshToken) {
         Long userId = jwtUtil.getUserIdFromToken(refreshToken);
         if (userId == null) {
-            throw new RuntimeException("Refresh Token无效");
+            throw new BizException("Refresh Token无效");
         }
 
         User user = getById(userId);
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw new BizException("用户不存在");
         }
 
         String newToken = jwtUtil.generateToken(userId, user.getUsername());

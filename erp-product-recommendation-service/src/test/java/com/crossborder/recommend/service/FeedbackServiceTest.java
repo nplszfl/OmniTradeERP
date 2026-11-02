@@ -1,5 +1,6 @@
 package com.crossborder.recommend.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.crossborder.recommend.dto.FeedbackRequest;
 import com.crossborder.recommend.dto.FeedbackStats;
@@ -126,7 +127,7 @@ class FeedbackServiceTest {
             .resultId(5L).candidateId(104L).feedbackType("UNKNOWN")
             .build();
 
-        assertThrows(IllegalArgumentException.class, () -> service.submitFeedback(req));
+        assertThrows(BizException.class, () -> service.submitFeedback(req));
     }
 
     @Test
@@ -137,7 +138,7 @@ class FeedbackServiceTest {
             .sellerRating(99)
             .build();
 
-        assertThrows(IllegalArgumentException.class, () -> service.submitFeedback(req));
+        assertThrows(BizException.class, () -> service.submitFeedback(req));
     }
 
     @Test
@@ -147,7 +148,7 @@ class FeedbackServiceTest {
             .candidateId(106L).feedbackType("ADOPTED")
             .build();
 
-        assertThrows(IllegalArgumentException.class, () -> service.submitFeedback(req));
+        assertThrows(BizException.class, () -> service.submitFeedback(req));
     }
 
     @Test

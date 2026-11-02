@@ -15,6 +15,7 @@ services:
       - mysql-data:/var/lib/mysql
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - ./database/customer-service.sql:/docker-entrypoint-initdb.d/customer-service.sql:ro
+      - ./database/supplier-service.sql:/docker-entrypoint-initdb.d/supplier-service.sql:ro
     networks:
       - erp-network
     healthcheck:
@@ -468,6 +469,46 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8085/actuator/health"]
       interval: 30s
       timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # 供应商服务
+  # ⚠️ 这个服务之前完全没有 application.yml（连 resources 目录都没有）→ 端口默认 8080
+  #    跟网关冲突、也没法注册到 Nacos，网关的 lb://erp-supplier-service 永远解析不到实例。
+  supplier-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-supplier-service
+        PORT: "8099"
+    container_name: erp-supplier-service
+    ports:
+      - "8099:8099"
+    environment:
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
+      NACOS_SERVER_ADDR: nacos:8848
+      SENTINEL_DASHBOARD: sentinel:8858
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    networks:
+      - erp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8099/actuator/health"]
+      interval: 10s
+      timeout: 5s
       retries: 5
       start_period: 60s
 

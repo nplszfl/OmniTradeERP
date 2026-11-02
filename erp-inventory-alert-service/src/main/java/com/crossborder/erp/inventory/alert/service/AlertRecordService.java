@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.inventory.alert.entity.InventoryAlert;
 import com.crossborder.erp.inventory.alert.entity.InventoryAlertRule;
 import com.crossborder.erp.inventory.alert.mapper.InventoryAlertMapper;
@@ -138,7 +139,7 @@ public class AlertRecordService extends ServiceImpl<InventoryAlertMapper, Invent
     public void handleAlert(Long alertId, Long handlerId, String handlerName, String remark) {
         InventoryAlert alert = getById(alertId);
         if (alert == null) {
-            throw new RuntimeException("预警记录不存在: " + alertId);
+            throw new BizException("预警记录不存在: " + alertId);
         }
         
         alert.setStatus("HANDLED");
@@ -158,7 +159,7 @@ public class AlertRecordService extends ServiceImpl<InventoryAlertMapper, Invent
     public void ignoreAlert(Long alertId, Long handlerId, String handlerName, String remark) {
         InventoryAlert alert = getById(alertId);
         if (alert == null) {
-            throw new RuntimeException("预警记录不存在: " + alertId);
+            throw new BizException("预警记录不存在: " + alertId);
         }
         
         alert.setStatus("IGNORED");

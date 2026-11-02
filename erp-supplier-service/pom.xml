@@ -13,6 +13,11 @@
     <description>供应商管理服务</description>
     <dependencies>
         <dependency>
+            <groupId>com.crossborder</groupId>
+            <artifactId>erp-common</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>

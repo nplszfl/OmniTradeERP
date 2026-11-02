@@ -2,6 +2,7 @@ package com.crossborder.erp.platform.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.platform.api.PlatformOrderSync;
 import com.crossborder.erp.platform.entity.PlatformConfig;
 import com.crossborder.erp.platform.mapper.PlatformConfigMapper;
@@ -53,7 +54,7 @@ public class PlatformConfigServiceImpl extends ServiceImpl<PlatformConfigMapper,
             // 新增：检查是否重复
             PlatformConfig existing = getConfigByShop(config.getPlatform(), config.getShopId());
             if (existing != null) {
-                throw new RuntimeException("该平台的店铺配置已存在");
+                throw new BizException("该平台的店铺配置已存在");
             }
             save(config);
         } else {
@@ -73,12 +74,12 @@ public class PlatformConfigServiceImpl extends ServiceImpl<PlatformConfigMapper,
     public boolean testConnection(Long id) {
         PlatformConfig config = getConfigById(id);
         if (config == null) {
-            throw new RuntimeException("配置不存在");
+            throw new BizException("配置不存在");
         }
 
         PlatformOrderSync sync = platformSyncMap.get(config.getPlatform().toLowerCase());
         if (sync == null) {
-            throw new RuntimeException("暂不支持该平台");
+            throw new BizException("暂不支持该平台");
         }
 
         try {

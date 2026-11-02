@@ -1,5 +1,6 @@
 package com.omnitrade.erp.social.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.omnitrade.erp.social.client.TikTokApiClient;
 import com.omnitrade.erp.social.dto.TikTokProductDTO;
 import com.omnitrade.erp.social.model.LiveStream;
@@ -84,7 +85,7 @@ public class LiveProductService {
                 .orElseThrow(() -> new RuntimeException("直播不存在: " + liveStreamId));
         
         if (liveStream.getStatus() != LiveStream.StreamStatus.LIVE) {
-            throw new RuntimeException("直播不在进行中，无法挂载商品");
+            throw new BizException("直播不在进行中，无法挂载商品");
         }
         
         TikTokProduct product = productRepository.findByProductId(productId)
@@ -308,7 +309,7 @@ public class LiveProductService {
     
     private void refreshToken(TikTokShopConfig shop) {
         if (shop.getRefreshToken() == null) {
-            throw new RuntimeException("Refresh Token不存在，无法刷新");
+            throw new BizException("Refresh Token不存在，无法刷新");
         }
         
         try {

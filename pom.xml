@@ -24,6 +24,19 @@
         <spring-cloud.version>2022.0.4</spring-cloud.version>
         <spring-cloud-alibaba.version>2022.0.0.0</spring-cloud-alibaba.version>
 
+        <!--
+          内部模块的版本号。
+          ⚠️ 内部模块（erp-common / erp-platform-api / erp-order-service）必须用固定版本，
+          不能用 ${project.version} —— ${project.version} 解析的是「当前使用方的版本」，
+          而本项目里有 4 个模块自带了各自的版本号：
+            erp-pricing-service              2.0.0
+            erp-inventory-prediction-service 1.5.0
+            erp-anomaly-detection-service    1.6.0
+            erp-product-recommendation-service 1.9.0
+          它们一旦依赖内部模块，就会去仓库找 erp-common:2.0.0 这种根本不存在的版本 → 构建失败。
+        -->
+        <erp.internal.version>1.0.0-SNAPSHOT</erp.internal.version>
+
         <!-- 其他依赖 -->
         <mybatis-plus.version>3.5.6</mybatis-plus.version>
         <hutool.version>5.8.26</hutool.version>
@@ -205,17 +218,17 @@
             <dependency>
                 <groupId>com.crossborder</groupId>
                 <artifactId>erp-common</artifactId>
-                <version>${project.version}</version>
+                <version>${erp.internal.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.crossborder</groupId>
                 <artifactId>erp-platform-api</artifactId>
-                <version>${project.version}</version>
+                <version>${erp.internal.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.crossborder</groupId>
                 <artifactId>erp-order-service</artifactId>
-                <version>${project.version}</version>
+                <version>${erp.internal.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

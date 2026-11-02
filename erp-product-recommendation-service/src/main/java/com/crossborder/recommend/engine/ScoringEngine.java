@@ -1,5 +1,6 @@
 package com.crossborder.recommend.engine;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.recommend.dto.CandidateFeatures;
 import com.crossborder.recommend.dto.RecommendationScore;
 import lombok.extern.slf4j.Slf4j;
@@ -289,17 +290,17 @@ public class ScoringEngine {
 
     static void validateWeights(double[] w) {
         if (w == null || w.length != 5) {
-            throw new IllegalArgumentException("权重数组必须是长度 5");
+            throw new BizException("权重数组必须是长度 5");
         }
         double sum = 0;
         for (double v : w) {
             if (Double.isNaN(v) || v < 0 || v > 1) {
-                throw new IllegalArgumentException("权重值必须在 [0,1] 范围内");
+                throw new BizException("权重值必须在 [0,1] 范围内");
             }
             sum += v;
         }
         if (Math.abs(sum - 1.0) > 0.01) {
-            throw new IllegalArgumentException("权重总和必须接近 1.0 (实际=" + sum + ")");
+            throw new BizException("权重总和必须接近 1.0 (实际=" + sum + ")");
         }
     }
 }

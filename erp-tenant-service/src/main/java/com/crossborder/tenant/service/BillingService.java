@@ -1,5 +1,6 @@
 package com.crossborder.tenant.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.tenant.config.TenantContext;
 import com.crossborder.tenant.dto.billing.BillDTO;
 import com.crossborder.tenant.dto.billing.BillingRuleDTO;
@@ -85,11 +86,11 @@ public class BillingService {
                 .orElseThrow(() -> new RuntimeException("账单不存在"));
         
         if (!bill.getTenantId().equals(tenantId)) {
-            throw new RuntimeException("无权限操作此账单");
+            throw new BizException("无权限操作此账单");
         }
         
         if (bill.getStatus() != Bill.BillStatus.PENDING) {
-            throw new RuntimeException("账单状态不正确");
+            throw new BizException("账单状态不正确");
         }
         
         // 更新账单状态

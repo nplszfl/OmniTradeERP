@@ -88,6 +88,18 @@ spring:
             - Path=/api/warehouse/**
           filters:
             - StripPrefix=1
+        # 库存预警服务
+        # ⚠️ 必须排在 inventory-service 前面！
+        #    Spring Cloud Gateway 按声明顺序匹配路由，/api/inventory/** 会先吃掉
+        #    /api/inventory/alert/**，StripPrefix=1 之后变成 /alert/**，
+        #    而库存预警服务的 controller 根路径是 /inventory/alert/** → 直接 404。
+        #    后端 controller 根路径 /inventory/alert/**，前端用 /api/inventory/alert/**
+        - id: inventory-alert-service
+          uri: lb://erp-inventory-alert-service
+          predicates:
+            - Path=/api/inventory/alert/**
+          filters:
+            - StripPrefix=1
         # 库存服务
         - id: inventory-service
           uri: lb://erp-inventory-service
@@ -103,12 +115,67 @@ spring:
           filters:
             - StripPrefix=1
         # 物流服务
-        - id: logistics-service
-          uri: lb://erp-logistics-service
+        # ⚠️ 已移除：erp-logistics-service 模块根本不存在（项目里没有这个目录），
+        #    lb://erp-logistics-service 永远解析不到实例，留着只会让排障时误以为配好了。
+        #    将来真要上物流服务，这里再把路由加回来。
+
+        # 社交电商服务
+        # 后端 controller 根路径是 /api/v1/**（tiktok-shop / live-streams / cooperations /
+        # influencers / douyin-shop），前端统一用 /api/social/**
+        - id: social-commerce-service
+          uri: lb://erp-social-commerce-service
           predicates:
-            - Path=/api/logistics/**
+            - Path=/api/social/**
           filters:
-            - StripPrefix=1
+            - RewritePath=/api/social/(?<seg>.*), /api/v1/$\{seg}
+
+        # AI 智能客服助手
+        # ⚠️ 已移除路由：erp-ai-assistant-service 是独立父 pom 的模块（Boot 3.3.5），
+        #    没有 nacos-discovery 依赖 → 永远注册不到 Nacos → lb:// 解析不到实例，
+        #    留着一条永远走不通的路由只会误导排障。
+        #    前端目前也没有调用 /api/ai/assistant/** 的地方（ai.ts 走的是 pricing/
+        #    description/inventory-prediction/anomaly/recommend）。
+        #    等该服务接上 Nacos 后再把路由加回来。
+
+        # 数据分析服务
+        # 后端 controller 根路径 /api/v1/analytics/**，前端用 /api/analytics/**
+        - id: analytics-service
+          uri: lb://erp-analytics-service
+          predicates:
+            - Path=/api/analytics/**
+          filters:
+            - RewritePath=/api/analytics/(?<seg>.*), /api/v1/analytics/$\{seg}
+
+        # 智能定价服务
+        # 后端 controller 根路径 /api/v1/pricing/**（还有 /api/v1/competitor、
+        # /api/v1/price-history 两组），前端用 /api/pricing/**
+        - id: pricing-service
+          uri: lb://erp-pricing-service
+          predicates:
+            - Path=/api/pricing/**
+          filters:
+            - RewritePath=/api/pricing/(?<seg>.*), /api/v1/pricing/$\{seg}
+
+        # 库存预测服务
+        # 后端 controller 根路径 /api/v1/inventory-prediction/**，前端用 /api/inventory-prediction/**
+        - id: inventory-prediction-service
+          uri: lb://erp-inventory-prediction-service
+          predicates:
+            - Path=/api/inventory-prediction/**
+          filters:
+            - RewritePath=/api/inventory-prediction/(?<seg>.*), /api/v1/inventory-prediction/$\{seg}
+
+        # 租户服务
+        # 后端 controller 根路径本来就是 /api/tenant/**（dashboard/billing/usage/config），
+        # 所以这里不能用 StripPrefix（会把 /api/tenant 砍掉）→ StripPrefix=0 原样转发。
+        # 另外后端还有 /api/v1/tenant、/api/v1/auth、/api/v1/platforms，
+        # 这三个通过 discovery locator（/erp-tenant-service/**）或 /api/v1/** 直连访问。
+        - id: tenant-service
+          uri: lb://erp-tenant-service
+          predicates:
+            - Path=/api/tenant/**
+          filters:
+            - StripPrefix=0
 
         # AI 订单异常检测服务 (v1.6.0)
         - id: anomaly-detection-service

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.inventory.alert.entity.InventoryAlert;
 import com.crossborder.erp.inventory.alert.entity.InventoryAlertRule;
 import com.crossborder.erp.inventory.alert.entity.ReplenishmentSuggestion;
@@ -136,11 +137,11 @@ public class ReplenishmentSuggestionService extends ServiceImpl<ReplenishmentSug
     public void confirmSuggestion(Long suggestionId, Long confirmerId, String confirmerName, String remark) {
         ReplenishmentSuggestion suggestion = getById(suggestionId);
         if (suggestion == null) {
-            throw new RuntimeException("补货建议不存在: " + suggestionId);
+            throw new BizException("补货建议不存在: " + suggestionId);
         }
         
         if (!"PENDING".equals(suggestion.getStatus())) {
-            throw new RuntimeException("只能确认待确认状态的补货建议");
+            throw new BizException("只能确认待确认状态的补货建议");
         }
         
         suggestion.setStatus("CONFIRMED");
@@ -160,7 +161,7 @@ public class ReplenishmentSuggestionService extends ServiceImpl<ReplenishmentSug
     public void cancelSuggestion(Long suggestionId, String remark) {
         ReplenishmentSuggestion suggestion = getById(suggestionId);
         if (suggestion == null) {
-            throw new RuntimeException("补货建议不存在: " + suggestionId);
+            throw new BizException("补货建议不存在: " + suggestionId);
         }
         
         suggestion.setStatus("CANCELLED");

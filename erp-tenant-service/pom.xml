@@ -15,6 +15,16 @@
     <description>Multi-tenant management service for SaaS</description>
 
     <dependencies>
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.crossborder</groupId>
+            <artifactId>erp-common</artifactId>
+        </dependency>
+
         <!-- Spring Boot -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -1,5 +1,6 @@
 package com.crossborder.pricing.service.impl;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.pricing.dto.PricingRequest;
 import com.crossborder.pricing.dto.PricingResponse;
 import com.crossborder.pricing.service.CompetitorScrapeService;
@@ -204,7 +205,7 @@ public class PricingServiceImpl implements PricingService {
      */
     private BigDecimal calculateBasePrice(BigDecimal costPrice, BigDecimal targetProfitMargin) {
         if (costPrice == null || costPrice.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("成本价格必须大于0");
+            throw new BizException("成本价格必须大于0");
         }
 
         BigDecimal profitMargin = targetProfitMargin != null

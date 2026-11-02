@@ -1,5 +1,6 @@
 package com.omnitrade.erp.social.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.omnitrade.erp.social.client.TikTokApiClient;
@@ -359,7 +360,7 @@ public class TikTokProductService {
     
     private void refreshToken(TikTokShopConfig shop) {
         if (shop.getRefreshToken() == null) {
-            throw new RuntimeException("Refresh Token不存在，无法刷新");
+            throw new BizException("Refresh Token不存在，无法刷新");
         }
         
         try {

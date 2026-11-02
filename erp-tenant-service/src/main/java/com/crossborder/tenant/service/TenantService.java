@@ -1,5 +1,6 @@
 package com.crossborder.tenant.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.tenant.config.JwtTokenProvider;
 import com.crossborder.tenant.config.TenantContext;
 import com.crossborder.tenant.dto.*;
@@ -36,10 +37,10 @@ public class TenantService {
     public AuthResponse register(RegisterRequest request) {
         // 检查用户名/邮箱是否存在
         if (userRepository.existsByUsername(request.getUsername())) {
-            throw new RuntimeException("用户名已存在");
+            throw new BizException("用户名已存在");
         }
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("邮箱已被使用");
+            throw new BizException("邮箱已被使用");
         }
 
         // 创建租户
@@ -83,11 +84,11 @@ public class TenantService {
                 .orElseThrow(() -> new RuntimeException("用户不存在"));
 
         if (!passwordEncoder.matches(password, user.getPassword())) {
-            throw new RuntimeException("密码错误");
+            throw new BizException("密码错误");
         }
 
         if (user.getStatus() != UserStatus.ACTIVE) {
-            throw new RuntimeException("账号已被禁用");
+            throw new BizException("账号已被禁用");
         }
 
         Tenant tenant = tenantRepository.findById(user.getTenantId())

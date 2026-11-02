@@ -1,6 +1,7 @@
 package com.crossborder.recommend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.recommend.dto.FeedbackRequest;
 import com.crossborder.recommend.dto.FeedbackStats;
 import com.crossborder.recommend.entity.RecommendFeedback;
@@ -179,16 +180,16 @@ public class FeedbackService {
 
     private void validate(FeedbackRequest req) {
         if (req.getResultId() == null) {
-            throw new IllegalArgumentException("resultId 不能为空");
+            throw new BizException("resultId 不能为空");
         }
         if (req.getCandidateId() == null) {
-            throw new IllegalArgumentException("candidateId 不能为空");
+            throw new BizException("candidateId 不能为空");
         }
         if (req.getFeedbackType() == null || !ALLOWED_TYPES.contains(req.getFeedbackType())) {
-            throw new IllegalArgumentException("feedbackType 必须是 ADOPTED/REJECTED/IGNORED 之一");
+            throw new BizException("feedbackType 必须是 ADOPTED/REJECTED/IGNORED 之一");
         }
         if (req.getSellerRating() != null && (req.getSellerRating() < 1 || req.getSellerRating() > 5)) {
-            throw new IllegalArgumentException("sellerRating 必须在 1~5 之间");
+            throw new BizException("sellerRating 必须在 1~5 之间");
         }
     }
 
