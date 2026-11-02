@@ -6,15 +6,13 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.5</version>
-        <relativePath/>
+        <groupId>com.crossborder</groupId>
+        <artifactId>cross-border-erp</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <groupId>com.crossborder</groupId>
     <artifactId>erp-product-description-service</artifactId>
-    <version>1.5.0</version>
     <packaging>jar</packaging>
 
     <name>OmniTrade ERP - Product Description Service</name>
@@ -25,6 +23,20 @@
     </properties>
 
     <dependencies>
+
+        <!-- Nacos 服务注册/发现 -->
+        <!-- ⚠️ 之前这两个模块用独立父 pom（spring-boot-starter-parent 3.3.5），
+        #     没有 nacos-discovery 依赖 → 永远注册不到 Nacos → 网关的 lb:// 路由必然 503。
+        #     现已统一继承根 pom，拿到与其它服务一致的 nacos / erp-common / 异常契约。 -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+
 
         <!-- JUnit Jupiter (Test) -->
         <dependency>

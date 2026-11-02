@@ -98,37 +98,15 @@ async function generate() {
       tone: form.tone,
       keywords: form.keywordsText.split(',').map(s => s.trim()).filter(Boolean),
     })
-    result.value = JSON.parse(r.description)
-  } catch {
-    // mock
-    result.value = mockResult(form)
+    result.value = r
+  } catch (error) {
+    // ⚠️ 之前这里回退到 mock 数据，把后端的失败全部掩盖了。
+    //    后端现在返回结构化的 {title, subtitle, body, bulletPoints, seoKeywords}。
+    console.error('生成失败', error)
+    result.value = null
+    ElMessage.error('描述生成失败，请稍后重试')
   } finally {
     generating.value = false
-  }
-}
-
-function mockResult(f: typeof form) {
-  const titlesZh: any = { 'SKU-BLU-001-BLK': '全新主动降噪蓝牙耳机 — 沉浸式听觉体验',
-                          'SKU-WAT-002-BLK': '智能手表 X1 — 健康管理，运动助理',
-                          'SKU-USB-003-US':  '65W GaN 充电器 — 出行随身充',
-                          'SKU-PWB-005-BLK': '20000mAh 大容量 — 全天候续航',
-                          'SKU-BTY-010':     '焕颜精华液 — 28 天见证年轻肌' }
-  const zh = f.language === 'zh'
-  if (zh) {
-    return {
-      title: titlesZh[f.sku] || '精品跨境商品',
-      subtitle: '出海优选 · 高毛利 · 低售后',
-      body: '本产品经过严格的供应链筛选与质检认证，专为跨境电商渠道打造。\n\n我们使用顶级材料制造，每个细节都经过反复打磨，确保为全球消费者带来卓越的购物体验。',
-      bulletPoints: ['亚马逊 eChoice 选品', 'FDA/CE/FCC 多重认证', '90 天无理由退换', '24/7 海外仓发货'],
-      seoKeywords: ['cross border', 'high quality', 'fast shipping', 'best price']
-    }
-  }
-  return {
-    title: 'Premium Wireless Bluetooth Earbuds Pro',
-    subtitle: 'Active Noise Cancelling · 30H Battery · IPX5',
-    body: 'Engineered for the modern traveler — these earbuds deliver crisp, balanced audio with deep bass and crystal-clear calls.\n\nPowered by advanced ANC technology, they block up to 35dB of ambient noise, letting you focus on what matters most.',
-    bulletPoints: ['Active Noise Cancellation (35dB)', '30-Hour Total Battery with Case', 'IPX5 Water Resistant', 'Bluetooth 5.3 Stable Connection', 'Touch Controls + Voice Assistant'],
-    seoKeywords: ['wireless earbuds', 'bluetooth 5.3', 'ANC', 'IPX5', 'long battery', 'sport earbuds', 'travel essentials']
   }
 }
 

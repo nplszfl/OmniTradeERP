@@ -3,6 +3,8 @@ package com.crossborder.productdescription.service.impl;
 import com.crossborder.productdescription.config.LLMConfig;
 import com.crossborder.productdescription.dto.DescriptionGenerationRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
+import com.crossborder.productdescription.dto.FrontendDescriptionRequest;
+import com.crossborder.productdescription.dto.FrontendDescriptionResponse;
 import com.crossborder.productdescription.service.ProductDescriptionService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
@@ -29,6 +31,15 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
 
     // 模拟描述模板
     private final Map<String, String> templates = new HashMap<>();
+
+    /**
+     * 生成历史（内存）
+     *
+     * <p>⚠️ 这个服务目前没有落库（没有 Mapper），历史只能存在内存里，
+     * 服务重启就没了。接入数据库时把这里换成 Mapper 即可。</p>
+     */
+    private final java.util.concurrent.CopyOnWriteArrayList<DescriptionGenerationResponse> history =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
 
     private final LLMConfig llmConfig;
 
@@ -100,6 +111,9 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
             response.setContent("生成失败，请稍后重试。");
             response.setError(e.getMessage());
         }
+
+        // 记录生成历史（前端 GET /api/description/history 要查）
+        history.add(response);
 
         return response;
     }
@@ -252,6 +266,111 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         templates.put("ebay", "ebay_product_template");
         templates.put("shopee", "shopee_product_template");
         templates.put("general", "general_product_template");
+    }
+
+    @Override
+    public List<Map<String, Object>> listTemplates() {
+        List<Map<String, Object>> list = new ArrayList<>();
+        list.add(template("amazon", "Amazon Listing", "zh", "professional",
+                "标题 + 五点描述 + 描述段落，符合 Amazon A10 规范"));
+        list.add(template("ebay", "eBay Listing", "en", "concise",
+                "标题 + 简短描述 + 商品属性，适合快速浏览"));
+        list.add(template("shopee", "Shopee Listing", "en", "friendly",
+                "强调卖点与促销信息，贴合东南亚买家的短文案习惯"));
+        list.add(template("general", "通用描述", "auto", "balanced",
+                "跨平台通用描述，按目标语言自动适配"));
+        return list;
+    }
+
+    private Map<String, Object> template(String id, String name, String language, String tone, String sample) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", id);
+        map.put("templateId", templates.getOrDefault(id, id + "_product_template"));
+        map.put("name", name);
+        map.put("platform", id);
+        map.put("language", language);
+        map.put("tone", tone);
+        map.put("sample", sample);
+        return map;
+    }
+
+    @Override
+    public FrontendDescriptionResponse generateForFrontend(FrontendDescriptionRequest request) {
+        FrontendDescriptionRequest req = request == null
+                ? new FrontendDescriptionRequest()
+                : request;
+
+        DescriptionGenerationRequest internal = new DescriptionGenerationRequest();
+        internal.setProductId(null);
+        internal.setProductName(req.getSku() == null ? "商品" : req.getSku());
+        internal.setKeywords(req.getKeywords());
+        internal.setFeatures(req.getKeywords());
+        internal.setTargetLanguage(req.getLanguage());
+        internal.setTargetPlatform(req.getTargetPlatform());
+        internal.setLength(req.getLength());
+        internal.setEnableSEO(true);
+        internal.setExtractHighlights(true);
+        internal.setGenerateShortTitle(true);
+        if (req.getTone() != null && !req.getTone().isBlank()) {
+            internal.setCustomPrompt("风格语气: " + req.getTone());
+        }
+
+        DescriptionGenerationResponse response = generateDescription(internal);
+
+        FrontendDescriptionResponse out = new FrontendDescriptionResponse();
+        out.setTemplateId(response.getTemplateId());
+        out.setGenerationTime(response.getGenerationTime());
+        out.setError(response.getError());
+
+        // SEO 结果 → title / seoKeywords
+        DescriptionGenerationResponse.SEOResult seo = response.getSeoResult();
+        if (seo != null) {
+            out.setTitle(seo.getTitle());
+            out.setSeoKeywords(seo.getPrimaryKeywords() == null
+                    ? List.of() : seo.getPrimaryKeywords());
+            if (seo.getDescription() != null && !seo.getDescription().isBlank()) {
+                out.setBody(seo.getDescription());
+            }
+        }
+        if (out.getTitle() == null || out.getTitle().isBlank()) {
+            out.setTitle(response.getShortTitle() != null && !response.getShortTitle().isBlank()
+                    ? response.getShortTitle()
+                    : internal.getProductName());
+        }
+        if (out.getBody() == null || out.getBody().isBlank()) {
+            out.setBody(response.getContent());
+        }
+        out.setSubtitle(response.getShortTitle());
+
+        // 亮点 → bulletPoints
+        if (response.getHighlights() != null && !response.getHighlights().isEmpty()) {
+            List<String> points = response.getHighlights().stream()
+                    .map(h -> h.getFeature() != null && !h.getFeature().isBlank()
+                            ? h.getFeature()
+                            : h.getDescription())
+                    .filter(s -> s != null && !s.isBlank())
+                    .toList();
+            out.setBulletPoints(points);
+        }
+        if (out.getBulletPoints() == null || out.getBulletPoints().isEmpty()) {
+            out.setBulletPoints(req.getKeywords() == null ? List.of() : req.getKeywords());
+        }
+        if (out.getSeoKeywords() == null || out.getSeoKeywords().isEmpty()) {
+            out.setSeoKeywords(req.getKeywords() == null ? List.of() : req.getKeywords());
+        }
+        return out;
+    }
+
+    @Override
+    public List<DescriptionGenerationResponse> listHistory(Long productId, int limit) {
+        int max = limit <= 0 ? 20 : Math.min(limit, 200);
+        return history.stream()
+                .filter(h -> productId == null || productId.equals(h.getProductId()))
+                .sorted(Comparator.comparing(
+                        (DescriptionGenerationResponse h) -> h.getCreateTime() == null
+                                ? LocalDateTime.MIN : h.getCreateTime()).reversed())
+                .limit(max)
+                .toList();
     }
 
     /**

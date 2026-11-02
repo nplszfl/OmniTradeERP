@@ -2,8 +2,11 @@ package com.crossborder.productdescription.service;
 
 import com.crossborder.productdescription.dto.DescriptionGenerationRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
+import com.crossborder.productdescription.dto.FrontendDescriptionRequest;
+import com.crossborder.productdescription.dto.FrontendDescriptionResponse;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 产品描述生成服务
@@ -99,4 +102,37 @@ public interface ProductDescriptionService {
      * @return 导入结果
      */
     String batchImportProducts(List<Long> productIds);
+
+    /**
+     * 获取可用描述模板列表
+     *
+     * <p>前端 erp-web/src/api/ai.ts 的 {@code descriptionApi.templates()}
+     * 调用 {@code GET /api/description/templates}，之前后端没有这个接口 → 404。</p>
+     *
+     * @return 模板列表
+     */
+    List<Map<String, Object>> listTemplates();
+
+    /**
+     * 获取描述生成历史
+     *
+     * <p>前端 {@code descriptionApi.history(params)} 调用
+     * {@code GET /api/description/history}，之前后端没有这个接口 → 404。</p>
+     *
+     * @param productId 产品ID（可空）
+     * @param limit    返回条数上限
+     * @return 历史记录（按生成时间倒序）
+     */
+    List<DescriptionGenerationResponse> listHistory(Long productId, int limit);
+
+    /**
+     * 按前端请求格式生成描述
+     *
+     * <p>前端 erp-web/src/api/ai.ts 传的是 {@code {sku, language, tone, keywords}}，
+     * 并期望拿到 {@code {title, subtitle, body, bulletPoints, seoKeywords}}。</p>
+     *
+     * <p>内部转成 {@link DescriptionGenerationRequest} 走同一套生成逻辑，
+     * 再把结果整理成前端要的形状。</p>
+     */
+    FrontendDescriptionResponse generateForFrontend(FrontendDescriptionRequest request);
 }

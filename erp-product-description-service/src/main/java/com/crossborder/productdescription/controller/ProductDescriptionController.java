@@ -2,6 +2,8 @@ package com.crossborder.productdescription.controller;
 
 import com.crossborder.productdescription.dto.DescriptionGenerationRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
+import com.crossborder.productdescription.dto.FrontendDescriptionRequest;
+import com.crossborder.productdescription.dto.FrontendDescriptionResponse;
 import com.crossborder.productdescription.service.ProductDescriptionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -9,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 产品描述生成控制器
@@ -21,9 +24,16 @@ public class ProductDescriptionController {
 
     private final ProductDescriptionService productDescriptionService;
 
-    @Operation(summary = "生成产品描述")
+    @Operation(summary = "生成产品描述（前端接口）")
     @PostMapping("/generate")
-    public DescriptionGenerationResponse generateDescription(
+    public FrontendDescriptionResponse generateDescription(
+            @RequestBody FrontendDescriptionRequest request) {
+        return productDescriptionService.generateForFrontend(request);
+    }
+
+    @Operation(summary = "生成产品描述（内部接口，完整参数）")
+    @PostMapping("/generate/internal")
+    public DescriptionGenerationResponse generateDescriptionInternal(
             @RequestBody DescriptionGenerationRequest request) {
         return productDescriptionService.generateDescription(request);
     }
@@ -84,6 +94,31 @@ public class ProductDescriptionController {
     @PostMapping("/batch-import")
     public String batchImportProducts(@RequestBody List<Long> productIds) {
         return productDescriptionService.batchImportProducts(productIds);
+    }
+
+    /**
+     * 获取可用描述模板
+     *
+     * <p>前端 erp-web/src/api/ai.ts 的 {@code descriptionApi.templates()}
+     * → {@code GET /api/description/templates}，之前后端没这个接口 → 404。</p>
+     */
+    @Operation(summary = "获取可用描述模板")
+    @GetMapping("/templates")
+    public List<Map<String, Object>> templates() {
+        return productDescriptionService.listTemplates();
+    }
+
+    /**
+     * 获取描述生成历史
+     *
+     * <p>前端 {@code descriptionApi.history(params)} → {@code GET /api/description/history}。</p>
+     */
+    @Operation(summary = "获取描述生成历史")
+    @GetMapping("/history")
+    public List<DescriptionGenerationResponse> history(
+            @RequestParam(required = false) Long productId,
+            @RequestParam(defaultValue = "20") Integer limit) {
+        return productDescriptionService.listHistory(productId, limit == null ? 20 : limit);
     }
 
     @Operation(summary = "健康检查")
