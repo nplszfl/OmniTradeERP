@@ -1,6 +1,7 @@
 package com.crossborder.inventoryprediction.service;
 
 import com.crossborder.inventoryprediction.dto.ReplenishmentSuggestion;
+import com.crossborder.inventoryprediction.dto.ReplenishmentSuggestionVO;
 
 import java.util.List;
 
@@ -28,6 +29,18 @@ public interface ReplenishmentSuggestionService {
      * @return 紧急补货建议
      */
     List<ReplenishmentSuggestion> getUrgentReplenishments();
+
+    /**
+     * 查询补货建议列表（前端视图）
+     *
+     * <p>前端 {@code inventoryPredictApi.listSuggestions()} 调用的接口，
+     * 返回字段已对齐前端消费方式（sku / predicted30DaySales / recommendedReplenishment ...）。</p>
+     *
+     * @param productIds 需要查询的产品ID；为空则查询全部待补货产品
+     * @param limit      返回条数上限
+     * @return 补货建议列表（按紧急程度倒序）
+     */
+    List<ReplenishmentSuggestionVO> listSuggestions(List<Long> productIds, int limit);
 
     /**
      * 计算最优补货量
