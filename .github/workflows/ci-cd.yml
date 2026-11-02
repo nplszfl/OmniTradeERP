@@ -2,9 +2,13 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    # ⚠️ 必须是 master —— 本仓库唯一的分支是 master（origin/HEAD -> origin/master）。
+    #    之前写的是 [ main, develop ]，而这两个分支**从来不存在** →
+    #    三个 workflow 一次都没被触发过 → CI 形同虚设，
+    #    所有巡检盲区（端口漂移 / DDL 缺失 / 路由错配）都因此活了下来。
+    branches: [ master, main, develop ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ master, main, develop ]
 
 env:
   JAVA_VERSION: '21'
@@ -42,6 +46,44 @@ jobs:
         name: jar-files
         path: '*/target/*.jar'
         retention-days: 7
+
+  # ============================================================
+  # 契约巡检：端口 / DDL / API 契约 / 网关路由
+  # ============================================================
+  # ⚠️ 为什么单独一个 job：这 4 个脚本是**静态**检查，不需要编译整个项目，
+  #    单独跑更快（几十秒 vs 几分钟），出问题时定位也更直接。
+  #
+  # 📌 为什么必须有它们：这几个脚本查出来的都是「编译能过、单测能过、
+  #    只有真部署/真起容器才炸」的问题 ——
+  #    端口漂移会让 k8s Pod 一直 CrashLoopRestart，
+  #    DDL 缺失会让服务连上库就报表不存在，
+  #    网关 StripPrefix 配错会让每个请求都 404。
+  #    之前它们只在本地手动跑，且 CI 因为分支名写错（main vs master）
+  #    一次都没触发过 → 盲区全都活了下来。
+  contract-audit:
+    name: Contract Audit (端口 / DDL / API / 网关)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: 端口一致性（application.yml ↔ compose ↔ k8s ↔ Dockerfile ↔ 文档）
+      run: python3 scripts/check-port-consistency.py
+
+    - name: SQL 契约（Java SQL ↔ database/*.sql ↔ datasource 库名）
+      run: python3 scripts/check-sql-schema.py --strict
+
+    - name: API 契约（前端 ↔ 网关 ↔ 后端）
+      run: python3 scripts/check-api-contract.py --strict
+
+    - name: 网关路径改写 ↔ 后端 controller 根路径
+      run: python3 scripts/check-gateway-strip.py
 
   # 前端构建和测试
   frontend-build-test:

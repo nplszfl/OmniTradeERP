@@ -18,7 +18,9 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path("/Users/huanghuixiang/OmniTradeERP")
+# ⚠️ 不要写死绝对路径 —— 换台机器 / CI runner 上会直接读不到文件。
+#    按脚本自身位置往上找仓库根（scripts/ 的上一级）。
+ROOT = Path(__file__).resolve().parent.parent
 GATEWAY = ROOT / "erp-gateway/src/main/resources/application.yml"
 
 text = GATEWAY.read_text(encoding="utf-8")
@@ -161,13 +163,36 @@ for r in routes:
             return p_segments[strip:] if len(p_segments) > strip else []
         return p_segments
 
+    # ⚠️ 候选 controller 根必须与网关 Path 的末段对齐。
+    #    Path=/api/auth/** 只能落到 /auth* 的 controller 上；
+    #    若把 /department、/user 等也当候选，那么「去掉 2 段恰好落到 /department」
+    #    这种错误配置也会被判为命中 → 真 bug 被放过。
+    #    Path 末段是通配（**）时无法据此筛选，退回全部候选。
+    # 候选 controller 根 = 全部（controller 根可能是多段的：
+    # /api/tenant/dashboard、/api/v1/anomaly、/inventory/alert、/purchase …，
+    # 不能按「Path 末段 == controller 根首段」来筛，那是错的假设）。
+    cand_roots = list(roots)
+    if not cand_roots:
+        # Path 末段与任何 controller 根都对不上 → 必然不匹配，直接记问题
+        problems.append((r["id"], path, strip if strip is not None else rewrite,
+                         "/", module, sorted(roots)[:5], [], []))
+        continue
+
     # 服务端 controller 根路径都长什么样
     root_firsts = sorted({r_.split("/")[1] for r_ in roots if r_.count("/") >= 1 and len(r_) > 1})
 
-    def reaches(segments):
-        """服务收到这些段后，能否命中任一 controller 根"""
+    def reaches(segments, root=None):
+        """服务收到这些段后，能否命中 controller 根。
+
+        ⚠️ root 参数很重要：必须针对**这条路由本该落到的那个** controller 根判定。
+           若对「所有 root」判定，一个服务的多个 controller（erp-user-service 就有
+           /auth、/user、/role、/department、/permission 五个）会互相掩盖错误 ——
+           错误的 StripPrefix 落到隔壁 controller 的前缀下，也算「命中」，
+           于是真 bug 被放过。
+        """
         svc = "/" + "/".join(segments)
-        for rt in roots:
+        targets = [root] if root else cand_roots
+        for rt in targets:
             rp = rt.rstrip("/")
             if svc == rp or svc.startswith(rp + "/"):
                 return True
@@ -184,18 +209,53 @@ for r in routes:
         if not raw.startswith(path.rstrip("*").rstrip("/")):
             continue
         ps = [s for s in raw.split("/") if s]
-        probes.append((fname, ps))
+        # 前端样本：controller 根未知 → 用 None（对所有 root 判定）
+        probes.append((fname, ps, None))
 
     if not probes:
-        # 无前端样本时用「理想客户端路径」= controller 根本身作为探测。
-        # 理由：若连 controller 自己的根路径都到不了，这个路由对任何客户端都不可用。
+        # 无前端样本时，用「能到达该 controller 的理想客户端路径」作为探测。
+        #
+        # 📌 正确的构造方式：
+        #    客户端路径 = 网关 Path 的字面段 + (controller 根去掉与 Path 重叠的前缀)
+        #    例：Path=/api/auth/** + controller 根 /auth/login
+        #        → 客户端路径 /api/auth/login
+        #        → StripPrefix=1 → 服务收到 /auth/login ✅ 命中该 controller
+        #    再例：Path=/api/tenant/** + controller 根 /api/tenant/dashboard
+        #        → Path 段 ['api','tenant'] 与根段 ['api','tenant','dashboard'] 重叠
+        #        → 客户端路径 /api/tenant/dashboard
+        #        → StripPrefix=0 → 服务收到 /api/tenant/dashboard ✅
+        #
+        # ⚠️ 这里必须逐个 controller 根构造并**按该根判定**，
+        #    否则一个服务的多个 controller 会互相掩盖 StripPrefix 配错。
+        prefix_segs = list(segs)
         for rt in sorted(roots):
-            probes.append(("(理想路径)", [s for s in rt.split("/") if s]))
+            rt_segs = [s for s in rt.split("/") if s]
+            # 去掉与 Path 前缀重叠的部分。
+            # ⚠️ 重叠是**后缀对齐**，不是前缀对齐：
+            #    Path=/api/auth/** 的段是 ['api','auth']，controller 根 /auth 的段是 ['auth']，
+            #    它们重叠的是**末尾**的 'auth'（Path 的最后一段就是 controller 根的起点）。
+            #    若按前缀对齐（k 从 0 比），'api' vs 'auth' 不等 → k=0
+            #    → 探测路径变成 /api/auth/auth/... → 重复了一段。
+            k = 0
+            while (k < len(prefix_segs) and k < len(rt_segs)
+                   and prefix_segs[len(prefix_segs) - 1 - k] == rt_segs[len(rt_segs) - 1 - k]):
+                k += 1
+            # 重叠的 k 段**已经被 Path 前缀覆盖**，客户端路径里不能再出现一次。
+            # 例：Path=/api/auth/** + 根 /auth → k=1（'auth' 重叠）
+            #     → 客户端路径 = /api/auth + (根剩下的段 = 空) + 子段 = /api/auth/__probe__
+            # 例：Path=/api/auth/** + 根 /auth/login → k=1（'auth' 重叠）
+            #     → 客户端路径 = /api/auth + ['login'] + 子段 = /api/auth/login/__probe__
+            rest = rt_segs[len(rt_segs) - k:] if k < len(rt_segs) else []
+            probes.append(("(理想路径)", prefix_segs + rest + ["__probe__"], rt))
 
+    # 每个 probe 带上它对应的 controller 根：
+    # 前端样本的 root 未知（None → 对所有 root 判定），
+    # 理想路径样本的 root 就是它自己 —— 必须按 root 判定，
+    # 否则一个服务的多个 controller 会互相掩盖 StripPrefix 配错。
     hits = []
-    for fname, ps in probes:
+    for fname, ps, root in probes:
         svc_segs = apply_filters(ps)
-        hits.append((fname, ps, svc_segs, reaches(svc_segs)))
+        hits.append((fname, ps, svc_segs, reaches(svc_segs, root)))
 
     if hits and any(h[3] for h in hits):
         continue
