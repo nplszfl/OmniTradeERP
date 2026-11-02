@@ -372,3 +372,76 @@ spec:
     name: http
   selector:
     app: erp-finance-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-logistics-service
+  namespace: erp
+  labels:
+    app: erp-logistics-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: erp-logistics-service
+  template:
+    metadata:
+      labels:
+        app: erp-logistics-service
+    spec:
+      containers:
+      - name: logistics-service
+        image: nplszfl/erp-logistics-service:latest
+        ports:
+        - containerPort: 8100
+          name: http
+        env:
+        - name: NACOS_SERVER_ADDR
+          value: "nacos-service:8848"
+        - name: SENTINEL_DASHBOARD
+          value: "sentinel-service:8858"
+        - name: MYSQL_HOST
+          value: "mysql-service"
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: RABBITMQ_HOST
+          value: "rabbitmq-service"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: JAVA_OPTS
+          value: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8100
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8100
+          initialDelaySeconds: 30
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-logistics-service
+  namespace: erp
+  labels:
+    app: erp-logistics-service
+spec:
+  ports:
+  - port: 8100
+    targetPort: 8100
+    name: http
+  selector:
+    app: erp-logistics-service

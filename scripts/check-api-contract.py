@@ -40,7 +40,13 @@ BASE_URL = "/api"
 
 
 def parse_gateway_routes():
-    """返回 [(route_id, uri, path_predicate, strip_prefix, rewrite_path)]"""
+    """返回 [(route_id, uri, path_predicate, strip_prefix, rewrite_path, methods)]
+
+    ⚠️ methods 来自 `Method=GET,POST` 谓词。Gateway 的路由匹配是
+    「所有谓词都满足」才算命中 —— 同一个 Path 用不同 Method 走不同后端路径是
+    本项目知识库接口的实际写法（GET → search，POST → knowledge）。
+    脚本必须同样建模，否则会误报「方法不对」。
+    """
     text = GATEWAY_YML.read_text(encoding="utf-8")
     routes = []
     # 按 "- id: xxx" 切块
@@ -51,13 +57,23 @@ def parse_gateway_routes():
         path = re.search(r"Path=([^\s]+)", block)
         strip = re.search(r"StripPrefix=(\d+)", block)
         rewrite = re.search(r"RewritePath=(.+)$", block, re.M)
-        routes.append((
-            rid,
-            uri.group(1) if uri else "",
-            path.group(1) if path else "",
-            int(strip.group(1)) if strip else None,
-            rewrite.group(1) if rewrite else None,
-        ))
+        method = re.search(r"Method=([A-Z,]+)", block)
+        methods = set(method.group(1).split(",")) if method else None
+        # ⚠️ Path 谓词可以是逗号分隔的多个值：
+        #    Path=/api/purchase/orders/**,/api/purchase/suppliers
+        #    Spring Cloud Gateway 会把它们当成「任一匹配」，脚本必须同样处理，
+        #    否则只取第一个 → /api/purchase/suppliers 会落到后面的通配路由上，
+        #    报出「后端没有这个接口」的假问题。
+        paths = [p.strip() for p in path.group(1).split(",")] if path else []
+        for p in paths:
+            routes.append((
+                rid,
+                uri.group(1) if uri else "",
+                p,
+                int(strip.group(1)) if strip else None,
+                rewrite.group(1) if rewrite else None,
+                methods,
+            ))
     return routes
 
 
@@ -138,6 +154,36 @@ def path_matches(frontend_path, backend_path):
 # ---------------------------------------------------------------- 主流程
 
 
+def apply_rewrite(full, src, dst):
+    """模拟 Gateway 的 RewritePath（Java Matcher.replaceAll 语义）。
+
+    Gateway 的实现是：把 replacement 里的 `$\\` 还原成 `$`，再用
+    `Pattern.compile(regexp).matcher(path).replaceAll(replacement)`。
+    所以 `$\\{seg}` → `${seg}` 是合法写法（Java 里 `\\{` 表示字面量 `{`）。
+
+    命名捕获组既可能是 `seg`，也可能是任意名字（本项目用过 `id`），
+    静态整条替换（无捕获组）也要支持。
+    """
+    # Gateway 先做 `$\` → `$` 的还原
+    dst = dst.replace("$\\", "$")
+    names = re.findall(r"\(\?<([A-Za-z_][A-Za-z0-9_]*)>", src)
+    # Python 的 re 不支持 Java 的命名组语法 `(?<name>...)`，
+    # 转成 Python 语法 `(?P<name>...)`
+    py_src = re.sub(r"\(\?<([A-Za-z_][A-Za-z0-9_]*)>", r"(?P<\1>", src)
+    if not names:
+        # 静态替换：regexp 匹配整条路径
+        return re.sub(py_src, lambda m: dst, full)
+    # 取各命名组在原路径里的实际值
+    m = re.match(py_src, full)
+    if not m:
+        return dst
+    out = dst
+    for name in names:
+        val = m.group(name) or ""
+        out = out.replace("${" + name + "}", val)
+    return out
+
+
 def main():
     strict = "--strict" in sys.argv
     routes = parse_gateway_routes()
@@ -156,7 +202,7 @@ def main():
     for module_dir in ROOT.glob("erp-*-service"):
         if (module_dir / "pom.xml").exists():
             known_services.add(module_dir.name)
-    for rid, uri, path, strip, rewrite in routes:
+    for rid, uri, path, strip, rewrite, _methods in routes:
         if not uri.startswith("lb://"):
             continue
         target = uri[5:]
@@ -164,7 +210,7 @@ def main():
             problems["dead_route"].append((rid, uri))
 
     # 2) 服务是否缺 application.yml / 缺 nacos 配置（lb:// 路由的前提）
-    for rid, uri, path, strip, rewrite in routes:
+    for rid, uri, path, strip, rewrite, _methods in routes:
         if not uri.startswith("lb://"):
             continue
         target = uri[5:]
@@ -183,8 +229,11 @@ def main():
     for fname, method, raw_path in frontend:
         full = BASE_URL + raw_path if raw_path.startswith("/") else raw_path
         matched = None
-        for rid, uri, path, strip, rewrite in routes:
+        for rid, uri, path, strip, rewrite, methods in routes:
             if not path:
+                continue
+            # Method 谓词：路由声明了方法就不匹配的请求不算这条路由
+            if methods and method not in methods:
                 continue
             prefix = path.rstrip("*").rstrip("/")
             if full == prefix or full.startswith(prefix + "/"):
@@ -201,11 +250,7 @@ def main():
         if rewrite:
             m = re.match(r"^([^,]+),\s*(.+)$", rewrite)
             src, dst = m.group(1), m.group(2)
-            seg = re.search(r"\(\?<seg>\.\*\)", src)
-            tail = full[len(src.split("(")[0]):]
-            if seg:
-                tail = tail.lstrip("/")
-            forwarded = re.sub(r"\$\\\{seg\}", tail, dst)
+            forwarded = apply_rewrite(full, src, dst)
         elif strip is not None:
             forwarded = "/".join(full.strip("/").split("/")[strip:])
             forwarded = "/" + forwarded

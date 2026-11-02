@@ -23,6 +23,17 @@ spring:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:omnitrade_erp}
     username: postgres
     password: postgres
+
+  # ⚠️ 必须显式开 sql.init：
+  # Spring Boot 默认 spring.sql.init.mode=embedded，**只对 H2/HSQL 等内存库生效**，
+  # 对 PostgreSQL 不会执行 classpath 下的 schema.sql。
+  # 本模块用的是 MyBatis-Plus（@TableName），没有 @Entity，
+  # 所以 ddl-auto 那句是空转 —— 5 张表只能靠 schema.sql 建。
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      continue-on-error: true
   
   # JPA配置
   jpa:

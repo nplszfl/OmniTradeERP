@@ -184,12 +184,58 @@ spring:
             - RewritePath=/api/social/(?<seg>.*), /api/v1/$\{seg}
 
         # AI 智能客服助手
-        # ⚠️ 已移除路由：erp-ai-assistant-service 是独立父 pom 的模块（Boot 3.3.5），
-        #    没有 nacos-discovery 依赖 → 永远注册不到 Nacos → lb:// 解析不到实例，
-        #    留着一条永远走不通的路由只会误导排障。
-        #    前端目前也没有调用 /api/ai/assistant/** 的地方（ai.ts 走的是 pricing/
-        #    description/inventory-prediction/anomaly/recommend）。
-        #    等该服务接上 Nacos 后再把路由加回来。
+        # ⚠️ 这条路由之前被删掉了：erp-ai-assistant-service 当时用独立父 pom
+        #    （spring-boot-starter-parent 3.3.5），没 nacos-discovery 依赖 → 注册不到 Nacos。
+        #    现已统一继承根 pom 并补上 nacos-discovery + discovery 配置 → 可以路由了。
+        #
+        #    前端 erp-web/src/api/ai.ts 用的是 /api/ai/assistant/**，
+        #    后端 controller 根是 /api/v1/ai-assistant/** → 需要 RewritePath 对齐。
+        #
+        #    ⚠️ 顺序很重要：Gateway 按声明顺序匹配，第一条命中即生效。
+        #    下面 3 条 knowledge 专用路由必须排在通配的 /api/ai/assistant/** 之前，
+        #    否则 knowledge 请求会被通配路由吃掉，落到 /api/v1/ai-assistant/knowledge
+        #    （那个只支持 POST），GET/DELETE 会 405。
+        #
+        #    前端三个动作分别对应后端不同路径：
+        #      GET    /api/ai/assistant/knowledge        → /api/ai/knowledge/search
+        #      POST   /api/ai/assistant/knowledge        → /api/v1/ai-assistant/knowledge
+        #      DELETE /api/ai/assistant/knowledge/{id}   → /api/ai/knowledge/documents/{id}
+        - id: ai-knowledge-list
+          uri: lb://erp-ai-assistant-service
+          predicates:
+            - Path=/api/ai/assistant/knowledge
+            - Method=GET
+          filters:
+            - RewritePath=/api/ai/assistant/knowledge, /api/ai/knowledge/search
+        - id: ai-knowledge-add
+          uri: lb://erp-ai-assistant-service
+          predicates:
+            - Path=/api/ai/assistant/knowledge
+            - Method=POST
+          filters:
+            - RewritePath=/api/ai/assistant/knowledge, /api/v1/ai-assistant/knowledge
+        - id: ai-knowledge-delete
+          uri: lb://erp-ai-assistant-service
+          predicates:
+            - Path=/api/ai/assistant/knowledge/**
+            - Method=DELETE
+          filters:
+            - RewritePath=/api/ai/assistant/knowledge/(?<id>.*), /api/ai/knowledge/documents/$\{id}
+        - id: ai-assistant-service
+          uri: lb://erp-ai-assistant-service
+          predicates:
+            - Path=/api/ai/assistant/**
+          filters:
+            - RewritePath=/api/ai/assistant/(?<seg>.*), /api/v1/ai-assistant/$\{seg}
+
+        # 产品描述生成
+        # 前端用 /api/description/**，后端 controller 根是 /api/v1/product-description/**
+        - id: product-description-service
+          uri: lb://erp-product-description-service
+          predicates:
+            - Path=/api/description/**
+          filters:
+            - RewritePath=/api/description/(?<seg>.*), /api/v1/product-description/$\{seg}
 
         # 数据分析服务
         # 后端 controller 根路径 /api/v1/analytics/**，前端用 /api/analytics/**
