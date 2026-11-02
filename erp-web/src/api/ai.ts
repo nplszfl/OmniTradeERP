@@ -68,8 +68,19 @@ export const pricingApi = {
   listTasks: (params: any) => request.get('/pricing/tasks', { params }),
 }
 
+export interface DescriptionResult {
+  title: string
+  subtitle: string
+  body: string
+  bulletPoints: string[]
+  seoKeywords: string[]
+  templateId?: string
+  generationTime?: number
+  error?: string
+}
+
 export const descriptionApi = {
-  generate: (data: DescriptionRequest) => request.post<any, { description: string }>('/description/generate', data),
+  generate: (data: DescriptionRequest) => request.post<any, DescriptionResult>('/description/generate', data),
   templates: () => request.get('/description/templates'),
   history: (params: any) => request.get('/description/history', { params }),
 }

@@ -84,15 +84,13 @@ async function load() {
   loading.value = true
   try {
     list.value = await inventoryPredictApi.listSuggestions({})
-  } catch {
-    list.value = [
-      { sku: 'SKU-STN-004',     productName: '便携手机支架',       currentStock: 1920, predicted30DaySales: 1500, recommendedReplenishment: 0,    safetyStock: 300, urgency: 'LOW',    urgencyLabel: '低' },
-      { sku: 'SKU-USB-003-US',  productName: '65W GaN 充电器',      currentStock: 920,  predicted30DaySales: 1100, recommendedReplenishment: 380,  safetyStock: 200, urgency: 'MEDIUM', urgencyLabel: '中等' },
-      { sku: 'SKU-BLU-001-BLK', productName: '无线蓝牙耳机 Pro',   currentStock: 400,  predicted30DaySales: 580,  recommendedReplenishment: 280,  safetyStock: 100, urgency: 'HIGH',   urgencyLabel: '紧急' },
-      { sku: 'SKU-PWB-005-BLK', productName: '20000mAh 充电宝',     currentStock: 530,  predicted30DaySales: 480,  recommendedReplenishment: 50,   safetyStock: 100, urgency: 'LOW',    urgencyLabel: '低' },
-      { sku: 'SKU-WAT-002-BLK', productName: '智能手表 X1',         currentStock: 160,  predicted30DaySales: 220,  recommendedReplenishment: 160,  safetyStock: 50,  urgency: 'MEDIUM', urgencyLabel: '中等' },
-      { sku: 'SKU-BTY-010',     productName: '精华液 30ml',         currentStock: 760,  predicted30DaySales: 600,  recommendedReplenishment: 0,    safetyStock: 150, urgency: 'LOW',    urgencyLabel: '低' },
-    ]
+  } catch (error) {
+    // ⚠️ 之前这里回退到 mock 数据，把后端的 404/500 全部掩盖了。
+    //    预测服务已有真实接口（/inventory-prediction/suggestions、/predict/{sku}），
+    //    失败就如实报错。
+    console.error('加载补货建议失败', error)
+    list.value = []
+    ElMessage.error('补货建议加载失败')
   } finally {
     loading.value = false
     lastSync.value = new Date().toLocaleString()
@@ -100,12 +98,25 @@ async function load() {
 }
 
 function refresh() { load(); ElMessage.success('预测已刷新') }
-function viewChart(row: any) {
-  chartData.value = Array.from({ length: 30 }, (_, i) => ({
-    date: `D+${i + 1}`,
-    value: Math.round(row.predicted30DaySales / 30 + (Math.random() - 0.5) * 20),
-  }))
-  chartVisible.value = true
+async function viewChart(row: any) {
+  // ⚠️ 之前这里用 Math.random() 现场编一条 30 天曲线 —— 纯假数据。
+  //    现在真的调预测接口拿明细曲线。
+  try {
+    const res = await inventoryPredictApi.predict(row.sku, 30)
+    // 后端返回 PredictionResponse.dailyPredictions: [{date, predictedSales, ...}]
+    const points = res?.dailyPredictions || []
+    chartData.value = points.map((p: any, i: number) => ({
+      date: p.date ? String(p.date).slice(5) : `D+${i + 1}`,
+      value: p.predictedSales ?? 0,
+    }))
+    if (!chartData.value.length) {
+      ElMessage.warning('该 SKU 暂无预测明细')
+    }
+    chartVisible.value = true
+  } catch (error) {
+    console.error('加载预测明细失败', error)
+    ElMessage.error('预测明细加载失败')
+  }
 }
 function createPO(row: any) {
   ElMessage.success(`已基于 AI 建议创建 ${row.sku} 的采购单（${row.recommendedReplenishment} 件）`)

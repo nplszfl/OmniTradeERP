@@ -64,24 +64,20 @@ async function load() {
   try {
     list.value = await pricingApi.listTasks({})
     if (sku.value) current.value = await pricingApi.suggest(sku.value)
-  } catch {
-    // mock
-    list.value = [
-      { sku: 'SKU-BLU-001-BLK', productName: '蓝牙耳机 Pro', strategy: '跟随竞品', currentPrice: 299, suggestedPrice: 315, applied: false },
-      { sku: 'SKU-WAT-002-BLK', productName: '智能手表 X1',  strategy: '提升毛利', currentPrice: 599, suggestedPrice: 619, applied: false },
-      { sku: 'SKU-USB-003-US',  productName: '65W GaN 充电器', strategy: '保持原价', currentPrice: 89,  suggestedPrice: 89,  applied: true  },
-      { sku: 'SKU-PWB-005-BLK', productName: '20000mAh 充电宝', strategy: '清理库存', currentPrice: 199, suggestedPrice: 179, applied: false },
-      { sku: 'SKU-STN-004',     productName: '便携手机支架',     strategy: '跟随竞品', currentPrice: 39,  suggestedPrice: 45,  applied: false },
-    ]
-    if (sku.value === 'SKU-BLU-001-BLK') {
-      current.value = list.value[0]
-      current.value.competitorAvg = 312.5
-      current.value.expectedProfit = 65.2
-    }
+  } catch (error) {
+    // ⚠️ 之前这里回退到 mock 数据，把后端的 404/500 全部掩盖了。
+    //    现在定价服务已有真实接口（/api/pricing/tasks、/api/pricing/suggest/{sku}），
+    //    失败就如实报错。
+    console.error('加载定价建议失败', error)
+    list.value = []
+    current.value = null
+    ElMessage.error('定价建议加载失败')
   } finally { loading.value = false }
 }
 
-function showDetail(row: any) { current.value = row; row.competitorAvg = (Math.random() * 30 + row.currentPrice * 0.9).toFixed(2); row.expectedProfit = (row.suggestedPrice - row.currentPrice * 0.4).toFixed(2) }
+// ⚠️ 之前这里用 Math.random() 现场造竞品均价和预期利润 —— 每次点开都不一样，纯属假数据。
+//    现在直接展示后端返回的字段。
+function showDetail(row: any) { current.value = row }
 function apply(row: any) { row.applied = true; ElMessage.success(`已采纳 ${row.sku} 的建议价`) }
 </script>
 
