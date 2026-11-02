@@ -1,6 +1,7 @@
 package com.crossborder.erp.finance.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.common.result.Result;
 import com.crossborder.erp.finance.converter.FinanceConverter;
 import com.crossborder.erp.finance.dto.FinanceAccountRequest;
@@ -129,11 +130,11 @@ public class FinanceController {
     @PutMapping("/account")
     public Result<FinanceAccountVO> updateAccount(@RequestBody FinanceAccountRequest request) {
         if (request.getId() == null) {
-            throw new IllegalArgumentException("账户 ID 不能为空");
+            throw new BizException("账户 ID 不能为空");
         }
         FinanceAccount existing = financeService.getAccountById(request.getId());
         if (existing == null) {
-            throw new IllegalArgumentException("账户不存在");
+            throw new BizException("账户不存在");
         }
         existing.setName(request.getAccountName());
         existing.setAccountNumber(request.getAccountNo());
@@ -274,7 +275,7 @@ public class FinanceController {
     public Result<FinanceFlowVO> getFlow(@PathVariable Long id) {
         FinanceRecord record = financeService.getRecordById(id);
         if (record == null) {
-            throw new IllegalArgumentException("流水不存在");
+            throw new BizException("流水不存在");
         }
         FinanceAccount account = financeService.getAccountById(record.getAccountId());
         FinanceCategory category = record.getCategoryId() == null
@@ -301,11 +302,11 @@ public class FinanceController {
     @PutMapping("/flow")
     public Result<FinanceFlowVO> updateFlow(@RequestBody FinanceFlowRequest request) {
         if (request.getId() == null) {
-            throw new IllegalArgumentException("流水 ID 不能为空");
+            throw new BizException("流水 ID 不能为空");
         }
         FinanceRecord existing = financeService.getRecordById(request.getId());
         if (existing == null) {
-            throw new IllegalArgumentException("流水不存在");
+            throw new BizException("流水不存在");
         }
         existing.setType(FinanceConverter.toFinanceType(request.getType()));
         existing.setAmount(request.getAmount());
@@ -453,11 +454,11 @@ public class FinanceController {
     @PutMapping("/category")
     public Result<FinanceCategoryVO> updateCategory(@RequestBody FinanceCategoryRequest request) {
         if (request.getId() == null) {
-            throw new IllegalArgumentException("分类 ID 不能为空");
+            throw new BizException("分类 ID 不能为空");
         }
         FinanceCategory existing = financeService.getCategoryById(request.getId());
         if (existing == null) {
-            throw new IllegalArgumentException("分类不存在");
+            throw new BizException("分类不存在");
         }
         existing.setName(request.getName());
         existing.setType(FinanceConverter.toCategoryType(request.getType()));

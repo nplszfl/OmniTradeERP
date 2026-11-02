@@ -3,6 +3,7 @@ package com.crossborder.erp.finance.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.finance.dto.FinanceRecordQuery;
 import com.crossborder.erp.finance.entity.*;
 import com.crossborder.erp.finance.enums.*;
@@ -43,7 +44,7 @@ public class FinanceServiceImpl implements FinanceService {
         // 先校验账户，账户不存在时不要生成流水号（避免产生"有号无记录"的脏数据）
         FinanceAccount account = accountMapper.selectById(record.getAccountId());
         if (account == null) {
-            throw new RuntimeException("账户不存在");
+            throw new BizException("账户不存在");
         }
         
         record.setRecordNo(generateRecordNo());
@@ -131,10 +132,10 @@ public class FinanceServiceImpl implements FinanceService {
     public void updateRecord(FinanceRecord record) {
         FinanceRecord oldRecord = recordMapper.selectById(record.getId());
         if (oldRecord == null) {
-            throw new RuntimeException("记录不存在");
+            throw new BizException("记录不存在");
         }
         if (oldRecord.getStatus() == RecordStatus.VOIDED) {
-            throw new RuntimeException("已作废的记录不能修改");
+            throw new BizException("已作废的记录不能修改");
         }
         
         // 如果金额或类型发生变化，需要调整账户余额
@@ -145,7 +146,7 @@ public class FinanceServiceImpl implements FinanceService {
             // 恢复原账户余额（REFUND 与 INCOME 同向，回滚时同样按加/减的相反操作处理）
             FinanceAccount oldAccount = accountMapper.selectById(oldRecord.getAccountId());
             if (oldAccount == null) {
-                throw new RuntimeException("账户不存在");
+                throw new BizException("账户不存在");
             }
             if (isBalanceIncrease(oldRecord.getType())) {
                 oldAccount.setBalance(oldAccount.getBalance().subtract(oldRecord.getAmount()));
@@ -158,7 +159,7 @@ public class FinanceServiceImpl implements FinanceService {
             // 更新新账户余额
             FinanceAccount newAccount = accountMapper.selectById(record.getAccountId());
             if (newAccount == null) {
-                throw new RuntimeException("账户不存在");
+                throw new BizException("账户不存在");
             }
             if (isBalanceIncrease(record.getType())) {
                 newAccount.setBalance(newAccount.getBalance().add(record.getAmount()));
@@ -180,16 +181,16 @@ public class FinanceServiceImpl implements FinanceService {
     public void deleteRecord(Long recordId) {
         FinanceRecord record = recordMapper.selectById(recordId);
         if (record == null) {
-            throw new RuntimeException("记录不存在");
+            throw new BizException("记录不存在");
         }
         if (record.getStatus() == RecordStatus.VOIDED) {
-            throw new RuntimeException("记录已作废");
+            throw new BizException("记录已作废");
         }
 
         // 先把账户余额改回去，再删流水——否则账户余额会与流水对不上
         FinanceAccount account = accountMapper.selectById(record.getAccountId());
         if (account == null) {
-            throw new RuntimeException("账户不存在");
+            throw new BizException("账户不存在");
         }
         if (isBalanceIncrease(record.getType())) {
             account.setBalance(account.getBalance().subtract(record.getAmount()));
@@ -210,16 +211,16 @@ public class FinanceServiceImpl implements FinanceService {
     public void voidRecord(Long recordId, String voidReason) {
         FinanceRecord record = recordMapper.selectById(recordId);
         if (record == null) {
-            throw new RuntimeException("记录不存在");
+            throw new BizException("记录不存在");
         }
         if (record.getStatus() == RecordStatus.VOIDED) {
-            throw new RuntimeException("记录已作废");
+            throw new BizException("记录已作废");
         }
         
         // 调整账户余额（REFUND 与 INCOME 同向，作废时反向回退）
         FinanceAccount account = accountMapper.selectById(record.getAccountId());
         if (account == null) {
-            throw new RuntimeException("账户不存在");
+            throw new BizException("账户不存在");
         }
         if (isBalanceIncrease(record.getType())) {
             account.setBalance(account.getBalance().subtract(record.getAmount()));
@@ -260,7 +261,7 @@ public class FinanceServiceImpl implements FinanceService {
         LambdaQueryWrapper<FinanceAccount> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FinanceAccount::getName, account.getName());
         if (accountMapper.selectCount(wrapper) > 0) {
-            throw new RuntimeException("账户名已存在");
+            throw new BizException("账户名已存在");
         }
         
         // 保留调用方传入的初始余额（前端账户表单包含「初始余额」字段）。
@@ -285,7 +286,7 @@ public class FinanceServiceImpl implements FinanceService {
     public void updateAccount(FinanceAccount account) {
         FinanceAccount oldAccount = accountMapper.selectById(account.getId());
         if (oldAccount == null) {
-            throw new RuntimeException("账户不存在");
+            throw new BizException("账户不存在");
         }
         
         // 检查名称重复
@@ -293,14 +294,14 @@ public class FinanceServiceImpl implements FinanceService {
         wrapper.eq(FinanceAccount::getName, account.getName())
                .ne(FinanceAccount::getId, account.getId());
         if (accountMapper.selectCount(wrapper) > 0) {
-            throw new RuntimeException("账户名已存在");
+            throw new BizException("账户名已存在");
         }
         
         // 余额不允许在此处直接改写——所有余额变动必须经由 recordFinance / updateAccountBalance /
         // transferBetweenAccounts 等记账接口，否则账户余额会与流水记录对不上（对账功能直接失效）。
         BigDecimal oldBalance = oldAccount.getBalance();
         if (account.getBalance() != null && account.getBalance().compareTo(oldBalance) != 0) {
-            throw new RuntimeException("账户余额不能直接修改，请通过记账或余额调整接口变更");
+            throw new BizException("账户余额不能直接修改，请通过记账或余额调整接口变更");
         }
         account.setBalance(oldBalance);
 
@@ -315,7 +316,7 @@ public class FinanceServiceImpl implements FinanceService {
     public void deleteAccount(Long accountId) {
         FinanceAccount account = accountMapper.selectById(accountId);
         if (account == null) {
-            throw new RuntimeException("账户不存在");
+            throw new BizException("账户不存在");
         }
         
         // 先检查是否有流水记录，再检查余额。
@@ -324,12 +325,12 @@ public class FinanceServiceImpl implements FinanceService {
         LambdaQueryWrapper<FinanceRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FinanceRecord::getAccountId, accountId);
         if (recordMapper.selectCount(wrapper) > 0) {
-            throw new RuntimeException("账户有流水记录，无法删除");
+            throw new BizException("账户有流水记录，无法删除");
         }
         
         // 检查是否有余额
         if (account.getBalance().compareTo(BigDecimal.ZERO) != 0) {
-            throw new RuntimeException("账户还有余额，无法删除");
+            throw new BizException("账户还有余额，无法删除");
         }
         
         account.setStatus(AccountStatus.DELETED);
@@ -344,7 +345,7 @@ public class FinanceServiceImpl implements FinanceService {
     public void setDefaultAccount(Long accountId) {
         FinanceAccount account = accountMapper.selectById(accountId);
         if (account == null) {
-            throw new RuntimeException("账户不存在");
+            throw new BizException("账户不存在");
         }
 
         // 同一时刻只允许一个默认账户：先把其他账户的默认标记清掉
@@ -365,14 +366,14 @@ public class FinanceServiceImpl implements FinanceService {
     public void updateAccountBalance(Long accountId, BigDecimal amount, OperationType operation) {
         FinanceAccount account = accountMapper.selectById(accountId);
         if (account == null) {
-            throw new RuntimeException("账户不存在");
+            throw new BizException("账户不存在");
         }
         
         if (operation == OperationType.INCREASE) {
             account.setBalance(account.getBalance().add(amount));
         } else {
             if (account.getBalance().compareTo(amount) < 0) {
-                throw new RuntimeException("账户余额不足");
+                throw new BizException("账户余额不足");
             }
             account.setBalance(account.getBalance().subtract(amount));
         }
@@ -388,18 +389,18 @@ public class FinanceServiceImpl implements FinanceService {
     public void transferBetweenAccounts(Long fromAccountId, Long toAccountId, 
                                         BigDecimal amount, String remark) {
         if (fromAccountId.equals(toAccountId)) {
-            throw new RuntimeException("不能转账到同一账户");
+            throw new BizException("不能转账到同一账户");
         }
         
         FinanceAccount fromAccount = accountMapper.selectById(fromAccountId);
         FinanceAccount toAccount = accountMapper.selectById(toAccountId);
         
         if (fromAccount == null || toAccount == null) {
-            throw new RuntimeException("账户不存在");
+            throw new BizException("账户不存在");
         }
         
         if (fromAccount.getBalance().compareTo(amount) < 0) {
-            throw new RuntimeException("余额不足");
+            throw new BizException("余额不足");
         }
         
         // 扣减转出账户
@@ -467,7 +468,7 @@ public class FinanceServiceImpl implements FinanceService {
         wrapper.eq(FinanceCategory::getName, category.getName())
                .eq(FinanceCategory::getType, category.getType());
         if (categoryMapper.selectCount(wrapper) > 0) {
-            throw new RuntimeException("分类名称已存在");
+            throw new BizException("分类名称已存在");
         }
         
         category.setCreateTime(LocalDateTime.now());
@@ -494,7 +495,7 @@ public class FinanceServiceImpl implements FinanceService {
         LambdaQueryWrapper<FinanceRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FinanceRecord::getCategoryId, categoryId);
         if (recordMapper.selectCount(wrapper) > 0) {
-            throw new RuntimeException("该分类已有流水记录，无法删除");
+            throw new BizException("该分类已有流水记录，无法删除");
         }
         
         categoryMapper.deleteById(categoryId);

@@ -1,5 +1,6 @@
 package com.crossborder.erp.finance.converter;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.finance.dto.FinanceAccountRequest;
 import com.crossborder.erp.finance.dto.FinanceCategoryRequest;
 import com.crossborder.erp.finance.dto.FinanceFlowRequest;
@@ -192,7 +193,7 @@ public final class FinanceConverter {
         }
         FinanceType financeType = FinanceType.getByCode(type.toUpperCase(Locale.ROOT));
         if (financeType == null) {
-            throw new IllegalArgumentException("未知的流水类型: " + type);
+            throw new BizException("未知的流水类型: " + type);
         }
         return financeType;
     }
@@ -206,7 +207,7 @@ public final class FinanceConverter {
         }
         CategoryType categoryType = CategoryType.getByCode(type.toUpperCase(Locale.ROOT));
         if (categoryType == null) {
-            throw new IllegalArgumentException("未知的分类类型: " + type);
+            throw new BizException("未知的分类类型: " + type);
         }
         return categoryType;
     }
