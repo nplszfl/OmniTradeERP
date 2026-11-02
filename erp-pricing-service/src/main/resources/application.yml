@@ -24,6 +24,22 @@ spring:
   application:
     name: erp-pricing-service
 
+  # ⚠️ 之前 pricing-service 完全没有 datasource 配置，但 pom 里引了
+  #    mybatis-plus + mysql-connector —— 实体和 SQL 表都在，却从来没连过库，
+  #    Service 里全是内存 mock。现在接上真实持久层。
+  #    注意：变量名必须和 compose 注入的一致（MYSQL_HOST / MYSQL_PORT），
+  #    写死 localhost 会导致容器里连不上库（这个坑踩过）。
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/erp_pricing?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
 # Swagger配置
 springdoc:
   api-docs:

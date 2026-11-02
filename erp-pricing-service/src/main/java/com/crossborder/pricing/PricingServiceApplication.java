@@ -1,5 +1,6 @@
 package com.crossborder.pricing;
 
+import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.openfeign.EnableFeignClients;
@@ -20,6 +21,10 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @SpringBootApplication
 @EnableFeignClients
 @EnableScheduling
+// ⚠️ 必须加：pricing-service 的 Mapper 在 com.crossborder.pricing.mapper 包下，
+//    而 @SpringBootApplication 扫的是 com.crossborder.pricing —— 其实能扫到，
+//    但显式声明更清楚，也避免以后包结构调整时静默失效。
+@MapperScan("com.crossborder.pricing.mapper")
 public class PricingServiceApplication {
 
     public static void main(String[] args) {

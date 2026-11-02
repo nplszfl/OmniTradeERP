@@ -57,6 +57,12 @@ public class PriceHistory {
     /** 库存因子 */
     private BigDecimal inventoryFactor;
 
+    /** 需求因子 */
+    private BigDecimal demandFactor;
+
+    /** 定价策略（如「跟随竞品」「提升毛利」「清理库存」） */
+    private String pricingStrategy;
+
     /** 创建时间 */
     private LocalDateTime createTime;
 }
