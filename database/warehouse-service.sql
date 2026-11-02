@@ -16,6 +16,14 @@
 --   IdType.ASSIGN_ID  → BIGINT（雪花 ID，由应用生成，不自增）
 -- ===================================================
 
+-- ===================================================
+-- 字符集必须显式声明：MySQL 官方镜像默认 LANG 为空（POSIX locale），
+-- mysql 客户端会退化成 latin1 连接，导致本文件里的 UTF-8 中文被双重编码
+-- （UTF-8 字节被当作 latin1 再转 UTF-8），数据库里存成乱码。
+-- 每个 init 文件由 docker-entrypoint 用独立的 mysql 会话执行，
+-- 所以 SET NAMES 必须写在每个文件内部，容器级 locale 兜底不可靠。
+SET NAMES utf8mb4;
+
 CREATE DATABASE IF NOT EXISTS `erp_warehouse` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `erp_warehouse`;
 

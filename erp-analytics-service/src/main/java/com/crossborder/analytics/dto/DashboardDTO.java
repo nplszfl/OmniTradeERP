@@ -50,6 +50,14 @@ public class DashboardDTO {
     private List<OrderSummary> recentOrders;
 
     /**
+     * 订单状态分布
+     *
+     * <p>看板「订单状态分布」图的数据源。
+     * 之前前端这张图是写死的柱子（[5, 15, 45, 30, 3]）。</p>
+     */
+    private List<OrderStatusCount> orderStatusDistribution;
+
+    /**
      * 财务概览
      */
     private FinancialOverview financialOverview;
@@ -65,6 +73,8 @@ public class DashboardDTO {
     @AllArgsConstructor
     public static class OverviewStats {
         private BigDecimal todaySales;
+        /** 今日订单笔数（与 todaySales 是两回事：一个数笔数，一个数金额） */
+        private BigDecimal todayOrders;
         private BigDecimal yesterdaySales;
         private BigDecimal monthSales;
         private BigDecimal totalOrders;
@@ -120,6 +130,17 @@ public class DashboardDTO {
         private Integer currentStock;
         private Integer safetyStock;
         private String alertLevel; // LOW, CRITICAL
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OrderStatusCount {
+        /** 订单状态（PENDING / SHIPPED / COMPLETED ...） */
+        private String status;
+        /** 该状态的订单数 */
+        private Long count;
     }
 
     @Data

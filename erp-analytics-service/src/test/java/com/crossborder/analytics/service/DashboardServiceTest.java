@@ -189,6 +189,97 @@ class DashboardServiceTest {
         assertEquals("CRITICAL", alerts.get(0).getAlertLevel());
     }
 
+    // ---------------------------------------------------------------- 订单状态分布
+
+    @Test
+    @DisplayName("getOrderStatusDistribution - 映射真实状态分布")
+    void getOrderStatusDistribution_mapsValues() {
+        when(repository.getOrderStatusDistribution()).thenReturn(List.of(
+                new AnalyticsRepository.OrderStatusCount("SHIPPED", 14),
+                new AnalyticsRepository.OrderStatusCount("COMPLETED", 7)));
+
+        List<DashboardDTO.OrderStatusCount> dist = service.getOrderStatusDistribution();
+
+        assertEquals(2, dist.size());
+        assertEquals("SHIPPED", dist.get(0).getStatus());
+        assertEquals(14L, dist.get(0).getCount());
+        assertEquals("COMPLETED", dist.get(1).getStatus());
+        assertEquals(7L, dist.get(1).getCount());
+    }
+
+    @Test
+    @DisplayName("getOrderStatusDistribution - 库为空时返回空列表，不是编的数据")
+    void getOrderStatusDistribution_emptyReturnsEmptyList() {
+        when(repository.getOrderStatusDistribution()).thenReturn(List.of());
+
+        assertTrue(service.getOrderStatusDistribution().isEmpty());
+    }
+
+    @Test
+    @DisplayName("getDashboard - 带上订单状态分布")
+    void getDashboard_includesOrderStatusDistribution() {
+        stubAllForDashboard();
+        when(repository.getOrderStatusDistribution()).thenReturn(List.of(
+                new AnalyticsRepository.OrderStatusCount("PENDING", 6)));
+
+        DashboardDTO dto = service.getDashboard();
+
+        assertNotNull(dto.getOrderStatusDistribution());
+        assertEquals(1, dto.getOrderStatusDistribution().size());
+        assertEquals("PENDING", dto.getOrderStatusDistribution().get(0).getStatus());
+        assertEquals(6L, dto.getOrderStatusDistribution().get(0).getCount());
+    }
+
+    /**
+     * getDashboard 会串起十几个 Repository 查询，全部 stub 掉才能跑通。
+     * 这里集中放一处，避免以后新增字段时漏 stub 又变成 NPE。
+     */
+    private void stubAllForDashboard() {
+        when(repository.getSalesSummary()).thenReturn(fullSummary());
+        when(repository.getActiveProductCount()).thenReturn(10);
+        when(repository.getLowStockProductCount()).thenReturn(2);
+        when(repository.getTodayOrderCount()).thenReturn(7L);
+        when(repository.getDailyAggregates(anyInt())).thenReturn(List.of());
+        when(repository.getPlatformAggregates()).thenReturn(List.of());
+        when(repository.getTopProducts(anyInt())).thenReturn(List.of());
+        when(repository.getStockAlerts(anyInt())).thenReturn(List.of());
+        when(repository.getRecentOrders(anyInt())).thenReturn(List.of());
+        when(repository.getTotalCost()).thenReturn(new BigDecimal("500.00"));
+        when(repository.getPendingPaymentAmount()).thenReturn(BigDecimal.ZERO);
+        when(repository.getRefundAmount()).thenReturn(BigDecimal.ZERO);
+    }
+
+    // ---------------------------------------------------------------- 今日订单数
+
+    @Test
+    @DisplayName("getOverviewStats - todayOrders 取的是今日订单笔数，不是金额")
+    void getOverviewStats_todayOrdersIsCount() {
+        when(repository.getSalesSummary()).thenReturn(fullSummary());
+        when(repository.getActiveProductCount()).thenReturn(328);
+        when(repository.getLowStockProductCount()).thenReturn(12);
+        when(repository.getTodayOrderCount()).thenReturn(9L);
+
+        DashboardDTO.OverviewStats s = service.getOverviewStats();
+
+        // 金额与笔数是两回事：todaySales=1200.00，todayOrders=9
+        assertEquals(0, s.getTodaySales().compareTo(new BigDecimal("1200.00")));
+        assertEquals(0, s.getTodayOrders().compareTo(new BigDecimal("9")));
+    }
+
+    @Test
+    @DisplayName("getOverviewStats - 没有今日订单时是 0，不是 null")
+    void getOverviewStats_todayOrdersDefaultsToZero() {
+        when(repository.getSalesSummary()).thenReturn(emptySummary());
+        when(repository.getActiveProductCount()).thenReturn(0);
+        when(repository.getLowStockProductCount()).thenReturn(0);
+        when(repository.getTodayOrderCount()).thenReturn(0L);
+
+        DashboardDTO.OverviewStats s = service.getOverviewStats();
+
+        assertNotNull(s.getTodayOrders());
+        assertEquals(0, s.getTodayOrders().compareTo(BigDecimal.ZERO));
+    }
+
     // ---------------------------------------------------------------- 最近订单
 
     @Test
@@ -271,6 +362,36 @@ class DashboardServiceTest {
         assertEquals("Amazon", s.getRevenueByPlatform().get(0).getPlatform());
         assertEquals(1, s.getTopProducts().size());
         assertEquals("SKU-A", s.getTopProducts().get(0).getSku());
+    }
+
+    // ---------------------------------------------------------------- 客户分布
+
+    @Test
+    @DisplayName("getSummary - customersByRegion 来自按国家聚合的真实查询，不是 recentOrders")
+    void getSummary_customersByRegionUsesAggregatedQuery() {
+        when(repository.getSalesSummary()).thenReturn(fullSummary());
+        when(repository.getActiveProductCount()).thenReturn(10);
+        when(repository.getLowStockProductCount()).thenReturn(1);
+        when(repository.getPlatformAggregates()).thenReturn(List.of());
+        when(repository.getTopProducts(anyInt())).thenReturn(List.of());
+        when(repository.getRecentOrders(anyInt())).thenReturn(List.of(
+                // 最近的订单：平台名 + 金额
+                new AnalyticsRepository.RecentOrder("IO-1", "amazon", "SHIPPED",
+                        new BigDecimal("199.00"), LocalDateTime.of(2026, 3, 1, 10, 0))));
+        when(repository.getTotalCost()).thenReturn(BigDecimal.ZERO);
+        when(repository.getPendingPaymentAmount()).thenReturn(BigDecimal.ZERO);
+        when(repository.getRefundAmount()).thenReturn(BigDecimal.ZERO);
+        // 真正的客户分布：按收货国家聚合
+        when(repository.getCustomerDistribution()).thenReturn(List.of(
+                new AnalyticsRepository.RegionAggregate("US", 12L, new BigDecimal("3000.00"))));
+
+        AnalyticsSummaryDTO s = service.getSummary();
+
+        assertEquals(1, s.getCustomersByRegion().size());
+        assertEquals("US", s.getCustomersByRegion().get(0).getRegion());
+        assertEquals(12, s.getCustomersByRegion().get(0).getCustomers());
+        // totalCustomers 必须等于各地区客户数之和（12），而不是最近订单数（1）
+        assertEquals(12, s.getTotalCustomers());
     }
 
     // ---------------------------------------------------------------- 客户分布

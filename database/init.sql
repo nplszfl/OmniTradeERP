@@ -4,6 +4,14 @@
 -- ===================================================
 
 -- 创建订单数据库
+-- ===================================================
+-- 字符集必须显式声明：MySQL 官方镜像默认 LANG 为空（POSIX locale），
+-- mysql 客户端会退化成 latin1 连接，导致本文件里的 UTF-8 中文被双重编码
+-- （UTF-8 字节被当作 latin1 再转 UTF-8），数据库里存成乱码。
+-- 每个 init 文件由 docker-entrypoint 用独立的 mysql 会话执行，
+-- 所以 SET NAMES 必须写在每个文件内部，容器级 locale 兜底不可靠。
+SET NAMES utf8mb4;
+
 CREATE DATABASE IF NOT EXISTS `erp_order` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `erp_order`;
 
@@ -132,6 +140,49 @@ CREATE TABLE `t_product_sku` (
     UNIQUE KEY `uk_sku_code` (`sku_code`),
     KEY `idx_product_id` (`product_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品SKU表';
+
+-- 商品图片表
+-- ⚠️ 这张表之前漏了：erp-product-service 有 ProductImage 实体 + ProductImageMapper，
+--    但整个 database/ 里没有对应的 CREATE TABLE → 一旦调用必然报
+--    "Table 'erp_product.t_product_image' doesn't exist"。
+DROP TABLE IF EXISTS `t_product_image`;
+CREATE TABLE `t_product_image` (
+    `id` BIGINT NOT NULL COMMENT '主键ID',
+    `product_id` BIGINT NOT NULL COMMENT '商品ID',
+    `image_url` VARCHAR(500) NOT NULL COMMENT '图片URL',
+    `thumb_url` VARCHAR(500) COMMENT '缩略图URL',
+    `image_type` INT DEFAULT 1 COMMENT '图片类型（1主图 2详情图 3包装图）',
+    `sort` INT DEFAULT 0 COMMENT '排序',
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_product_id` (`product_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品图片表';
+
+-- 平台SKU表
+-- ⚠️ 同样漏了：ProductPlatformSku 实体 + ProductPlatformSkuMapper 存在，
+--    但没有 CREATE TABLE。字段按实体一一对应。
+DROP TABLE IF EXISTS `t_product_platform_sku`;
+CREATE TABLE `t_product_platform_sku` (
+    `id` BIGINT NOT NULL COMMENT '主键ID',
+    `product_id` BIGINT NOT NULL COMMENT '商品ID',
+    `sku_id` BIGINT NOT NULL COMMENT 'SKU ID',
+    `platform` VARCHAR(50) NOT NULL COMMENT '平台类型（amazon/ebay/shopee/lazada/tiktok）',
+    `shop_id` VARCHAR(100) COMMENT '平台店铺ID',
+    `platform_sku` VARCHAR(100) COMMENT '平台SKU',
+    `platform_product_id` VARCHAR(100) COMMENT '平台商品ID',
+    `product_url` VARCHAR(500) COMMENT '平台商品URL',
+    `sale_price` DECIMAL(18,2) DEFAULT 0.00 COMMENT '售价',
+    `original_price` DECIMAL(18,2) DEFAULT 0.00 COMMENT '原价',
+    `stock_quantity` INT DEFAULT 0 COMMENT '库存数量',
+    `status` INT DEFAULT 1 COMMENT '状态（0下架 1上架）',
+    `sync_time` DATETIME COMMENT '同步时间',
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_product_id` (`product_id`),
+    KEY `idx_sku_id` (`sku_id`),
+    KEY `idx_platform_sku` (`platform`, `platform_sku`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='平台SKU表';
 
 -- 平台商品映射表
 DROP TABLE IF EXISTS `t_platform_product_mapping`;

@@ -9,6 +9,12 @@ services:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: erp
       TZ: Asia/Shanghai
+      # 官方 mysql:8.0 镜像默认 LANG 为空（POSIX locale），
+      # mysql 客户端会退化成 latin1 连接，把 init 脚本里的 UTF-8 中文双重编码成乱码。
+      # 这里设成 C.UTF-8 兜底；真正的修复是每个 .sql 文件开头的 SET NAMES utf8mb4
+      # （因为每个 init 文件由独立的 mysql 会话执行，容器级 locale 只是双保险）。
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
     ports:
       - "3306:3306"
     volumes:

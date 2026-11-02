@@ -44,6 +44,7 @@ public class DashboardService {
                 .topProducts(getTopProducts())
                 .inventoryAlerts(getInventoryAlerts())
                 .recentOrders(getRecentOrders())
+                .orderStatusDistribution(getOrderStatusDistribution())
                 .financialOverview(getFinancialOverview())
                 .lastUpdated(LocalDateTime.now())
                 .build();
@@ -111,6 +112,7 @@ public class DashboardService {
         AnalyticsRepository.SalesSummary s = repository.getSalesSummary();
         return DashboardDTO.OverviewStats.builder()
                 .todaySales(s.todaySales())
+                .todayOrders(BigDecimal.valueOf(repository.getTodayOrderCount()))
                 .yesterdaySales(s.yesterdaySales())
                 .monthSales(s.monthSales())
                 .totalOrders(BigDecimal.valueOf(s.totalOrders()))
@@ -176,6 +178,21 @@ public class DashboardService {
                         .currentStock(a.currentStock())
                         .safetyStock(a.safetyStock())
                         .alertLevel(a.alertLevel())
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 获取订单状态分布
+     *
+     * <p>看板「订单状态分布」图的数据源。
+     * 之前这张图在前端是写死的柱子数字，现在改成真实状态分布。</p>
+     */
+    public List<DashboardDTO.OrderStatusCount> getOrderStatusDistribution() {
+        return repository.getOrderStatusDistribution().stream()
+                .map(s -> DashboardDTO.OrderStatusCount.builder()
+                        .status(s.status())
+                        .count(s.count())
                         .build())
                 .collect(Collectors.toList());
     }
@@ -256,18 +273,11 @@ public class DashboardService {
                     .collect(Collectors.toList());
         }
 
-        List<AnalyticsSummaryDTO.CustomerDistribution> customers;
-        if (src.getRecentOrders() == null) {
-            customers = new ArrayList<>();
-        } else {
-            customers = src.getRecentOrders().stream()
-                    .map(o -> AnalyticsSummaryDTO.CustomerDistribution.builder()
-                            .region(o.getPlatform())
-                            .customers(1)
-                            .revenue(o.getAmount())
-                            .build())
-                    .collect(Collectors.toList());
-        }
+        // 客户分布必须来自「按收货国家聚合」的真实查询。
+        // 之前这里是从 recentOrders（只有最近 10 笔）逐条 map 出来的，
+        // 于是 region 填的是**平台名**、每条都算 1 个客户、同一地区重复出现多次 ——
+        // 字段名叫 customersByRegion，数据却既不是客户也不是地区。
+        List<AnalyticsSummaryDTO.CustomerDistribution> customers = getCustomerDistribution();
 
         return AnalyticsSummaryDTO.builder()
                 .totalOrders(overview == null ? BigDecimal.ZERO : overview.getTotalOrders())

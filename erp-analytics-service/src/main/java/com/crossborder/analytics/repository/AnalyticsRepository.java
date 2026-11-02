@@ -81,6 +81,9 @@ public class AnalyticsRepository {
     /** 某个小时的订单数与营收 */
     public record HourlyAggregate(int hour, long orderCount, BigDecimal revenue) {}
 
+    /** 某个订单状态的订单数 */
+    public record OrderStatusCount(String status, long count) {}
+
     /** 销售额汇总 */
     public record SalesSummary(BigDecimal todaySales, BigDecimal yesterdaySales,
                                BigDecimal monthSales, BigDecimal totalSales,
@@ -387,11 +390,14 @@ public class AnalyticsRepository {
         int max = limit <= 0 ? 10 : Math.min(limit, 100);
         try {
             return jdbcTemplate.query(
-                    "SELECT id, platform, status, order_amount, create_time "
+                    // 注意：取 internal_order_no（内部订单号）而不是主键 id。
+                    // 前端这一列的表头是「订单号」，给主键 id 的话显示成 1/2/3 这种自增数字，
+                    // 和用户在订单列表里看到的订单号对不上。
+                    "SELECT internal_order_no, platform, status, order_amount, create_time "
                             + "FROM erp_order.t_order WHERE deleted = 0 "
                             + "ORDER BY create_time DESC LIMIT " + max,
                     (rs, i) -> new RecentOrder(
-                            String.valueOf(rs.getLong("id")),
+                            rs.getString("internal_order_no"),
                             rs.getString("platform"),
                             rs.getString("status"),
                             nz(rs.getBigDecimal("order_amount")),
@@ -502,6 +508,54 @@ public class AnalyticsRepository {
         } catch (Exception e) {
             log.warn("查询低库存商品数失败: {}", e.getMessage());
             return 0;
+        }
+    }
+
+    // ---------------------------------------------------------------- 今日订单数
+
+    /**
+     * 今日订单数
+     *
+     * <p>看板「今日订单」卡片要的是<b>今天的订单笔数</b>，
+     * 不是今天的订单金额（那是 {@code todaySales}）。
+     * 之前 overview 里只有金额没有笔数，前端要么自己编、要么拿别的数顶替。</p>
+     */
+    public long getTodayOrderCount() {
+        try {
+            Long v = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM erp_order.t_order "
+                            + "WHERE deleted = 0 AND DATE(create_time) = CURDATE()",
+                    Long.class);
+            return v == null ? 0 : v;
+        } catch (Exception e) {
+            log.warn("查询今日订单数失败: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    // ---------------------------------------------------------------- 订单状态分布
+
+    /**
+     * 订单状态分布
+     *
+     * <p>看板「订单状态分布」图要的是<b>各真实状态的订单数</b>。
+     * 之前 overview 只给了 pending/shipped/completed 三个合计数，
+     * 而且分组口径还不一致（pending 把 PENDING 和 PROCESSING 混在一起），
+     * 画出来的柱子只能靠编。</p>
+     *
+     * <p>状态取值与 {@code erp-order-service} 的 {@code OrderStatus} 枚举一致：
+     * PENDING / CONFIRMED / PROCESSING / SHIPPED / DELIVERED / COMPLETED /
+     * CANCELLED / REFUNDED。</p>
+     */
+    public List<OrderStatusCount> getOrderStatusDistribution() {
+        try {
+            return jdbcTemplate.query(
+                    "SELECT status, COUNT(*) AS cnt FROM erp_order.t_order "
+                            + "WHERE deleted = 0 GROUP BY status ORDER BY cnt DESC",
+                    (rs, i) -> new OrderStatusCount(rs.getString("status"), rs.getLong("cnt")));
+        } catch (Exception e) {
+            log.warn("查询订单状态分布失败: {}", e.getMessage());
+            return List.of();
         }
     }
 

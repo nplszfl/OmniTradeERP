@@ -107,6 +107,19 @@ public class AnalyticsController {
         return ResponseEntity.ok(dashboardService.getRecentOrders());
     }
 
+    /**
+     * 获取订单状态分布
+     * GET /api/v1/analytics/dashboard/order-status-distribution
+     *
+     * <p>看板「订单状态分布」图的数据源。
+     * 之前这张图在前端是写死的柱子数字。</p>
+     */
+    @GetMapping("/dashboard/order-status-distribution")
+    public ResponseEntity<List<DashboardDTO.OrderStatusCount>> getOrderStatusDistribution() {
+        log.info("GET /api/v1/analytics/dashboard/order-status-distribution");
+        return ResponseEntity.ok(dashboardService.getOrderStatusDistribution());
+    }
+
     // ========== 销售预测 API ==========
 
     /**
