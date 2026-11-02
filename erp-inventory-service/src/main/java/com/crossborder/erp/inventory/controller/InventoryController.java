@@ -6,6 +6,7 @@ import com.crossborder.erp.common.result.Result;
 import com.crossborder.erp.inventory.entity.Inventory;
 import com.crossborder.erp.inventory.entity.InventoryLog;
 import com.crossborder.erp.inventory.enums.InventoryStatus;
+import com.crossborder.erp.inventory.service.InventoryNameResolver;
 import com.crossborder.erp.inventory.service.InventoryService;
 import com.crossborder.erp.inventory.vo.InventoryBatchOperation;
 import com.crossborder.erp.inventory.vo.InventoryQuery;
@@ -62,6 +63,13 @@ public class InventoryController {
     private final InventoryService inventoryService;
 
     /**
+     * 展示名解析器：把 product_id / warehouse_id / location_id 翻译成
+     * productName / warehouseName / locationCode。
+     * 前端库存列表和详情都直接展示这三个名字，缺了就是空列。
+     */
+    private final InventoryNameResolver nameResolver;
+
+    /**
      * 库存概览（前端：inventoryApi.getStats → {@code res || {...}}）
      */
     @GetMapping("/stats")
@@ -107,6 +115,11 @@ public class InventoryController {
         List<Map<String, Object>> records = new ArrayList<>();
         for (Inventory inventory : inventoryPage.getRecords()) {
             records.add(toInventoryVO(inventory));
+        }
+        // 批量补齐商品名/仓库名/库位编码 + 流转指标（避免逐条查库的 N+1）
+        nameResolver.enrichAll(records);
+        for (Map<String, Object> record : records) {
+            nameResolver.enrichFlowMetrics(record);
         }
         page.setRecords(records);
         return Result.success(page);
@@ -190,7 +203,10 @@ public class InventoryController {
         if (inventory == null) {
             throw new BizException("库存记录不存在");
         }
-        return Result.success(toInventoryVO(inventory));
+        Map<String, Object> vo = toInventoryVO(inventory);
+        nameResolver.enrichAll(java.util.Collections.singletonList(vo));
+        nameResolver.enrichFlowMetrics(vo);
+        return Result.success(vo);
     }
 
     /**

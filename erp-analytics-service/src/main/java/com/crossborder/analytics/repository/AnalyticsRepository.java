@@ -26,7 +26,7 @@ import java.util.Map;
  *   <li>{@code erp_order.t_order} — 订单主表（金额、状态、平台、时间）</li>
  *   <li>{@code erp_order.t_order_item} — 订单明细（SKU、销量）</li>
  *   <li>{@code erp_product.t_product} — 商品主表（名称）</li>
- *   <li>{@code erp_inventory.t_inventory} — 库存（可用量、安全库存）</li>
+ *   <li>{@code erp_inventory.erp_inventory} — 库存（可用量、安全库存）</li>
  * </ul>
  *
  * <p>跨库 JOIN 要求所有 schema 在同一 MySQL 实例上，compose 里是同一个 mysql 容器，
@@ -435,22 +435,30 @@ public class AnalyticsRepository {
         int max = limit <= 0 ? 20 : Math.min(limit, 200);
         try {
             return jdbcTemplate.query(
-                    // ⚠️ t_inventory 一行 = 一个 (sku_code, warehouse_id)，
-                    //    同一 SKU 多个仓库会出多行 → 按 SKU 聚合后再判预警。
-                    "SELECT i.sku_code AS sku, COALESCE(p.product_name, i.sku_code) AS pname, "
-                            + "SUM(i.available_qty) AS avail, MAX(i.safety_stock) AS safety "
-                            + "FROM erp_inventory.t_inventory i "
-                            + "LEFT JOIN erp_product.t_product_sku s "
-                            + "  ON s.sku_code = i.sku_code AND s.deleted = 0 "
+                    // ⚠️ 这里必须查 erp_inventory.erp_inventory（活表），不能查 t_inventory。
+                    //    t_inventory 是 init.sql 里的遗留表，全项目没有任何 Java 代码写它，
+                    //    只有 seed-data.sql 灌了一次种子数据 → 库存一变它就永远停在种子值，
+                    //    看板上的库存预警会变成「看起来真、其实是化石」的假数据。
+                    //    erp-inventory-service 的实体 @TableName("erp_inventory") 指向的才是活表。
+                    //
+                    //    判定粒度必须是「每条库存记录（商品 × 仓库）」，不能按商品跨仓聚合：
+                    //    活表唯一键是 (product_id, warehouse_id)，库存服务自己的
+                    //    InventoryServiceImpl.checkAndCreateAlert() 也是逐行判定的
+                    //    （available == 0 → DANGER，available < safety → WARNING）。
+                    //    若按商品 SUM 各仓再比，会出现「某仓已缺货，但被其它仓的库存平均掉」
+                    //    的漏报 —— 实测汉堡仓智能手表可用 18 < 安全库存 25 会被聚合吞掉。
+                    "SELECT p.internal_sku AS sku, COALESCE(p.product_name, i.sku_code) AS pname, "
+                            + "i.available_quantity AS avail, i.safety_stock AS safety "
+                            + "FROM erp_inventory.erp_inventory i "
                             + "LEFT JOIN erp_product.t_product p "
-                            + "  ON p.id = s.product_id AND p.deleted = 0 "
-                            + "GROUP BY i.sku_code, COALESCE(p.product_name, i.sku_code) "
-                            + "HAVING SUM(i.available_qty) <= MAX(i.safety_stock) "
-                            + "ORDER BY (SUM(i.available_qty) - MAX(i.safety_stock)) ASC LIMIT " + max,
+                            + "  ON p.id = i.product_id AND p.deleted = 0 "
+                            + "WHERE i.available_quantity < i.safety_stock "
+                            + "ORDER BY (i.available_quantity - i.safety_stock) ASC LIMIT " + max,
                     (rs, i) -> {
                         int avail = rs.getInt("avail");
                         int safety = rs.getInt("safety");
-                        String level = (safety > 0 && avail <= safety / 2) ? "CRITICAL" : "LOW";
+                        // 与库存服务的判定对齐：可用量归零 → CRITICAL，否则 LOW。
+                        String level = (avail <= 0) ? "CRITICAL" : "LOW";
                         return new StockAlert(rs.getString("sku"), rs.getString("pname"),
                                 avail, safety, level);
                     });
@@ -483,8 +491,13 @@ public class AnalyticsRepository {
     public int getLowStockProductCount() {
         try {
             Integer v = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM erp_inventory.t_inventory "
-                            + "WHERE available_qty <= safety_stock", Integer.class);
+                    // ⚠️ 同上：查活表 erp_inventory，不是遗留表 t_inventory。
+                    //    口径与 getStockAlerts 一致：按「商品 × 仓库」逐条统计低库存记录数。
+                    //    ⚠️ 这里是 COUNT(*)（记录数）而不是 COUNT(DISTINCT product_id)：
+                    //    同一个商品可能在多个仓同时低库存，统计「商品数」会与告警列表条数对不上，
+                    //    看板会出现「列表有 3 条但数字显示 1」的错觉。
+                    "SELECT COUNT(*) FROM erp_inventory.erp_inventory i "
+                            + "WHERE i.available_quantity < i.safety_stock", Integer.class);
             return v == null ? 0 : v;
         } catch (Exception e) {
             log.warn("查询低库存商品数失败: {}", e.getMessage());

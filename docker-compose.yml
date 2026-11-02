@@ -16,7 +16,25 @@ services:
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - ./database/customer-service.sql:/docker-entrypoint-initdb.d/customer-service.sql:ro
       - ./database/supplier-service.sql:/docker-entrypoint-initdb.d/supplier-service.sql:ro
+      - ./database/ai-assistant-service.sql:/docker-entrypoint-initdb.d/ai-assistant-service.sql:ro
+      - ./database/anomaly-detection-service.sql:/docker-entrypoint-initdb.d/anomaly-detection-service.sql:ro
+      - ./database/finance-service.sql:/docker-entrypoint-initdb.d/finance-service.sql:ro
+      - ./database/inventory-prediction-service.sql:/docker-entrypoint-initdb.d/inventory-prediction-service.sql:ro
+      - ./database/inventory-service.sql:/docker-entrypoint-initdb.d/inventory-service.sql:ro
       - ./database/logistics-service.sql:/docker-entrypoint-initdb.d/logistics-service.sql:ro
+      - ./database/pricing-service.sql:/docker-entrypoint-initdb.d/pricing-service.sql:ro
+      - ./database/product-description-service.sql:/docker-entrypoint-initdb.d/product-description-service.sql:ro
+      - ./database/purchase-service.sql:/docker-entrypoint-initdb.d/purchase-service.sql:ro
+      - ./database/reporting-service.sql:/docker-entrypoint-initdb.d/reporting-service.sql:ro
+      - ./database/seed-data.sql:/docker-entrypoint-initdb.d/seed-data.sql:ro
+      - ./database/user-service.sql:/docker-entrypoint-initdb.d/user-service.sql:ro
+      - ./database/warehouse-service.sql:/docker-entrypoint-initdb.d/warehouse-service.sql:ro
+      # ⚠️ zz- 前缀是必须的：docker-entrypoint-initdb.d 按**文件名字母序**执行，
+      #    而各 *-service.sql 里有 DROP TABLE IF EXISTS。
+      #    这个文件种的是「活表」数据（erp_inventory / wms_warehouse / fin_record /
+      #    t_permission），必须排在所有 service.sql 之后，否则种子数据会被后面
+      #    的 DROP TABLE 洗掉（历史上 t_permission/t_role_permission 就这样被清零过）。
+      - ./database/seed-live-data.sql:/docker-entrypoint-initdb.d/zz-seed-live-data.sql:ro
     networks:
       - erp-network
     healthcheck:
