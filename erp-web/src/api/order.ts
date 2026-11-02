@@ -100,6 +100,28 @@ export interface OrderStatistics {
   shipped: number
 }
 
+/** 今日订单统计（GET /order/statistics/today） */
+export interface OrderTodayStats {
+  /** 今日订单数 */
+  orderCount: number
+  /** 今日销售额（已排除 CANCELLED） */
+  totalAmount: number
+  /** 各平台订单数 */
+  platformDistribution: Record<string, number>
+  /** 各状态订单数 */
+  statusDistribution: Record<string, number>
+}
+
+/** 销售趋势某一天（GET /order/statistics/trend） */
+export interface OrderTrendPoint {
+  /** yyyy-MM-dd */
+  date: string
+  /** 当天订单数 */
+  count: number
+  /** 当天销售额 */
+  amount: number
+}
+
 export const orderApi = {
   // 分页查询订单
   getOrders: (params: {
@@ -108,6 +130,13 @@ export const orderApi = {
     platform?: string
     status?: string
   }) => request.get<any, PageResult<Order>>('/order/list', { params }),
+
+  // 今日订单统计（真实聚合：金额/平台分布/状态分布）
+  getTodayStats: () => request.get<any, OrderTodayStats>('/order/statistics/today'),
+
+  // 销售趋势（最近 N 天，缺失的日期会补 0）
+  getTrend: (days = 7) =>
+    request.get<any, OrderTrendPoint[]>('/order/statistics/trend', { params: { days } }),
 
   // 高级分页查询订单
   advancedQuery: (data: OrderQueryRequest) => 
