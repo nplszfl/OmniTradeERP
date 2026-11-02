@@ -16,21 +16,19 @@ spring:
         refresh-enabled: true
   application:
     name: erp-analytics-service
+  config:
+    # ⚠️ 必须有这行：classpath 上有 spring-cloud-starter-alibaba-nacos-config 时，
+    # Spring Cloud 的 ConfigDataMissingEnvironmentPostProcessor 会检查 spring.config.import，
+    # 没配直接抛 "No spring.config.import set" 导致启动失败。
+    # optional: 前缀保证 Nacos 不可达时不阻塞启动。
+    import: optional:nacos:${spring.application.name}.yml
   
   datasource:
-    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/omnitrade_erp?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/erp_order?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
   
-  jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: false
-    properties:
-      hibernate:
-        format_sql: true
-        dialect: org.hibernate.dialect.MySQLDialect
 
 # Analytics specific configuration
 analytics:

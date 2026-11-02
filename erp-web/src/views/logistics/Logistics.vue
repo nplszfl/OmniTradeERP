@@ -395,34 +395,13 @@ const calculateRates = async () => {
     rateResults.value = res
   } catch (error) {
     console.error('计算运费失败', error)
-    // 模拟数据
-    rateResults.value = generateMockRates()
+    // ⚠️ 之前这里回退到 mock 数据，把后端的 404/500 全部掩盖了。
+    //    现在后端已有真实的物流服务（erp-logistics-service），失败就如实报错。
+    rateResults.value = []
+    ElMessage.error('运费计算失败，请检查物流服务状态')
   } finally {
     calculating.value = false
   }
-}
-
-// 生成模拟运费数据
-const generateMockRates = (): ShippingRateResult[] => {
-  const mockChannels = [
-    { code: 'DHL_EXPRESS', name: 'DHL国际快递', carrier: 'DHL', days: 3 },
-    { code: 'FEDEX_EXPRESS', name: 'FedEx国际快递', carrier: 'FedEx', days: 4 },
-    { code: 'UPS_EXPRESS', name: 'UPS国际快递', carrier: 'UPS', days: 4 },
-    { code: 'CHINA_POST', name: '中国邮政小包', carrier: 'China Post', days: 15 },
-    { code: 'YANWEN', name: '燕文物流', carrier: 'Yanwen', days: 12 },
-    { code: 'ARAMEX', name: 'Aramex国际专线', carrier: 'Aramex', days: 7 }
-  ]
-  
-  return mockChannels.map((ch, idx) => ({
-    channelCode: ch.code,
-    channelName: ch.name,
-    carrier: ch.carrier,
-    totalPrice: 15 + Math.random() * 50,
-    currency: 'USD',
-    estimatedDays: ch.days,
-    transitTime: `${ch.days}-${ch.days + 3}天`,
-    isRecommended: idx === 0
-  }))
 }
 
 // 重置计算器
@@ -443,15 +422,9 @@ const loadChannels = async () => {
   try {
     channels.value = await logisticsApi.getChannels()
   } catch (error) {
-    // 模拟数据
-    channels.value = [
-      { code: 'DHL_EXPRESS', name: 'DHL国际快递', carrier: 'DHL', type: 'EXPRESS', coverage: ['US', 'UK', 'DE', 'FR', 'CA', 'AU'], features: ['时效快', '可追踪', '签收确认'], avgDeliveryDays: 3, trackingSupport: true },
-      { code: 'FEDEX_EXPRESS', name: 'FedEx国际快递', carrier: 'FedEx', type: 'EXPRESS', coverage: ['US', 'CA', 'MX'], features: ['时效快', '清关强'], avgDeliveryDays: 4, trackingSupport: true },
-      { code: 'UPS_EXPRESS', name: 'UPS国际快递', carrier: 'UPS', type: 'EXPRESS', coverage: ['US', 'EU'], features: ['稳定', '可追踪'], avgDeliveryDays: 4, trackingSupport: true },
-      { code: 'CHINA_POST', name: '中国邮政小包', carrier: 'China Post', type: 'POST', coverage: ['全球'], features: ['便宜', '覆盖广'], avgDeliveryDays: 15, trackingSupport: true },
-      { code: 'YANWEN', name: '燕文物流', carrier: 'Yanwen', type: 'SPECIAL', coverage: ['US', 'UK', 'DE', 'FR'], features: ['性价比高', '追踪'], avgDeliveryDays: 12, trackingSupport: true },
-      { code: 'ARAMEX', name: 'Aramex国际专线', carrier: 'Aramex', type: 'SPECIAL', coverage: ['中东', '南亚'], features: ['中东专线', '清关快'], avgDeliveryDays: 7, trackingSupport: true }
-    ]
+    console.error('加载渠道失败', error)
+    channels.value = []
+    ElMessage.error('渠道列表加载失败')
   }
 }
 
@@ -466,17 +439,14 @@ const loadRates = async () => {
       fromCountry: rateSearchForm.fromCountry || undefined,
       toCountry: rateSearchForm.toCountry || undefined
     })
-    const pageData = res.data || {}
-    rateList.value = pageData.records || []
-    ratePagination.total = pageData.total || 0
+    // 后端返回裸分页对象 {current,size,total,records}
+    rateList.value = res.records || []
+    ratePagination.total = res.total || 0
   } catch (error) {
-    // 模拟数据
-    rateList.value = [
-      { id: 1, channelCode: 'DHL_EXPRESS', channelName: 'DHL国际快递', carrier: 'DHL', fromCountry: 'CN', toCountry: 'US', weightRangeMin: 0, weightRangeMax: 5, basePrice: 20, pricePerKg: 12, estimatedDays: 3, currency: 'USD', isActive: true, createTime: '' },
-      { id: 2, channelCode: 'DHL_EXPRESS', channelName: 'DHL国际快递', carrier: 'DHL', fromCountry: 'CN', toCountry: 'US', weightRangeMin: 5, weightRangeMax: 20, basePrice: 50, pricePerKg: 10, estimatedDays: 3, currency: 'USD', isActive: true, createTime: '' },
-      { id: 3, channelCode: 'FEDEX_EXPRESS', channelName: 'FedEx国际快递', carrier: 'FedEx', fromCountry: 'CN', toCountry: 'US', weightRangeMin: 0, weightRangeMax: 5, basePrice: 18, pricePerKg: 11, estimatedDays: 4, currency: 'USD', isActive: true, createTime: '' }
-    ]
-    ratePagination.total = 3
+    console.error('加载费率失败', error)
+    rateList.value = []
+    ratePagination.total = 0
+    ElMessage.error('费率列表加载失败')
   } finally {
     ratesLoading.value = false
   }
@@ -496,11 +466,15 @@ const handleAddChannel = async () => {
 // 添加费率
 const handleAddRate = async () => {
   try {
+    // ⚠️ 之前这里只是弹个「添加成功」就完事，什么都没存 —— 刷新就没了。
+    //    现在真的调后端落库。
+    await logisticsApi.createRate({ ...rateForm } as any)
     ElMessage.success('费率添加成功')
     showRateForm.value = false
     loadRates()
   } catch (error) {
     console.error('添加失败', error)
+    ElMessage.error('费率添加失败')
   }
 }
 

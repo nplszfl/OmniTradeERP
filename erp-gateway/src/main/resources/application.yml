@@ -163,9 +163,15 @@ spring:
           filters:
             - StripPrefix=1
         # 物流服务
-        # ⚠️ 已移除：erp-logistics-service 模块根本不存在（项目里没有这个目录），
-        #    lb://erp-logistics-service 永远解析不到实例，留着只会让排障时误以为配好了。
-        #    将来真要上物流服务，这里再把路由加回来。
+        # ⚠️ 这条路由之前被移除了，因为 erp-logistics-service 模块根本不存在。
+        #    现已新建该模块（渠道 + 费率 + 运费计算），路由加回来。
+        #    后端 controller 根路径 /logistics/**，前端用 /api/logistics/**
+        - id: logistics-service
+          uri: lb://erp-logistics-service
+          predicates:
+            - Path=/api/logistics/**
+          filters:
+            - StripPrefix=1
 
         # 社交电商服务
         # 后端 controller 根路径是 /api/v1/**（tiktok-shop / live-streams / cooperations /

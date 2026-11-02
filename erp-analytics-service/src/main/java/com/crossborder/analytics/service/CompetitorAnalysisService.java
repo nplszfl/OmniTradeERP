@@ -8,6 +8,7 @@ import com.crossborder.analytics.dto.CompetitorAnalysisDTO.MarketShare;
 import com.crossborder.analytics.dto.CompetitorAnalysisDTO.PriceComparison;
 import com.crossborder.analytics.dto.CompetitorAnalysisDTO.SalesComparison;
 import com.crossborder.analytics.dto.CompetitorAnalysisDTO.TrendData;
+import com.crossborder.analytics.repository.AnalyticsRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,11 +22,18 @@ import java.util.List;
 
 /**
  * 竞品分析服务
+ *
+ * <p>⚠️ 之前这里是整段编造的数据：写死的 "Competitor A Store" 等 7 个假竞品、
+ * 写死的 42.99 我方价格、写死的 380 销量、随机生成的周趋势。
+ * 现在改成查 {@code erp_pricing.competitor_product} 里定价服务真实抓取的竞品数据；
+ * 库里没有对应 SKU 时返回空结果，不编。</p>
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CompetitorAnalysisService {
+
+    private final AnalyticsRepository repository;
 
     @Value("${analytics.competitor.update-interval:3600000}")
     private long updateInterval;
@@ -38,29 +46,24 @@ public class CompetitorAnalysisService {
      */
     public CompetitorAnalysisDTO getCompetitorAnalysis(String productId, String analysisType) {
         log.info("Generating competitor analysis for product: {}, type: {}", productId, analysisType);
-        
-        // 获取竞品列表
+
         List<CompetitorInfo> competitors = getCompetitors(productId);
-        
-        // 价格对比
-        PriceComparison priceComparison = calculatePriceComparison(productId, competitors);
-        
-        // 销售对比
+
+        PriceComparison priceComparison = calculatePriceComparison(competitors);
         SalesComparison salesComparison = calculateSalesComparison(productId, competitors);
-        
-        // 市场占有率
-        MarketShare marketShare = calculateMarketShare(competitors);
-        
-        // 趋势分析
-        List<TrendData> trends = generateTrends();
-        
-        // 建议
+        MarketShare marketShare = calculateMarketShare(productId, competitors);
+
+        // ⚠️ 竞品的历史趋势需要竞品价格的时间序列。
+        //    competitor_product 表只存最新快照（scrape_time），
+        //    没有历史价表，所以趋势只能返回空列表而不是编 4 周随机值。
+        List<TrendData> trends = new ArrayList<>();
+
         List<String> recommendations = generateRecommendations(priceComparison, salesComparison);
-        
+
         return CompetitorAnalysisDTO.builder()
                 .analysisType(analysisType)
                 .productId(productId)
-                .productName("Product " + productId)
+                .productName(productId)
                 .competitorCount(competitors.size())
                 .competitors(competitors)
                 .priceComparison(priceComparison)
@@ -77,76 +80,94 @@ public class CompetitorAnalysisService {
      */
     private List<CompetitorInfo> getCompetitors(String productId) {
         List<CompetitorInfo> competitors = new ArrayList<>();
-        
-        String[] competitorNames = {"Competitor A Store", "BestDeals Shop", "SuperSavings", 
-                "QualityGoods", "FastShip Plus", "TopRated Seller", "Prime Products"};
-        String[] platforms = {"Amazon", "Amazon", "eBay", "Shopee", "eBay", "Lazada", "Shopee"};
-        double[] prices = {44.99, 39.99, 35.99, 49.99, 42.99, 38.99, 41.99};
-        int[] sales = {520, 480, 350, 280, 220, 180, 150};
-        double[] ratings = {4.5, 4.3, 4.1, 4.7, 4.2, 4.4, 4.6};
-        int[] reviews = {1200, 980, 650, 1500, 420, 780, 920};
-        
-        BigDecimal ourPrice = BigDecimal.valueOf(42.99);
-        
-        for (int i = 0; i < competitorNames.length; i++) {
-            BigDecimal price = BigDecimal.valueOf(prices[i]);
-            BigDecimal priceDiff = price.subtract(ourPrice);
-            String pricePosition = priceDiff.compareTo(BigDecimal.ZERO) > 0 ? "HIGHER" : 
-                    priceDiff.compareTo(BigDecimal.ZERO) < 0 ? "LOWER" : "EQUAL";
-            
+
+        BigDecimal ourPrice = resolveOurPrice(productId);
+        List<AnalyticsRepository.CompetitorRow> rows =
+                repository.getCompetitors(productId, maxCompetitors);
+
+        int idx = 1;
+        for (AnalyticsRepository.CompetitorRow r : rows) {
+            BigDecimal priceDiff = r.price().subtract(ourPrice);
+            String pricePosition = priceDiff.compareTo(BigDecimal.ZERO) > 0 ? "HIGHER"
+                    : priceDiff.compareTo(BigDecimal.ZERO) < 0 ? "LOWER" : "EQUAL";
+
             competitors.add(CompetitorInfo.builder()
-                    .competitorId("C" + String.format("%03d", i + 1))
-                    .competitorName(competitorNames[i])
-                    .platform(platforms[i])
-                    .price(price)
-                    .salesCount(sales[i])
-                    .revenue(BigDecimal.valueOf(sales[i] * prices[i]).setScale(2, RoundingMode.HALF_UP))
-                    .rating(BigDecimal.valueOf(ratings[i]).setScale(1, RoundingMode.HALF_UP))
-                    .reviewCount(reviews[i])
-                    .url("https://example.com/competitor/" + (i + 1))
+                    .competitorId("C" + String.format("%03d", idx++))
+                    .competitorName(r.competitorName())
+                    .platform(r.platform())
+                    .price(r.price())
+                    .salesCount((int) r.salesVolume())
+                    .revenue(r.price().multiply(BigDecimal.valueOf(r.salesVolume()))
+                            .setScale(2, RoundingMode.HALF_UP))
+                    .rating(r.rating())
+                    .reviewCount((int) r.reviewCount())
+                    .url(null)
                     .priceDiff(priceDiff.setScale(2, RoundingMode.HALF_UP))
                     .pricePosition(pricePosition)
                     .build());
         }
-        
         return competitors;
+    }
+
+    /**
+     * 我方当前售价
+     *
+     * <p>库里查不到时返回 0（而不是编 42.99）。</p>
+     */
+    private BigDecimal resolveOurPrice(String productId) {
+        AnalyticsRepository.ProductPrice p = repository.getProductPrice(productId);
+        return p == null ? BigDecimal.ZERO : p.salePrice();
     }
 
     /**
      * 计算价格对比
      */
-    private PriceComparison calculatePriceComparison(String productId, List<CompetitorInfo> competitors) {
-        BigDecimal ourPrice = BigDecimal.valueOf(42.99);
-        
+    private PriceComparison calculatePriceComparison(List<CompetitorInfo> competitors) {
+        BigDecimal ourPrice = resolveOurPriceFrom(competitors);
+
+        if (competitors.isEmpty()) {
+            return PriceComparison.builder()
+                    .ourPrice(ourPrice)
+                    .avgCompetitorPrice(BigDecimal.ZERO)
+                    .lowestCompetitorPrice(BigDecimal.ZERO)
+                    .highestCompetitorPrice(BigDecimal.ZERO)
+                    .pricePosition("UNKNOWN")
+                    .priceDiffPercent(BigDecimal.ZERO)
+                    .build();
+        }
+
         BigDecimal avgPrice = competitors.stream()
                 .map(CompetitorInfo::getPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .divide(BigDecimal.valueOf(competitors.size()), 2, RoundingMode.HALF_UP);
-        
+
         BigDecimal lowestPrice = competitors.stream()
                 .map(CompetitorInfo::getPrice)
                 .min(BigDecimal::compareTo)
                 .orElse(BigDecimal.ZERO);
-        
+
         BigDecimal highestPrice = competitors.stream()
                 .map(CompetitorInfo::getPrice)
                 .max(BigDecimal::compareTo)
                 .orElse(BigDecimal.ZERO);
-        
+
         String pricePosition;
-        if (ourPrice.compareTo(avgPrice) < 0) {
+        if (ourPrice.signum() == 0) {
+            pricePosition = "UNKNOWN";
+        } else if (ourPrice.compareTo(avgPrice) < 0) {
             pricePosition = "COMPETITIVE";
         } else if (ourPrice.compareTo(avgPrice) > 0) {
             pricePosition = "PREMIUM";
         } else {
             pricePosition = "BUDGET";
         }
-        
-        BigDecimal priceDiffPercent = avgPrice.subtract(ourPrice)
-                .divide(ourPrice, 4, RoundingMode.HALF_UP)
-                .multiply(BigDecimal.valueOf(100))
-                .setScale(2, RoundingMode.HALF_UP);
-        
+
+        BigDecimal priceDiffPercent = ourPrice.signum() == 0 ? BigDecimal.ZERO
+                : avgPrice.subtract(ourPrice)
+                        .divide(ourPrice, 4, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100))
+                        .setScale(2, RoundingMode.HALF_UP);
+
         return PriceComparison.builder()
                 .ourPrice(ourPrice)
                 .avgCompetitorPrice(avgPrice)
@@ -157,37 +178,52 @@ public class CompetitorAnalysisService {
                 .build();
     }
 
+    private BigDecimal resolveOurPriceFrom(List<CompetitorInfo> competitors) {
+        // 竞品的 priceDiff = 竞品价 - 我方价，所以反推我方价
+        if (competitors.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        CompetitorInfo first = competitors.get(0);
+        if (first.getPriceDiff() == null) {
+            return BigDecimal.ZERO;
+        }
+        return first.getPrice().subtract(first.getPriceDiff()).setScale(2, RoundingMode.HALF_UP);
+    }
+
     /**
      * 计算销售对比
      */
-    private SalesComparison calculateSalesComparison(String productId, List<CompetitorInfo> competitors) {
-        int ourSales = 380;
-        
+    private SalesComparison calculateSalesComparison(String productId,
+                                                     List<CompetitorInfo> competitors) {
+        int ourSales = (int) repository.getProductSalesCount(productId);
+
         double avgSales = competitors.stream()
                 .mapToInt(CompetitorInfo::getSalesCount)
                 .average()
                 .orElse(0);
-        
+
         int topSales = competitors.stream()
                 .mapToInt(CompetitorInfo::getSalesCount)
                 .max()
                 .orElse(0);
-        
+
         String salesPosition;
-        if (ourSales > avgSales) {
+        if (competitors.isEmpty()) {
+            salesPosition = "UNKNOWN";
+        } else if (ourSales > avgSales) {
             salesPosition = "ABOVE_AVG";
         } else if (ourSales < avgSales) {
             salesPosition = "BELOW_AVG";
         } else {
             salesPosition = "AT_AVG";
         }
-        
-        int totalSales = ourSales + competitors.stream()
-                .mapToInt(CompetitorInfo::getSalesCount)
-                .sum();
-        BigDecimal marketSharePercent = BigDecimal.valueOf(ourSales * 100.0 / totalSales)
-                .setScale(2, RoundingMode.HALF_UP);
-        
+
+        long totalSales = ourSales + competitors.stream()
+                .mapToInt(CompetitorInfo::getSalesCount).sum();
+        BigDecimal marketSharePercent = totalSales == 0 ? BigDecimal.ZERO
+                : BigDecimal.valueOf(ourSales * 100.0 / totalSales)
+                        .setScale(2, RoundingMode.HALF_UP);
+
         return SalesComparison.builder()
                 .ourSalesCount(ourSales)
                 .avgCompetitorSales((int) avgSales)
@@ -200,28 +236,28 @@ public class CompetitorAnalysisService {
     /**
      * 计算市场占有率
      */
-    private MarketShare calculateMarketShare(List<CompetitorInfo> competitors) {
-        int ourSales = 380;
-        int totalSales = ourSales + competitors.stream()
-                .mapToInt(CompetitorInfo::getSalesCount)
-                .sum();
-        
-        BigDecimal ourShare = BigDecimal.valueOf(ourSales * 100.0 / totalSales)
-                .setScale(2, RoundingMode.HALF_UP);
-        
+    private MarketShare calculateMarketShare(String productId, List<CompetitorInfo> competitors) {
+        int ourSales = (int) repository.getProductSalesCount(productId);
+        long totalSales = ourSales + competitors.stream()
+                .mapToInt(CompetitorInfo::getSalesCount).sum();
+
+        BigDecimal ourShare = totalSales == 0 ? BigDecimal.ZERO
+                : BigDecimal.valueOf(ourSales * 100.0 / totalSales)
+                        .setScale(2, RoundingMode.HALF_UP);
+
         List<CompetitorShare> competitorShares = new ArrayList<>();
         for (CompetitorInfo c : competitors) {
-            BigDecimal share = BigDecimal.valueOf(c.getSalesCount() * 100.0 / totalSales)
-                    .setScale(2, RoundingMode.HALF_UP);
+            BigDecimal share = totalSales == 0 ? BigDecimal.ZERO
+                    : BigDecimal.valueOf(c.getSalesCount() * 100.0 / totalSales)
+                            .setScale(2, RoundingMode.HALF_UP);
             competitorShares.add(CompetitorShare.builder()
                     .competitorName(c.getCompetitorName())
                     .sharePercent(share)
                     .build());
         }
-        
-        // 按份额排序
+
         competitorShares.sort((a, b) -> b.getSharePercent().compareTo(a.getSharePercent()));
-        
+
         return MarketShare.builder()
                 .ourShare(ourShare)
                 .competitorShares(competitorShares)
@@ -229,57 +265,27 @@ public class CompetitorAnalysisService {
     }
 
     /**
-     * 生成趋势数据
-     */
-    private List<TrendData> generateTrends() {
-        List<TrendData> trends = new ArrayList<>();
-        
-        String[] periods = {"Week 1", "Week 2", "Week 3", "Week 4"};
-        String[] ourTrends = {"UP", "UP", "DOWN", "UP"};
-        String[][] compTrends = {{"UP", "DOWN"}, {"DOWN", "UP"}, {"UP", "UP"}, {"STABLE", "UP"}};
-        
-        for (int i = 0; i < periods.length; i++) {
-            List<CompetitorTrend> competitorTrendList = new ArrayList<>();
-            competitorTrendList.add(CompetitorTrend.builder()
-                    .competitorName("Competitor A")
-                    .trend(compTrends[i][0])
-                    .changePercent(BigDecimal.valueOf(Math.random() * 20 - 5)
-                            .setScale(2, RoundingMode.HALF_UP))
-                    .build());
-            
-            trends.add(TrendData.builder()
-                    .period(periods[i])
-                    .ourTrend(ourTrends[i])
-                    .competitorTrends(competitorTrendList)
-                    .build());
-        }
-        
-        return trends;
-    }
-
-    /**
      * 生成建议
      */
-    private List<String> generateRecommendations(PriceComparison priceComparison, 
-                                                   SalesComparison salesComparison) {
+    private List<String> generateRecommendations(PriceComparison priceComparison,
+                                                 SalesComparison salesComparison) {
         List<String> recommendations = new ArrayList<>();
-        
+
         if ("COMPETITIVE".equals(priceComparison.getPricePosition())) {
             recommendations.add("当前价格具有竞争力，建议保持或适当上调");
         } else if ("PREMIUM".equals(priceComparison.getPricePosition())) {
             recommendations.add("价格高于平均水平，考虑调整定价策略");
+        } else if ("BUDGET".equals(priceComparison.getPricePosition())) {
+            recommendations.add("价格与竞品持平，可通过差异化服务提升竞争力");
+        } else if ("UNKNOWN".equals(priceComparison.getPricePosition())) {
+            recommendations.add("暂无可对比的竞品数据，请先在定价服务中配置竞品采集");
         }
-        
-        if (salesComparison.getOurSalesCount() < salesComparison.getAvgCompetitorSales()) {
+
+        if ("BELOW_AVG".equals(salesComparison.getSalesPosition())) {
             recommendations.add("销售量低于竞品平均水平，建议加强推广");
         }
-        
-        if (BigDecimal.valueOf(20).compareTo(priceComparison.getPriceDiffPercent()) > 0) {
-            recommendations.add("价格差异较小，可通过差异化服务提升竞争力");
-        }
-        
+
         recommendations.add("建议定期监控竞品价格调整，及时应对市场变化");
-        
         return recommendations;
     }
 }

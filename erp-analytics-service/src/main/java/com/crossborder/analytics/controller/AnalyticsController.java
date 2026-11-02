@@ -186,6 +186,71 @@ public class AnalyticsController {
         return ResponseEntity.ok(competitorAnalysisService.getCompetitorAnalysis(productId, analysisType));
     }
 
+    // ========== 前端对齐的扁平接口 ==========
+    // 前端 erp-web/src/api/analytics.ts 调的 4 个接口原本后端都没有 → 404。
+    // 这里的响应体字段严格对齐前端消费方式（见 AnalyticsSummaryDTO）。
+
+    /**
+     * 获取订单趋势
+     * GET /api/v1/analytics/orders/trend?days=30
+     *
+     * <p>前端读 {@code d.date} / {@code d.count} / {@code d.revenue}。</p>
+     */
+    @GetMapping("/orders/trend")
+    public ResponseEntity<List<AnalyticsSummaryDTO.TrendPoint>> getOrdersTrend(
+            @RequestParam(defaultValue = "30") Integer days) {
+        log.info("GET /api/v1/analytics/orders/trend?days={}", days);
+        return ResponseEntity.ok(dashboardService.getTrend(days == null ? 30 : days));
+    }
+
+    /**
+     * 获取营收趋势
+     * GET /api/v1/analytics/revenue/trend?days=30
+     */
+    @GetMapping("/revenue/trend")
+    public ResponseEntity<List<AnalyticsSummaryDTO.TrendPoint>> getRevenueTrend(
+            @RequestParam(defaultValue = "30") Integer days) {
+        log.info("GET /api/v1/analytics/revenue/trend?days={}", days);
+        return ResponseEntity.ok(dashboardService.getTrend(days == null ? 30 : days));
+    }
+
+    /**
+     * 获取 Top 商品
+     * GET /api/v1/analytics/products/top?limit=10
+     *
+     * <p>前端读 {@code row.name} / {@code row.sold} / {@code row.revenue}。</p>
+     */
+    @GetMapping("/products/top")
+    public ResponseEntity<List<AnalyticsSummaryDTO.TopProduct>> getTopProducts(
+            @RequestParam(defaultValue = "10") Integer limit) {
+        log.info("GET /api/v1/analytics/products/top?limit={}", limit);
+        int max = limit == null ? 10 : Math.max(1, Math.min(limit, 100));
+        List<AnalyticsSummaryDTO.TopProduct> all = dashboardService.getSummary().getTopProducts();
+        return ResponseEntity.ok(all.size() <= max ? all : all.subList(0, max));
+    }
+
+    /**
+     * 获取客户分布
+     * GET /api/v1/analytics/customers/distribution
+     */
+    @GetMapping("/customers/distribution")
+    public ResponseEntity<List<AnalyticsSummaryDTO.CustomerDistribution>> getCustomerDistribution() {
+        log.info("GET /api/v1/analytics/customers/distribution");
+        return ResponseEntity.ok(dashboardService.getCustomerDistribution());
+    }
+
+    /**
+     * 获取扁平版看板
+     * GET /api/v1/analytics/summary
+     *
+     * <p>与 {@code /dashboard} 同源，但字段是扁平的，前端不用再改。</p>
+     */
+    @GetMapping("/summary")
+    public ResponseEntity<AnalyticsSummaryDTO> getSummary() {
+        log.info("GET /api/v1/analytics/summary");
+        return ResponseEntity.ok(dashboardService.getSummary());
+    }
+
     /**
      * 健康检查
      * GET /api/v1/analytics/health

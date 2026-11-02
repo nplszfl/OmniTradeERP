@@ -87,6 +87,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { analyticsApi } from '@/api/analytics'
 
 const data = ref<any>({})
@@ -102,27 +103,10 @@ onMounted(async () => {
   try {
     data.value = await analyticsApi.dashboard()
   } catch (e) {
-    // 后端无响应时回退到 mock 数据，方便 issue #4 上线后即可看到
-    data.value = {
-      totalOrders: 1247,
-      totalRevenue: 186432.5,
-      totalCustomers: 832,
-      totalProducts: 156,
-      revenueByPlatform: [
-        { platform: 'Amazon', revenue: 89234.5 },
-        { platform: 'eBay',   revenue: 42310.2 },
-        { platform: 'Shopee', revenue: 28912.7 },
-        { platform: 'TikTok', revenue: 15903.6 },
-        { platform: 'Other',  revenue: 10071.5 },
-      ],
-      topProducts: [
-        { sku: 'SKU-BLU-001-BLK', name: '无线蓝牙耳机 Pro - 黑色', sold: 320, revenue: 95680.0 },
-        { sku: 'SKU-WAT-002-BLK', name: '智能手表 X1 - 黑色',     sold: 145, revenue: 86855.0 },
-        { sku: 'SKU-USB-003-US',  name: '65W GaN 充电器',           sold: 580, revenue: 51620.0 },
-        { sku: 'SKU-PWB-005-BLK', name: '20000mAh 充电宝',         sold: 220, revenue: 43780.0 },
-        { sku: 'SKU-STN-004',     name: '便携手机支架',           sold: 850, revenue: 33150.0 },
-      ],
-    }
+    // ⚠️ 之前这里回退到 mock 数据，把后端的 404/500 全部掩盖了，
+    //    页面看起来「有数据」但其实全是假的。现在改成显式报错。
+    ElMessage.error('看板数据加载失败，请检查分析服务状态')
+    data.value = {}
   }
   loadTrend()
 })
@@ -131,17 +115,8 @@ async function loadTrend() {
   try {
     trend.value = await analyticsApi.ordersTrend(trendDays.value)
   } catch {
-    // mock
-    const days = trendDays.value
-    trend.value = Array.from({ length: Math.min(days, 30) }, (_, i) => {
-      const d = new Date()
-      d.setDate(d.getDate() - (days - 1 - i))
-      return {
-        date: `${d.getMonth() + 1}/${d.getDate()}`,
-        count: 30 + Math.round(Math.random() * 50),
-        revenue: 3000 + Math.round(Math.random() * 5000),
-      }
-    })
+    trend.value = []
+    ElMessage.error('趋势数据加载失败')
   }
 }
 </script>

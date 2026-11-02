@@ -1,0 +1,44 @@
+server:
+  port: 8100
+
+spring:
+  config:
+    # ⚠️ 必须有这行：classpath 上有 nacos-config starter 时，Spring Cloud 会强制检查
+    #    spring.config.import，没配直接抛 "No spring.config.import set" → 服务起不来。
+    #    optional: 前缀保证 Nacos 不可达时不阻塞启动。
+    import:
+      - optional:nacos:${spring.application.name}.yml
+  application:
+    name: erp-logistics-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+        namespace: ${NACOS_NAMESPACE:erp-dev}
+        group: DEFAULT_GROUP
+      config:
+        server-addr: ${NACOS_HOST:127.0.0.1}:${NACOS_PORT:8848}
+        namespace: ${NACOS_NAMESPACE:erp-dev}
+        group: DEFAULT_GROUP
+        file-extension: yml
+        refresh-enabled: true
+
+  # ⚠️ 变量名必须和 compose 注入的一致（MYSQL_HOST / MYSQL_PORT），
+  #    写死 localhost 会导致容器里连不上库。
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/erp_logistics?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true

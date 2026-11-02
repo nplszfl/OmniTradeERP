@@ -5,6 +5,7 @@ import com.crossborder.analytics.dto.SalesForecastDTO.AccuracyMetrics;
 import com.crossborder.analytics.dto.SalesForecastDTO.ForecastData;
 import com.crossborder.analytics.dto.SalesForecastDTO.ForecastSummary;
 import com.crossborder.analytics.dto.SalesForecastDTO.HistoricalData;
+import com.crossborder.analytics.repository.AnalyticsRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +25,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class SalesForecastService {
+
+    private final AnalyticsRepository repository;
 
     @Value("${analytics.prediction.default-forecast-days:30}")
     private int defaultForecastDays;
@@ -46,14 +49,14 @@ public class SalesForecastService {
         List<ForecastData> forecasts = generateForecast(productId, days, historicalData);
         
         // 计算摘要
-        ForecastSummary summary = calculateSummary(forecasts);
+        ForecastSummary summary = calculateSummary(forecasts, historicalData);
         
         // 计算准确度指标
         AccuracyMetrics accuracyMetrics = calculateAccuracyMetrics(historicalData);
         
         return SalesForecastDTO.builder()
                 .productId(productId)
-                .productName("Product " + productId)
+                .productName(productId)
                 .startDate(LocalDate.now())
                 .endDate(LocalDate.now().plusDays(days))
                 .forecasts(forecasts)
@@ -83,26 +86,22 @@ public class SalesForecastService {
 
     /**
      * 获取历史销售数据
+     *
+     * <p>⚠️ 之前这里是 {@code Math.random()} 造的 30 天假历史 ——
+     * 预测基于假数据，算出来的「预测准确度 95%」也是假的。
+     * 现在从 {@code erp_order.t_order_item} + {@code t_order} 真实聚合。</p>
      */
     private List<HistoricalData> getHistoricalData(String productId) {
         List<HistoricalData> data = new ArrayList<>();
-        LocalDate today = LocalDate.now();
-        
-        // 生成最近30天的历史数据
-        for (int i = 29; i >= 0; i--) {
-            LocalDate date = today.minusDays(i);
-            int baseSales = 50 + (i % 7) * 5; // 周期性波动
-            int quantity = baseSales + (int) (Math.random() * 20);
-            BigDecimal sales = BigDecimal.valueOf(quantity * 45.0)
-                    .setScale(2, RoundingMode.HALF_UP);
-            
+        List<AnalyticsRepository.DailyAggregate> aggs =
+                repository.getSkuDailySales(productId, 30);
+        for (AnalyticsRepository.DailyAggregate agg : aggs) {
             data.add(HistoricalData.builder()
-                    .date(date)
-                    .actualSales(sales)
-                    .actualQuantity(quantity)
+                    .date(agg.date())
+                    .actualSales(agg.revenue())
+                    .actualQuantity((int) agg.orderCount())
                     .build());
         }
-        
         return data;
     }
 
@@ -114,11 +113,23 @@ public class SalesForecastService {
         List<ForecastData> forecasts = new ArrayList<>();
         
         // 计算过去7天的平均值作为基础
+        // ⚠️ 之前这里是 orElse(100.0) —— 库里没数据就凭空按 100 算。
+        //    现在没数据就是 0，预测自然也是 0，不编。
         double avgSales = historicalData.stream()
                 .limit(7)
                 .mapToDouble(h -> h.getActualSales().doubleValue())
                 .average()
-                .orElse(100.0);
+                .orElse(0.0);
+
+        // 均价（用于把营收换算成件数）；历史里没有销量时退化为 1
+        double avgUnitPrice = historicalData.stream()
+                .filter(h -> h.getActualQuantity() != null && h.getActualQuantity() > 0)
+                .mapToDouble(h -> h.getActualSales().doubleValue() / h.getActualQuantity())
+                .average()
+                .orElse(1.0);
+        if (avgUnitPrice <= 0) {
+            avgUnitPrice = 1.0;
+        }
         
         // 计算趋势系数
         double trend = calculateTrend(historicalData);
@@ -146,7 +157,7 @@ public class SalesForecastService {
                     .date(date)
                     .predictedSales(sales)
                     .predictedRevenue(sales)
-                    .predictedQuantity((int) (predictedSales / 45))
+                    .predictedQuantity((int) (predictedSales / avgUnitPrice))
                     .confidenceLower(lower)
                     .confidenceUpper(upper)
                     .build());
@@ -181,7 +192,8 @@ public class SalesForecastService {
     /**
      * 计算预测摘要
      */
-    private ForecastSummary calculateSummary(List<ForecastData> forecasts) {
+    private ForecastSummary calculateSummary(List<ForecastData> forecasts,
+                                             List<HistoricalData> historicalData) {
         BigDecimal totalSales = BigDecimal.ZERO;
         int totalQuantity = 0;
         
@@ -194,12 +206,22 @@ public class SalesForecastService {
                 BigDecimal.valueOf(forecasts.size()), 
                 2, RoundingMode.HALF_UP);
         
+        // 增长率：从历史数据的线性回归斜率推出来，而不是写死 5.2%
+        double avgSales = historicalData.stream()
+                .limit(7)
+                .mapToDouble(h -> h.getActualSales().doubleValue())
+                .average()
+                .orElse(0.0);
+        double dailyGrowth = calculateTrend(historicalData);
+        BigDecimal growthRate = avgSales == 0 ? BigDecimal.ZERO
+                : BigDecimal.valueOf(dailyGrowth / avgSales * 100).setScale(2, RoundingMode.HALF_UP);
+
         return ForecastSummary.builder()
                 .totalPredictedSales(totalSales)
                 .totalPredictedRevenue(totalSales)
                 .totalPredictedQuantity(totalQuantity)
                 .avgDailySales(avgDaily)
-                .growthRate(BigDecimal.valueOf(5.2).setScale(2, RoundingMode.HALF_UP))
+                .growthRate(growthRate)
                 .build();
     }
 

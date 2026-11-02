@@ -1,162 +1,317 @@
 package com.crossborder.analytics.service;
 
+import com.crossborder.analytics.dto.AnalyticsSummaryDTO;
 import com.crossborder.analytics.dto.DashboardDTO;
-import com.crossborder.analytics.dto.DashboardDTO.*;
+import com.crossborder.analytics.repository.AnalyticsRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
- * 数据看板服务单元测试
+ * DashboardService 单元测试
+ *
+ * <p>核心验证点：<b>查不到数据时返回空/0，绝不返回随机数</b>。
+ * 之前这个 Service 全部用 Math.random() 造数据，
+ * 单测根本无从下手 —— 因为根本没有 Repository 可以 mock。</p>
  */
-@ExtendWith(MockitoExtension.class)
+@DisplayName("DashboardService 单元测试")
 class DashboardServiceTest {
 
-    @InjectMocks
-    private DashboardService dashboardService;
+    private AnalyticsRepository repository;
+    private DashboardService service;
 
     @BeforeEach
     void setUp() {
-        ReflectionTestUtils.setField(dashboardService, "refreshInterval", 30000L);
-        ReflectionTestUtils.setField(dashboardService, "maxDataPoints", 1000);
+        repository = mock(AnalyticsRepository.class);
+        service = new DashboardService(repository);
+    }
+
+    private AnalyticsRepository.SalesSummary emptySummary() {
+        return new AnalyticsRepository.SalesSummary(
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 0, 0, 0, 0);
+    }
+
+    private AnalyticsRepository.SalesSummary fullSummary() {
+        return new AnalyticsRepository.SalesSummary(
+                new BigDecimal("1200.00"), new BigDecimal("900.00"),
+                new BigDecimal("15000.00"), new BigDecimal("88000.00"),
+                320, 12, 45, 263);
+    }
+
+    // ---------------------------------------------------------------- 概览
+
+    @Test
+    @DisplayName("getOverviewStats - 库里有数据时字段一一对应")
+    void getOverviewStats_mapsRealValues() {
+        when(repository.getSalesSummary()).thenReturn(fullSummary());
+        when(repository.getActiveProductCount()).thenReturn(328);
+        when(repository.getLowStockProductCount()).thenReturn(12);
+
+        DashboardDTO.OverviewStats s = service.getOverviewStats();
+
+        assertEquals(0, s.getTodaySales().compareTo(new BigDecimal("1200.00")));
+        assertEquals(0, s.getYesterdaySales().compareTo(new BigDecimal("900.00")));
+        assertEquals(0, s.getMonthSales().compareTo(new BigDecimal("15000.00")));
+        assertEquals(0, s.getTotalOrders().compareTo(new BigDecimal("320")));
+        assertEquals(0, s.getPendingOrders().compareTo(new BigDecimal("12")));
+        assertEquals(0, s.getShippedOrders().compareTo(new BigDecimal("45")));
+        assertEquals(0, s.getCompletedOrders().compareTo(new BigDecimal("263")));
+        assertEquals(328, s.getActiveProducts());
+        assertEquals(12, s.getLowStockProducts());
     }
 
     @Test
-    void testGetDashboard() {
-        // 执行
-        DashboardDTO dashboard = dashboardService.getDashboard();
+    @DisplayName("getOverviewStats - 库为空时返回 0，不是随机数")
+    void getOverviewStats_emptyReturnsZero() {
+        when(repository.getSalesSummary()).thenReturn(emptySummary());
+        when(repository.getActiveProductCount()).thenReturn(0);
+        when(repository.getLowStockProductCount()).thenReturn(0);
 
-        // 验证
-        assertNotNull(dashboard);
-        assertNotNull(dashboard.getOverview());
-        assertNotNull(dashboard.getSalesTrend());
-        assertNotNull(dashboard.getPlatformDistribution());
-        assertNotNull(dashboard.getTopProducts());
-        assertNotNull(dashboard.getInventoryAlerts());
-        assertNotNull(dashboard.getRecentOrders());
-        assertNotNull(dashboard.getFinancialOverview());
-        assertNotNull(dashboard.getLastUpdated());
+        DashboardDTO.OverviewStats s = service.getOverviewStats();
+
+        assertEquals(0, s.getTodaySales().compareTo(BigDecimal.ZERO));
+        assertEquals(0, s.getTotalOrders().compareTo(BigDecimal.ZERO));
+        assertEquals(0, s.getActiveProducts());
+    }
+
+    // ---------------------------------------------------------------- 趋势
+
+    @Test
+    @DisplayName("getTrend - 日期/订单数/营收映射正确")
+    void getTrend_mapsValues() {
+        List<AnalyticsRepository.DailyAggregate> aggs = List.of(
+                new AnalyticsRepository.DailyAggregate(LocalDate.of(2026, 11, 1), 10L, new BigDecimal("1000.00")),
+                new AnalyticsRepository.DailyAggregate(LocalDate.of(2026, 11, 2), 5L, new BigDecimal("250.50")));
+        when(repository.getDailyAggregates(anyInt())).thenReturn(aggs);
+
+        List<AnalyticsSummaryDTO.TrendPoint> pts = service.getTrend(30);
+
+        assertEquals(2, pts.size());
+        assertEquals("2026-11-01", pts.get(0).getDate());
+        assertEquals(10, pts.get(0).getCount());
+        assertEquals(0, pts.get(0).getRevenue().compareTo(new BigDecimal("1000.00")));
+        assertEquals(5, pts.get(1).getCount());
+        assertEquals(0, pts.get(1).getRevenue().compareTo(new BigDecimal("250.50")));
     }
 
     @Test
-    void testGetOverviewStats() {
-        // 执行
-        OverviewStats stats = dashboardService.getOverviewStats();
-
-        // 验证
-        assertNotNull(stats);
-        assertNotNull(stats.getTodaySales());
-        assertNotNull(stats.getMonthSales());
-        assertTrue(stats.getTotalOrders().intValue() > 0);
-        assertTrue(stats.getActiveProducts() > 0);
+    @DisplayName("getTrend - 无数据时返回空列表")
+    void getTrend_empty() {
+        when(repository.getDailyAggregates(anyInt())).thenReturn(List.of());
+        assertTrue(service.getTrend(30).isEmpty());
     }
 
     @Test
-    void testGetSalesTrend() {
-        // 执行
-        List<TimeSeriesData> trend = dashboardService.getSalesTrend();
+    @DisplayName("getSalesTrend - 客单价按订单数算，不是写死的 45.5")
+    void getSalesTrend_avgOrderValue() {
+        List<AnalyticsRepository.DailyAggregate> aggs = List.of(
+                new AnalyticsRepository.DailyAggregate(LocalDate.of(2026, 11, 1), 2L, new BigDecimal("100.00")));
+        when(repository.getDailyAggregates(anyInt())).thenReturn(aggs);
 
-        // 验证
-        assertNotNull(trend);
-        assertEquals(30, trend.size()); // 最近30天
-        assertNotNull(trend.get(0).getDate());
-        assertNotNull(trend.get(0).getSalesAmount());
+        List<DashboardDTO.TimeSeriesData> trend = service.getSalesTrend();
+
+        assertEquals(1, trend.size());
+        assertEquals(0, trend.get(0).getAvgOrderValue().compareTo(new BigDecimal("50.00")));
+    }
+
+    // ---------------------------------------------------------------- 平台
+
+    @Test
+    @DisplayName("getPlatformDistribution - 百分比按实际营收占比算")
+    void getPlatformDistribution_computesPercentage() {
+        when(repository.getPlatformAggregates()).thenReturn(List.of(
+                new AnalyticsRepository.PlatformAggregate("Amazon", 100L, new BigDecimal("750.00"), BigDecimal.ZERO),
+                new AnalyticsRepository.PlatformAggregate("Shopee", 50L, new BigDecimal("250.00"), BigDecimal.ZERO)));
+
+        List<DashboardDTO.PlatformSales> dist = service.getPlatformDistribution();
+
+        assertEquals(2, dist.size());
+        assertEquals("Amazon", dist.get(0).getPlatform());
+        assertEquals(0, dist.get(0).getPercentage().compareTo(new BigDecimal("75.00")));
+        assertEquals(0, dist.get(1).getPercentage().compareTo(new BigDecimal("25.00")));
     }
 
     @Test
-    void testGetTodaySalesTrend() {
-        // 执行
-        List<TimeSeriesData> trend = dashboardService.getTodaySalesTrend();
+    @DisplayName("getPlatformDistribution - 空数据返回空列表")
+    void getPlatformDistribution_empty() {
+        when(repository.getPlatformAggregates()).thenReturn(List.of());
+        assertTrue(service.getPlatformDistribution().isEmpty());
+    }
 
-        // 验证
-        assertNotNull(trend);
-        assertEquals(24, trend.size()); // 24小时
+    // ---------------------------------------------------------------- Top 商品
+
+    @Test
+    @DisplayName("getTopProducts - 排名从 1 连续递增")
+    void getTopProducts_ranksSequentially() {
+        when(repository.getTopProducts(anyInt())).thenReturn(List.of(
+                new AnalyticsRepository.ProductAggregate("SKU-A", "商品A", 100L, new BigDecimal("5000.00"), BigDecimal.ZERO),
+                new AnalyticsRepository.ProductAggregate("SKU-B", "商品B", 50L, new BigDecimal("2000.00"), BigDecimal.ZERO)));
+
+        List<DashboardDTO.ProductPerformance> top = service.getTopProducts();
+
+        assertEquals(2, top.size());
+        assertEquals(1, top.get(0).getRank());
+        assertEquals(2, top.get(1).getRank());
+        assertEquals("SKU-A", top.get(0).getProductId());
+        assertEquals(100, top.get(0).getSalesCount());
     }
 
     @Test
-    void testGetPlatformDistribution() {
-        // 执行
-        List<PlatformSales> distribution = dashboardService.getPlatformDistribution();
+    @DisplayName("getTopProducts - 无数据返回空列表，不返回编造的 iPhone 商品")
+    void getTopProducts_empty() {
+        when(repository.getTopProducts(anyInt())).thenReturn(List.of());
+        assertTrue(service.getTopProducts().isEmpty());
+    }
 
-        // 验证
-        assertNotNull(distribution);
-        assertFalse(distribution.isEmpty());
-        
-        // 验证百分比总和
-        BigDecimal total = distribution.stream()
-                .map(PlatformSales::getPercentage)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        assertEquals(100.0, total.doubleValue(), 0.5); // 容差0.5
+    // ---------------------------------------------------------------- 库存预警
+
+    @Test
+    @DisplayName("getInventoryAlerts - 映射真实预警")
+    void getInventoryAlerts_mapsValues() {
+        when(repository.getStockAlerts(anyInt())).thenReturn(List.of(
+                new AnalyticsRepository.StockAlert("SKU-1", "商品1", 5, 20, "CRITICAL")));
+
+        List<DashboardDTO.InventoryAlert> alerts = service.getInventoryAlerts();
+
+        assertEquals(1, alerts.size());
+        assertEquals("SKU-1", alerts.get(0).getProductId());
+        assertEquals(5, alerts.get(0).getCurrentStock());
+        assertEquals(20, alerts.get(0).getSafetyStock());
+        assertEquals("CRITICAL", alerts.get(0).getAlertLevel());
+    }
+
+    // ---------------------------------------------------------------- 最近订单
+
+    @Test
+    @DisplayName("getRecentOrders - 映射真实订单")
+    void getRecentOrders_mapsValues() {
+        when(repository.getRecentOrders(anyInt())).thenReturn(List.of(
+                new AnalyticsRepository.RecentOrder("1001", "Amazon", "COMPLETED",
+                        new BigDecimal("299.00"), LocalDateTime.of(2026, 11, 2, 10, 30))));
+
+        List<DashboardDTO.OrderSummary> orders = service.getRecentOrders();
+
+        assertEquals(1, orders.size());
+        assertEquals("1001", orders.get(0).getOrderId());
+        assertEquals("Amazon", orders.get(0).getPlatform());
+        assertEquals(0, orders.get(0).getAmount().compareTo(new BigDecimal("299.00")));
+        assertEquals(LocalDateTime.of(2026, 11, 2, 10, 30), orders.get(0).getOrderTime());
     }
 
     @Test
-    void testGetTopProducts() {
-        // 执行
-        List<ProductPerformance> products = dashboardService.getTopProducts();
+    @DisplayName("getRecentOrders - 无数据返回空列表")
+    void getRecentOrders_empty() {
+        when(repository.getRecentOrders(anyInt())).thenReturn(List.of());
+        assertTrue(service.getRecentOrders().isEmpty());
+    }
 
-        // 验证
-        assertNotNull(products);
-        assertEquals(10, products.size());
-        
-        // 验证排名顺序
-        for (int i = 0; i < products.size(); i++) {
-            assertEquals(i + 1, products.get(i).getRank());
-        }
+    // ---------------------------------------------------------------- 财务
+
+    @Test
+    @DisplayName("getFinancialOverview - 毛利与利润率按真实营收成本算")
+    void getFinancialOverview_computesMargin() {
+        when(repository.getSalesSummary()).thenReturn(fullSummary());
+        when(repository.getTotalCost()).thenReturn(new BigDecimal("40000.00"));
+        when(repository.getPendingPaymentAmount()).thenReturn(new BigDecimal("3500.00"));
+        when(repository.getRefundAmount()).thenReturn(new BigDecimal("800.00"));
+
+        DashboardDTO.FinancialOverview f = service.getFinancialOverview();
+
+        assertEquals(0, f.getTotalRevenue().compareTo(new BigDecimal("88000.00")));
+        assertEquals(0, f.getTotalCost().compareTo(new BigDecimal("40000.00")));
+        assertEquals(0, f.getGrossProfit().compareTo(new BigDecimal("48000.00")));
+        assertEquals(0, f.getProfitMargin().compareTo(new BigDecimal("54.55")));
+        assertEquals(0, f.getPendingPayment().compareTo(new BigDecimal("3500.00")));
     }
 
     @Test
-    void testGetInventoryAlerts() {
-        // 执行
-        List<InventoryAlert> alerts = dashboardService.getInventoryAlerts();
+    @DisplayName("getFinancialOverview - 成本为 0 时利润率返回 0，不抛除零")
+    void getFinancialOverview_zeroCostNoDivideByZero() {
+        when(repository.getSalesSummary()).thenReturn(fullSummary());
+        when(repository.getTotalCost()).thenReturn(BigDecimal.ZERO);
+        when(repository.getPendingPaymentAmount()).thenReturn(BigDecimal.ZERO);
+        when(repository.getRefundAmount()).thenReturn(BigDecimal.ZERO);
 
-        // 验证
-        assertNotNull(alerts);
-        assertFalse(alerts.isEmpty());
-        
-        // 验证库存预警逻辑
-        for (InventoryAlert alert : alerts) {
-            assertTrue(alert.getCurrentStock() < alert.getSafetyStock());
-            assertTrue("LOW".equals(alert.getAlertLevel()) || 
-                      "CRITICAL".equals(alert.getAlertLevel()));
-        }
+        DashboardDTO.FinancialOverview f = service.getFinancialOverview();
+        assertEquals(0, f.getProfitMargin().compareTo(BigDecimal.ZERO));
+    }
+
+    // ---------------------------------------------------------------- 扁平摘要
+
+    @Test
+    @DisplayName("getSummary - 字段形状不变（前端依赖）")
+    void getSummary_keepsShape() {
+        when(repository.getSalesSummary()).thenReturn(fullSummary());
+        when(repository.getActiveProductCount()).thenReturn(328);
+        when(repository.getLowStockProductCount()).thenReturn(12);
+        when(repository.getPlatformAggregates()).thenReturn(List.of(
+                new AnalyticsRepository.PlatformAggregate("Amazon", 100L, new BigDecimal("750.00"), BigDecimal.ZERO)));
+        when(repository.getTopProducts(anyInt())).thenReturn(List.of(
+                new AnalyticsRepository.ProductAggregate("SKU-A", "商品A", 100L, new BigDecimal("5000.00"), BigDecimal.ZERO)));
+        when(repository.getRecentOrders(anyInt())).thenReturn(List.of());
+        when(repository.getTotalCost()).thenReturn(BigDecimal.ZERO);
+        when(repository.getPendingPaymentAmount()).thenReturn(BigDecimal.ZERO);
+        when(repository.getRefundAmount()).thenReturn(BigDecimal.ZERO);
+
+        AnalyticsSummaryDTO s = service.getSummary();
+
+        assertNotNull(s.getRevenueByPlatform());
+        assertNotNull(s.getTopProducts());
+        assertNotNull(s.getCustomersByRegion());
+        assertEquals(1, s.getRevenueByPlatform().size());
+        assertEquals("Amazon", s.getRevenueByPlatform().get(0).getPlatform());
+        assertEquals(1, s.getTopProducts().size());
+        assertEquals("SKU-A", s.getTopProducts().get(0).getSku());
+    }
+
+    // ---------------------------------------------------------------- 客户分布
+
+    @Test
+    @DisplayName("getCustomerDistribution - 按国家聚合真实数据")
+    void getCustomerDistribution_mapsRegions() {
+        when(repository.getCustomerDistribution()).thenReturn(List.of(
+                new AnalyticsRepository.RegionAggregate("US", 50L, new BigDecimal("5000.00")),
+                new AnalyticsRepository.RegionAggregate("DE", 20L, new BigDecimal("2000.00"))));
+
+        List<AnalyticsSummaryDTO.CustomerDistribution> dist = service.getCustomerDistribution();
+
+        assertEquals(2, dist.size());
+        assertEquals("US", dist.get(0).getRegion());
+        assertEquals(50, dist.get(0).getCustomers());
+        assertEquals(0, dist.get(0).getRevenue().compareTo(new BigDecimal("5000.00")));
     }
 
     @Test
-    void testGetRecentOrders() {
-        // 执行
-        List<OrderSummary> orders = dashboardService.getRecentOrders();
-
-        // 验证
-        assertNotNull(orders);
-        assertFalse(orders.isEmpty());
-        
-        // 验证订单金额
-        for (OrderSummary order : orders) {
-            assertNotNull(order.getOrderId());
-            assertTrue(order.getAmount().compareTo(BigDecimal.ZERO) > 0);
-        }
+    @DisplayName("getCustomerDistribution - 无数据返回空列表")
+    void getCustomerDistribution_empty() {
+        when(repository.getCustomerDistribution()).thenReturn(List.of());
+        assertTrue(service.getCustomerDistribution().isEmpty());
     }
 
-    @Test
-    void testGetFinancialOverview() {
-        // 执行
-        FinancialOverview overview = dashboardService.getFinancialOverview();
+    // ---------------------------------------------------------------- 小时趋势
 
-        // 验证
-        assertNotNull(overview);
-        assertTrue(overview.getTotalRevenue().compareTo(BigDecimal.ZERO) > 0);
-        assertTrue(overview.getTotalCost().compareTo(BigDecimal.ZERO) > 0);
-        
-        // 验证利润计算
-        BigDecimal expectedProfit = overview.getTotalRevenue().subtract(overview.getTotalCost());
-        assertEquals(0, expectedProfit.compareTo(overview.getGrossProfit()));
+    @Test
+    @DisplayName("getTodaySalesTrend - 固定 24 个点，没数据的小时为 0")
+    void getTodaySalesTrend_always24Points() {
+        List<AnalyticsRepository.HourlyAggregate> hours = new ArrayList<>();
+        hours.add(new AnalyticsRepository.HourlyAggregate(9, 4L, new BigDecimal("800.00")));
+        when(repository.getHourlyAggregates()).thenReturn(hours);
+
+        List<DashboardDTO.TimeSeriesData> trend = service.getTodaySalesTrend();
+
+        assertEquals(24, trend.size());
+        assertEquals(4, trend.get(9).getOrderCount());
+        assertEquals(0, trend.get(9).getSalesAmount().compareTo(new BigDecimal("800.00")));
+        assertEquals(0, trend.get(9).getAvgOrderValue().compareTo(new BigDecimal("200.00")));
+        assertEquals(0, trend.get(0).getOrderCount());
     }
 }

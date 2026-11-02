@@ -1,22 +1,32 @@
 package com.crossborder.analytics.service;
 
 import com.crossborder.analytics.dto.SalesForecastDTO;
+import com.crossborder.analytics.repository.AnalyticsRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
  * 销售预测服务单元测试
  */
 @ExtendWith(MockitoExtension.class)
 class SalesForecastServiceTest {
+
+    @Mock
+    private AnalyticsRepository repository;
 
     @InjectMocks
     private SalesForecastService salesForecastService;
@@ -25,6 +35,17 @@ class SalesForecastServiceTest {
     void setUp() {
         ReflectionTestUtils.setField(salesForecastService, "defaultForecastDays", 30);
         ReflectionTestUtils.setField(salesForecastService, "minHistoricalDays", 7);
+
+        // ⚠️ 历史数据现在来自数据库，不再是 Math.random() 造的。
+        //    这里 stub 出确定的 30 天序列，验证预测算法本身。
+        List<AnalyticsRepository.DailyAggregate> history = new java.util.ArrayList<>();
+        LocalDate from = LocalDate.now().minusDays(29);
+        for (int i = 0; i < 30; i++) {
+            long qty = 10L + (i % 7);
+            history.add(new AnalyticsRepository.DailyAggregate(
+                    from.plusDays(i), qty, BigDecimal.valueOf(qty * 45L).setScale(2, RoundingMode.HALF_UP)));
+        }
+        when(repository.getSkuDailySales(anyString(), anyInt())).thenReturn(history);
     }
 
     @Test

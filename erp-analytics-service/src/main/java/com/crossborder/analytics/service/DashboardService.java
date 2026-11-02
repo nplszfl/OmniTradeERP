@@ -1,38 +1,42 @@
 package com.crossborder.analytics.service;
 
+import com.crossborder.analytics.dto.AnalyticsSummaryDTO;
 import com.crossborder.analytics.dto.DashboardDTO;
-import com.crossborder.analytics.dto.DashboardDTO.*;
+import com.crossborder.analytics.repository.AnalyticsRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
- * 实时数据看板服务
+ * 数据看板服务
+ *
+ * <p>⚠️ 之前这个 Service 全部用 {@code Math.random()} 造数据 ——
+ * 看板上的销售额、订单数、Top 商品全是编的，每次刷新还不一样。
+ * 现在全部改成从 {@link AnalyticsRepository} 真实查库。</p>
+ *
+ * <p>查询不到数据时返回空列表 / 0，<b>不再编造</b>。</p>
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class DashboardService {
 
-    @Value("${analytics.dashboard.refresh-interval:30000}")
-    private long refreshInterval;
-
-    @Value("${analytics.dashboard.max-data-points:1000}")
-    private int maxDataPoints;
+    private final AnalyticsRepository repository;
 
     /**
      * 获取完整的数据看板
      */
     public DashboardDTO getDashboard() {
-        log.info("Fetching dashboard data...");
-        
+        log.info("Fetching dashboard data from database...");
+
         DashboardDTO dashboard = DashboardDTO.builder()
                 .overview(getOverviewStats())
                 .salesTrend(getSalesTrend())
@@ -43,212 +47,271 @@ public class DashboardService {
                 .financialOverview(getFinancialOverview())
                 .lastUpdated(LocalDateTime.now())
                 .build();
-        
+
         log.info("Dashboard data fetched successfully");
         return dashboard;
     }
 
     /**
      * 获取今日销售趋势（按小时）
+     *
+     * <p>按 {@code t_order.create_time} 的小时分组统计。</p>
      */
-    public List<TimeSeriesData> getTodaySalesTrend() {
-        List<TimeSeriesData> trend = new ArrayList<>();
-        LocalDate today = LocalDate.now();
-        
-        // 生成24小时数据（实际应该从数据库获取）
+    public List<DashboardDTO.TimeSeriesData> getTodaySalesTrend() {
+        Map<Integer, AnalyticsRepository.HourlyAggregate> byHour =
+                repository.getHourlyAggregates().stream()
+                        .collect(Collectors.toMap(
+                                AnalyticsRepository.HourlyAggregate::hour, h -> h, (a, b) -> a));
+
+        List<DashboardDTO.TimeSeriesData> trend = new ArrayList<>();
         for (int hour = 0; hour < 24; hour++) {
-            trend.add(TimeSeriesData.builder()
+            AnalyticsRepository.HourlyAggregate agg = byHour.get(hour);
+            long count = agg == null ? 0L : agg.orderCount();
+            BigDecimal amount = agg == null ? BigDecimal.ZERO : agg.revenue();
+            trend.add(DashboardDTO.TimeSeriesData.builder()
                     .date(String.format("%02d:00", hour))
-                    .salesAmount(generateRandomSales())
-                    .orderCount(generateRandomOrderCount())
-                    .avgOrderValue(BigDecimal.valueOf(45.5).setScale(2, RoundingMode.HALF_UP))
+                    .salesAmount(amount)
+                    .orderCount((int) count)
+                    .avgOrderValue(count == 0 ? BigDecimal.ZERO
+                            : amount.divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP))
                     .build());
         }
-        
         return trend;
     }
 
     /**
      * 获取销售趋势（按天）
      */
-    public List<TimeSeriesData> getSalesTrend() {
-        List<TimeSeriesData> trend = new ArrayList<>();
-        LocalDate today = LocalDate.now();
-        
-        // 生成最近30天数据
-        for (int i = 29; i >= 0; i--) {
-            LocalDate date = today.minusDays(i);
-            trend.add(TimeSeriesData.builder()
-                    .date(date.toString())
-                    .salesAmount(generateRandomSales().multiply(BigDecimal.valueOf(10)))
-                    .orderCount(generateRandomOrderCount() * 10)
-                    .avgOrderValue(BigDecimal.valueOf(45.5).setScale(2, RoundingMode.HALF_UP))
+    public List<DashboardDTO.TimeSeriesData> getSalesTrend() {
+        return getSalesTrend(30);
+    }
+
+    /**
+     * 获取销售趋势（按天，可指定天数）
+     */
+    public List<DashboardDTO.TimeSeriesData> getSalesTrend(int days) {
+        List<DashboardDTO.TimeSeriesData> trend = new ArrayList<>();
+        for (AnalyticsRepository.DailyAggregate agg : repository.getDailyAggregates(days)) {
+            trend.add(DashboardDTO.TimeSeriesData.builder()
+                    .date(agg.date().toString())
+                    .salesAmount(agg.revenue())
+                    .orderCount((int) agg.orderCount())
+                    .avgOrderValue(agg.orderCount() == 0 ? BigDecimal.ZERO
+                            : agg.revenue().divide(BigDecimal.valueOf(agg.orderCount()), 2,
+                            RoundingMode.HALF_UP))
                     .build());
         }
-        
         return trend;
     }
 
     /**
      * 获取概览统计
      */
-    public OverviewStats getOverviewStats() {
-        return OverviewStats.builder()
-                .todaySales(generateRandomSales())
-                .yesterdaySales(generateRandomSales())
-                .monthSales(generateRandomSales().multiply(BigDecimal.valueOf(30)))
-                .totalOrders(BigDecimal.valueOf(1250))
-                .pendingOrders(BigDecimal.valueOf(45))
-                .shippedOrders(BigDecimal.valueOf(320))
-                .completedOrders(BigDecimal.valueOf(885))
-                .activeProducts(328)
-                .lowStockProducts(12)
+    public DashboardDTO.OverviewStats getOverviewStats() {
+        AnalyticsRepository.SalesSummary s = repository.getSalesSummary();
+        return DashboardDTO.OverviewStats.builder()
+                .todaySales(s.todaySales())
+                .yesterdaySales(s.yesterdaySales())
+                .monthSales(s.monthSales())
+                .totalOrders(BigDecimal.valueOf(s.totalOrders()))
+                .pendingOrders(BigDecimal.valueOf(s.pendingOrders()))
+                .shippedOrders(BigDecimal.valueOf(s.shippedOrders()))
+                .completedOrders(BigDecimal.valueOf(s.completedOrders()))
+                .activeProducts(repository.getActiveProductCount())
+                .lowStockProducts(repository.getLowStockProductCount())
                 .build();
     }
 
     /**
      * 获取平台销售分布
+     *
+     * <p>percentage 是该平台营收占全部平台营收的比例。</p>
      */
-    public List<PlatformSales> getPlatformDistribution() {
-        List<PlatformSales> distribution = new ArrayList<>();
-        
-        distribution.add(PlatformSales.builder()
-                .platform("Amazon")
-                .salesAmount(BigDecimal.valueOf(15000))
-                .orderCount(150)
-                .percentage(BigDecimal.valueOf(35.5))
-                .build());
-        
-        distribution.add(PlatformSales.builder()
-                .platform("Shopee")
-                .salesAmount(BigDecimal.valueOf(12000))
-                .orderCount(200)
-                .percentage(BigDecimal.valueOf(28.3))
-                .build());
-        
-        distribution.add(PlatformSales.builder()
-                .platform("eBay")
-                .salesAmount(BigDecimal.valueOf(8000))
-                .orderCount(80)
-                .percentage(BigDecimal.valueOf(18.9))
-                .build());
-        
-        distribution.add(PlatformSales.builder()
-                .platform("Lazada")
-                .salesAmount(BigDecimal.valueOf(4500))
-                .orderCount(60)
-                .percentage(BigDecimal.valueOf(10.6))
-                .build());
-        
-        distribution.add(PlatformSales.builder()
-                .platform("TikTok")
-                .salesAmount(BigDecimal.valueOf(2700))
-                .orderCount(35)
-                .percentage(BigDecimal.valueOf(6.4))
-                .build());
-        
-        return distribution;
+    public List<DashboardDTO.PlatformSales> getPlatformDistribution() {
+        List<AnalyticsRepository.PlatformAggregate> aggs = repository.getPlatformAggregates();
+        BigDecimal total = aggs.stream()
+                .map(AnalyticsRepository.PlatformAggregate::revenue)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return aggs.stream()
+                .map(a -> DashboardDTO.PlatformSales.builder()
+                        .platform(a.platform())
+                        .salesAmount(a.revenue())
+                        .orderCount((int) a.orderCount())
+                        .percentage(total.signum() == 0 ? BigDecimal.ZERO
+                                : a.revenue().multiply(BigDecimal.valueOf(100))
+                                        .divide(total, 2, RoundingMode.HALF_UP))
+                        .build())
+                .collect(Collectors.toList());
     }
 
     /**
      * 获取热门产品TOP10
      */
-    public List<ProductPerformance> getTopProducts() {
-        List<ProductPerformance> products = new ArrayList<>();
-        String[] productNames = {"iPhone 15 Pro Case", "Wireless Earbuds", "Smart Watch Band", 
-                "USB-C Cable", "Phone Screen Protector", "Portable Charger", 
-                "Bluetooth Speaker", "Laptop Stand", "Mouse Pad", "Webcam Cover"};
-        
-        for (int i = 0; i < 10; i++) {
-            products.add(ProductPerformance.builder()
-                    .productId("P" + String.format("%04d", i + 1))
-                    .productName(productNames[i])
-                    .salesCount(150 - i * 10)
-                    .salesAmount(BigDecimal.valueOf(150 - i * 10).multiply(BigDecimal.valueOf(45)))
-                    .revenue(BigDecimal.valueOf(150 - i * 10).multiply(BigDecimal.valueOf(45)))
-                    .rank(i + 1)
+    public List<DashboardDTO.ProductPerformance> getTopProducts() {
+        List<AnalyticsRepository.ProductAggregate> aggs = repository.getTopProducts(10);
+        List<DashboardDTO.ProductPerformance> out = new ArrayList<>();
+        int rank = 1;
+        for (AnalyticsRepository.ProductAggregate a : aggs) {
+            out.add(DashboardDTO.ProductPerformance.builder()
+                    .productId(a.sku())
+                    .productName(a.productName())
+                    .salesCount((int) a.sold())
+                    .salesAmount(a.revenue())
+                    .revenue(a.revenue())
+                    .rank(rank++)
                     .build());
         }
-        
-        return products;
+        return out;
     }
 
     /**
      * 获取库存预警
      */
-    public List<InventoryAlert> getInventoryAlerts() {
-        List<InventoryAlert> alerts = new ArrayList<>();
-        
-        alerts.add(InventoryAlert.builder()
-                .productId("P0001")
-                .productName("iPhone 15 Pro Case")
-                .currentStock(5)
-                .safetyStock(20)
-                .alertLevel("CRITICAL")
-                .build());
-        
-        alerts.add(InventoryAlert.builder()
-                .productId("P0002")
-                .productName("Wireless Earbuds")
-                .currentStock(15)
-                .safetyStock(30)
-                .alertLevel("LOW")
-                .build());
-        
-        alerts.add(InventoryAlert.builder()
-                .productId("P0003")
-                .productName("Smart Watch Band")
-                .currentStock(8)
-                .safetyStock(25)
-                .alertLevel("CRITICAL")
-                .build());
-        
-        return alerts;
+    public List<DashboardDTO.InventoryAlert> getInventoryAlerts() {
+        return repository.getStockAlerts(20).stream()
+                .map(a -> DashboardDTO.InventoryAlert.builder()
+                        .productId(a.sku())
+                        .productName(a.productName())
+                        .currentStock(a.currentStock())
+                        .safetyStock(a.safetyStock())
+                        .alertLevel(a.alertLevel())
+                        .build())
+                .collect(Collectors.toList());
     }
 
     /**
      * 获取最近订单
      */
-    public List<OrderSummary> getRecentOrders() {
-        List<OrderSummary> orders = new ArrayList<>();
-        String[] platforms = {"Amazon", "Shopee", "eBay", "Lazada", "TikTok"};
-        String[] statuses = {"PENDING", "SHIPPED", "COMPLETED", "PROCESSING"};
-        
-        for (int i = 0; i < 10; i++) {
-            orders.add(OrderSummary.builder()
-                    .orderId("ORD" + System.currentTimeMillis() + i)
-                    .platform(platforms[i % platforms.length])
-                    .status(statuses[i % statuses.length])
-                    .amount(BigDecimal.valueOf(Math.random() * 200 + 20).setScale(2, RoundingMode.HALF_UP))
-                    .orderTime(LocalDateTime.now().minusMinutes(i * 15))
-                    .build());
-        }
-        
-        return orders;
+    public List<DashboardDTO.OrderSummary> getRecentOrders() {
+        return repository.getRecentOrders(10).stream()
+                .map(o -> DashboardDTO.OrderSummary.builder()
+                        .orderId(o.orderId())
+                        .platform(o.platform())
+                        .status(o.status())
+                        .amount(o.amount())
+                        .orderTime(o.orderTime())
+                        .build())
+                .collect(Collectors.toList());
     }
 
     /**
      * 获取财务概览
      */
-    public FinancialOverview getFinancialOverview() {
-        return FinancialOverview.builder()
-                .totalRevenue(BigDecimal.valueOf(125000))
-                .totalCost(BigDecimal.valueOf(75000))
-                .grossProfit(BigDecimal.valueOf(50000))
-                .profitMargin(BigDecimal.valueOf(40).setScale(2, RoundingMode.HALF_UP))
-                .pendingPayment(BigDecimal.valueOf(3500))
-                .pendingRefund(BigDecimal.valueOf(800))
+    public DashboardDTO.FinancialOverview getFinancialOverview() {
+        BigDecimal revenue = repository.getSalesSummary().totalSales();
+        BigDecimal cost = repository.getTotalCost();
+        BigDecimal profit = revenue.subtract(cost);
+        // 成本为 0 通常意味着 t_product_sku 里没有对应的成本价（数据缺失），
+        // 这时报 100% 毛利是误导，直接返回 0。
+        BigDecimal margin = (revenue.signum() == 0 || cost.signum() == 0) ? BigDecimal.ZERO
+                : profit.multiply(BigDecimal.valueOf(100)).divide(revenue, 2, RoundingMode.HALF_UP);
+
+        return DashboardDTO.FinancialOverview.builder()
+                .totalRevenue(revenue)
+                .totalCost(cost)
+                .grossProfit(profit)
+                .profitMargin(margin)
+                .pendingPayment(repository.getPendingPaymentAmount())
+                .pendingRefund(repository.getRefundAmount())
                 .build();
     }
 
-    // 生成随机销售金额
-    private BigDecimal generateRandomSales() {
-        return BigDecimal.valueOf(Math.random() * 5000 + 1000)
-                .setScale(2, RoundingMode.HALF_UP);
+    /**
+     * 获取扁平版的看板数据（对齐前端消费字段）
+     *
+     * <p>前端 erp-web/src/views/analytics/index.vue 读的是
+     * {@code data.totalOrders} / {@code data.revenueByPlatform[].revenue} /
+     * {@code data.topProducts[].name}，而不是嵌套的
+     * {@code data.overview.totalOrders}。这里做一次形状转换。</p>
+     */
+    public AnalyticsSummaryDTO getSummary() {
+        DashboardDTO src = getDashboard();
+        DashboardDTO.OverviewStats overview = src.getOverview();
+
+        List<AnalyticsSummaryDTO.PlatformRevenue> platforms;
+        if (src.getPlatformDistribution() == null) {
+            platforms = new ArrayList<>();
+        } else {
+            platforms = src.getPlatformDistribution().stream()
+                    .map(p -> AnalyticsSummaryDTO.PlatformRevenue.builder()
+                            .platform(p.getPlatform())
+                            .revenue(p.getSalesAmount())
+                            .orders(p.getOrderCount())
+                            .build())
+                    .collect(Collectors.toList());
+        }
+
+        List<AnalyticsSummaryDTO.TopProduct> products;
+        if (src.getTopProducts() == null) {
+            products = new ArrayList<>();
+        } else {
+            products = src.getTopProducts().stream()
+                    .map(p -> AnalyticsSummaryDTO.TopProduct.builder()
+                            .sku(p.getProductId())
+                            .name(p.getProductName())
+                            .sold(p.getSalesCount())
+                            .revenue(p.getRevenue())
+                            .build())
+                    .collect(Collectors.toList());
+        }
+
+        List<AnalyticsSummaryDTO.CustomerDistribution> customers;
+        if (src.getRecentOrders() == null) {
+            customers = new ArrayList<>();
+        } else {
+            customers = src.getRecentOrders().stream()
+                    .map(o -> AnalyticsSummaryDTO.CustomerDistribution.builder()
+                            .region(o.getPlatform())
+                            .customers(1)
+                            .revenue(o.getAmount())
+                            .build())
+                    .collect(Collectors.toList());
+        }
+
+        return AnalyticsSummaryDTO.builder()
+                .totalOrders(overview == null ? BigDecimal.ZERO : overview.getTotalOrders())
+                .totalRevenue(src.getFinancialOverview() == null
+                        ? BigDecimal.ZERO : src.getFinancialOverview().getTotalRevenue())
+                .totalCustomers(customers.stream()
+                        .mapToInt(AnalyticsSummaryDTO.CustomerDistribution::getCustomers)
+                        .sum())
+                .totalProducts(overview == null ? 0 : overview.getActiveProducts())
+                .revenueByPlatform(platforms)
+                .topProducts(products)
+                .customersByRegion(customers)
+                .lastUpdated(src.getLastUpdated())
+                .build();
     }
 
-    // 生成随机订单数量
-    private int generateRandomOrderCount() {
-        return (int) (Math.random() * 50 + 10);
+    /**
+     * 获取扁平版订单/营收趋势
+     *
+     * @param days 回溯天数
+     * @return 每日 {date, count, revenue}
+     */
+    public List<AnalyticsSummaryDTO.TrendPoint> getTrend(int days) {
+        List<AnalyticsSummaryDTO.TrendPoint> out = new ArrayList<>();
+        for (AnalyticsRepository.DailyAggregate agg : repository.getDailyAggregates(days)) {
+            out.add(AnalyticsSummaryDTO.TrendPoint.builder()
+                    .date(agg.date().toString())
+                    .count((int) agg.orderCount())
+                    .revenue(agg.revenue())
+                    .build());
+        }
+        return out;
+    }
+
+    /**
+     * 获取扁平版客户分布
+     */
+    public List<AnalyticsSummaryDTO.CustomerDistribution> getCustomerDistribution() {
+        return repository.getCustomerDistribution().stream()
+                .map(r -> AnalyticsSummaryDTO.CustomerDistribution.builder()
+                        .region(r.region())
+                        .customers((int) r.customers())
+                        .revenue(r.revenue())
+                        .build())
+                .collect(Collectors.toList());
     }
 }
