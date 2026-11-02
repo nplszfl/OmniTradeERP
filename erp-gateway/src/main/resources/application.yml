@@ -111,6 +111,18 @@ spring:
           filters:
             - StripPrefix=1
         # 采购服务
+        # ⚠️ 采购单列表/详情（前端 erp-web/src/api/purchase.ts）
+        #    采购单的实体与 Service 在 erp-supplier-service（另一套 /supplier/purchase/** 契约保留不动），
+        #    但 purchase.ts 走的是 /purchase/orders —— 必须单独指一份路由。
+        #    ⚠️ 位置很关键：本路由必须排在下面那条通配的 purchase-service 之前，
+        #    Spring Cloud Gateway 是「首次匹配生效」，否则 /api/purchase/orders 会被通配路由吃掉，
+        #    转发到 erp-purchase-service（那里只有 forecast/plan/quote）→ 404。
+        - id: purchase-order-service
+          uri: lb://erp-supplier-service
+          predicates:
+            - Path=/api/purchase/orders/**,/api/purchase/suppliers
+          filters:
+            - StripPrefix=1
         - id: purchase-service
           uri: lb://erp-purchase-service
           predicates:
