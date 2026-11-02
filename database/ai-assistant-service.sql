@@ -122,6 +122,46 @@ CREATE TABLE IF NOT EXISTS user_feedback (
     INDEX idx_create_time (create_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户反馈表';
 
+-- ===================================================
+-- 知识库文档表（RAG 持久化）
+--
+-- ⚠️ 这张表之前**根本不在 DDL 里**，但代码里有对应的 JPA 实体
+--    （@Entity @Table(name="knowledge_document") + JpaRepository）。
+--    后果：KnowledgeDocumentRepository 的所有查询在运行期报
+--    "Table 'erp_ai_assistant_db.knowledge_document' doesn't exist"，
+--    而 RAGService / VectorSearchService 会把它 catch 掉 → 知识库检索静默返回空。
+--    这就是「AI 客服看起来能聊，但检索不到任何知识」的原因。
+--
+--    字段严格对齐 KnowledgeDocument 实体：
+--    id / title / content / category / tags / language / embedding / active
+--    / create_time / update_time
+-- ===================================================
+CREATE TABLE IF NOT EXISTS knowledge_document (
+    id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    title VARCHAR(200) NOT NULL COMMENT '文档标题',
+    content TEXT NOT NULL COMMENT '文档正文（检索 + 喂给 LLM）',
+    category VARCHAR(50) DEFAULT NULL COMMENT '分类：订单/物流/产品/退货',
+    tags VARCHAR(500) DEFAULT NULL COMMENT '标签，逗号分隔',
+    language VARCHAR(10) NOT NULL DEFAULT 'zh' COMMENT '语言代码',
+    embedding TEXT DEFAULT NULL COMMENT '嵌入向量，JSON 数组形式',
+    active TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用（软删除标志）',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    INDEX idx_category (category),
+    INDEX idx_language (language),
+    INDEX idx_active (active),
+    INDEX idx_kd_title (title)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库文档表（RAG）';
+
+-- 插入示例文档（让检索接口一上来就有东西可查）
+INSERT INTO knowledge_document (title, content, category, tags, language, active) VALUES
+('订单查询指南', '您可以在「我的订单」页面查看所有订单信息，包括待付款、待发货、已发货等状态。支持按订单号、平台、下单时间筛选。', '订单', '订单,查询,列表', 'zh', 1),
+('物流时效说明', '一般情况下国内订单 1-3 天送达，国际订单 7-15 天。具体时效取决于物流方式与承运商。', '物流', '物流,时效,配送', 'zh', 1),
+('产品售后政策', '如果产品有质量问题，请在收到货 7 天内申请售后，我们会安排退换货。', '产品', '售后,质量,退换货', 'zh', 1),
+('价格变动规则', '产品价格会根据市场情况动态调整，系统会自动优化定价策略。您可以在产品详情页查看价格历史。', '价格', '价格,变动,策略', 'zh', 1),
+('库存与补货', '您可以在库存管理页面查看所有产品的库存状态，包括当前库存、安全库存、预计到货时间等信息。', '库存', '库存,查询,补货', 'zh', 1);
+
 -- 插入示例知识库数据
 INSERT INTO knowledge_base (category, question, answer, language, tags, priority) VALUES
 ('订单', '如何查询我的订单？', '您可以在「我的订单」页面查看所有订单信息，包括待付款、待发货、已发货等状态。', 'zh', '["订单", "查询", "我的订单"]', 10),

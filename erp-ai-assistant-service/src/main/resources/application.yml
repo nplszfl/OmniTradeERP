@@ -4,6 +4,36 @@ server:
 spring:
   application:
     name: erp-ai-assistant-service
+  config:
+    # ⚠️ 必须有这行：classpath 上有 nacos-config starter 时，Spring Cloud 会强制检查
+    #    spring.config.import，没配直接抛 "No spring.config.import set" → 服务起不来。
+    import:
+      - optional:nacos:${spring.application.name}.yml
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_HOST:mse-d5a70466-nacos-ans.mse.aliyuncs.com}:${NACOS_PORT:-8848}
+  # ⚠️ 必须显式配 datasource：
+  # 本模块用 JPA（@Entity KnowledgeDocument + JpaRepository），
+  # 统一继承根 pom 后 erp-common 的 DataSource 自动配置被激活，
+  # 但 application.yml 里没有 url → 启动期直接失败：
+  #   "Failed to configure a DataSource: 'url' attribute is not specified"
+  # 即「服务根本起不来」。
+  # 变量名必须和 compose 注入的一致（MYSQL_HOST / MYSQL_PORT），
+  # 写死 localhost 会导致容器里连不上库（这个坑踩过）。
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/erp_ai_assistant_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+  jpa:
+    hibernate:
+      # 用 update 让 Hibernate 兜底补齐字段（DDL 漏字段也能自愈）；
+      # 纯 validate 会在表结构对不上时启动失败。
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: false
   data:
     redis:
       host: localhost
