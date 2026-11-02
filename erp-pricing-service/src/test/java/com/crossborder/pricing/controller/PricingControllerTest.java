@@ -3,6 +3,7 @@ package com.crossborder.pricing.controller;
 import com.crossborder.pricing.dto.PricingRequest;
 import com.crossborder.pricing.dto.PricingResponse;
 import com.crossborder.pricing.service.PricingService;
+import com.crossborder.pricing.service.PricingSuggestionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -41,11 +42,14 @@ class PricingControllerTest {
     @Mock
     private PricingService pricingService;
 
+    @Mock
+    private PricingSuggestionService pricingSuggestionService;
+
     private PricingController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new PricingController(pricingService);
+        controller = new PricingController(pricingService, pricingSuggestionService);
     }
 
     @Test
@@ -140,14 +144,9 @@ class PricingControllerTest {
         verify(pricingService).getProductPricingInfo(42L);
     }
 
-    @Test
-    @DisplayName("health - 不调用 Service, 返回固定字符串")
-    void health_returnsFixedStringWithoutServiceCall() {
-        String health = controller.health();
-
-        assertNotNull(health);
-        assertEquals("Pricing Service is running! 🔥", health);
-        verify(pricingService, times(0)).calculateOptimalPrice(any());
-        verify(pricingService, times(0)).getProductPricingInfo(anyLong());
-    }
+    // ⚠️ health 已从 PricingController 移除：它和 HealthController 都声明了
+    // GET /api/v1/pricing/health，Spring 启动期直接抛 Ambiguous mapping，
+    // **整个 pricing 服务起不来**（单元测不出，要真起服务才暴露）。
+    // 健康检查统一由 HealthController 提供，路由冲突由
+    // ControllerMappingConflictTest 静态守护。
 }
