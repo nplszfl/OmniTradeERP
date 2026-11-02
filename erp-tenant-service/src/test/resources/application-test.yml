@@ -1,6 +1,10 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:testdb
+    # ⚠️ MODE=MySQL 必须带：Hibernate 生成的 DDL 尾部带 `engine=InnoDB`
+    #    （MySQL 方言），H2 默认模式不认 → **7 张表全部建表失败**，
+    #    而失败只以 WARN 形式打印，整个上下文照样起来 → 测试“通过”但表根本不存在。
+    #    切到 MODE=MySQL 后 DDL 正常执行。
+    url: jdbc:h2:mem:testdb;MODE=MySQL;DATABASE_TO_LOWER=TRUE
     driver-class-name: org.h2.Driver
     username: sa
     password: 

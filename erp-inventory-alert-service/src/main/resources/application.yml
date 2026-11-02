@@ -18,15 +18,18 @@ spring:
     name: erp-inventory-alert-service
   
   # 数据库配置
+  # 📌 项目权威数据库是 MySQL（docker-compose 只有 mysql:8.0）。
+  #    之前这里指向 jdbc:postgresql://localhost:5432/omnitrade_erp，
+  #    而仓库里既没有 Postgres 实例，也没有任何 PostgreSQL 版 DDL → 连不上库。
   datasource:
-    driver-class-name: org.postgresql.Driver
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:omnitrade_erp}
-    username: postgres
-    password: postgres
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/erp_inventory_alert?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:root}
 
   # ⚠️ 必须显式开 sql.init：
   # Spring Boot 默认 spring.sql.init.mode=embedded，**只对 H2/HSQL 等内存库生效**，
-  # 对 PostgreSQL 不会执行 classpath 下的 schema.sql。
+  # 对 MySQL/PostgreSQL 不会执行 classpath 下的 schema.sql。
   # 本模块用的是 MyBatis-Plus（@TableName），没有 @Entity，
   # 所以 ddl-auto 那句是空转 —— 5 张表只能靠 schema.sql 建。
   sql:
@@ -42,7 +45,7 @@ spring:
     show-sql: true
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
+        dialect: org.hibernate.dialect.MySQLDialect
         format_sql: true
   
   # 邮件配置

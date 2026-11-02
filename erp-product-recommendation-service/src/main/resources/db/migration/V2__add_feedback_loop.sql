@@ -1,66 +1,70 @@
--- v1.9.0 Feedback 闭环 - 真实反馈数据持久化
--- 兼容 H2 (开发) / PostgreSQL (生产)
+-- ===================================================
+-- v1.9.0 Feedback 闭环 - 真实反馈数据持久化 (MySQL)
+-- ===================================================
+-- 📌 方言说明：原脚本标注「兼容 H2 (开发) / PostgreSQL (生产)」，
+--    实际是 MySQL 方言（AUTO_INCREMENT）。项目无 Postgres 实例，统一到 MySQL。
+-- ===================================================
 
 CREATE TABLE IF NOT EXISTS recommend_feedback (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    result_id BIGINT NOT NULL,
-    candidate_id BIGINT NOT NULL,
-    sku VARCHAR(64),
-    category VARCHAR(64),
-    platform VARCHAR(32),
+    `id`                    BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `result_id`             BIGINT        NOT NULL COMMENT '推荐结果ID',
+    `candidate_id`          BIGINT        NOT NULL COMMENT '候选ID',
+    `sku`                   VARCHAR(64)   COMMENT 'SKU',
+    `category`              VARCHAR(64)   COMMENT '类目',
+    `platform`              VARCHAR(32)   COMMENT '平台',
 
     -- 采纳信号: 卖家接受了哪条推荐
     -- ADOPTED  接受并上架
     -- REJECTED 拒绝
     -- IGNORED  未表态
-    feedback_type VARCHAR(32) NOT NULL,
+    `feedback_type`         VARCHAR(32)   NOT NULL COMMENT '反馈类型',
 
     -- 卖家主观打分 1~5
-    seller_rating INT,
+    `seller_rating`         INT           COMMENT '卖家评分1-5',
 
     -- 真实 outcome (上架后若干天回填)
-    actual_30d_sales INT,
-    actual_30d_profit DECIMAL(14,2),
-    actual_conversion_rate DOUBLE,
+    `actual_30d_sales`      INT           COMMENT '实际30天销量',
+    `actual_30d_profit`     DECIMAL(14,2) COMMENT '实际30天利润',
+    `actual_conversion_rate` DOUBLE       COMMENT '实际转化率',
 
     -- 计算字段（写时缓存，避免重复聚合）
     -- accuracy_score = -1 ~ 1
     --   >0 表示推荐方向正确（采纳后表现好）
     --   <0 表示推荐方向错误
     --   =0 表示中性（未采纳/无 outcome）
-    accuracy_score DOUBLE DEFAULT 0.0,
+    `accuracy_score`        DOUBLE        DEFAULT 0.0 COMMENT '准确度评分 -1~1',
 
-    feedback_note VARCHAR(512),
-    feedback_by VARCHAR(64),
+    `feedback_note`         VARCHAR(512)  COMMENT '反馈备注',
+    `feedback_by`           VARCHAR(64)   COMMENT '反馈人',
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_recommend_feedback_result ON recommend_feedback(result_id);
-CREATE INDEX IF NOT EXISTS idx_recommend_feedback_candidate ON recommend_feedback(candidate_id);
-CREATE INDEX IF NOT EXISTS idx_recommend_feedback_type ON recommend_feedback(feedback_type);
-CREATE INDEX IF NOT EXISTS idx_recommend_feedback_category ON recommend_feedback(category, platform);
-CREATE INDEX IF NOT EXISTS idx_recommend_feedback_created ON recommend_feedback(created_at DESC);
+    `created_at`            TIMESTAMP     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at`            TIMESTAMP     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_recommend_feedback_result` (`result_id`),
+    KEY `idx_recommend_feedback_candidate` (`candidate_id`),
+    KEY `idx_recommend_feedback_type` (`feedback_type`),
+    KEY `idx_recommend_feedback_category` (`category`, `platform`),
+    KEY `idx_recommend_feedback_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='推荐反馈闭环';
 
 -- 权重自适应快照表 - 记录每次权重调优后的状态
 CREATE TABLE IF NOT EXISTS recommend_weight_snapshot (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    w_demand DOUBLE NOT NULL,
-    w_trend DOUBLE NOT NULL,
-    w_profit DOUBLE NOT NULL,
-    w_competition DOUBLE NOT NULL,
-    w_quality DOUBLE NOT NULL,
-    sample_count INT NOT NULL,
-    avg_accuracy DOUBLE,
-    adopt_rate DOUBLE,
-    trigger_reason VARCHAR(256),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+    `id`              BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `w_demand`        DOUBLE      NOT NULL COMMENT '需求权重',
+    `w_trend`         DOUBLE      NOT NULL COMMENT '趋势权重',
+    `w_profit`        DOUBLE      NOT NULL COMMENT '利润权重',
+    `w_competition`   DOUBLE      NOT NULL COMMENT '竞争权重',
+    `w_quality`       DOUBLE      NOT NULL COMMENT '质量权重',
+    `sample_count`    INT         NOT NULL COMMENT '样本数',
+    `avg_accuracy`    DOUBLE      COMMENT '平均准确度',
+    `adopt_rate`      DOUBLE      COMMENT '采纳率',
+    `trigger_reason`  VARCHAR(256) COMMENT '触发原因',
+    `created_at`      TIMESTAMP   DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_weight_snapshot_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='权重自适应快照';
 
-CREATE INDEX IF NOT EXISTS idx_weight_snapshot_created ON recommend_weight_snapshot(created_at DESC);
-
--- 示例种子反馈数据 (开发测试使用)
+-- ---------------- 示例种子反馈数据 (开发测试使用) ----------------
 INSERT INTO recommend_feedback
   (result_id, candidate_id, sku, category, platform, feedback_type, seller_rating,
    actual_30d_sales, actual_30d_profit, actual_conversion_rate, accuracy_score,

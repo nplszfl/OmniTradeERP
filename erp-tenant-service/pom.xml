@@ -43,12 +43,9 @@
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
 
-        <!-- Database -->
-        <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-            <scope>runtime</scope>
-        </dependency>
+        <!-- 📌 数据库驱动是 MySQL（项目权威数据库，compose 只有 mysql:8.0）。
+             mysql-connector-j 由 erp-common 传递引入（runtime scope），
+             不需要在这里重复声明。 -->
 
         <!-- Redis -->
         <dependency>

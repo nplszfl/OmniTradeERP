@@ -17,17 +17,20 @@ spring:
   application:
     name: erp-tenant-service
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:omnitrade_tenant}
-    username: ${DB_USER:postgres}
-    password: ${DB_PASSWORD:postgres}
-    driver-class-name: org.postgresql.Driver
+    # 📌 项目权威数据库是 MySQL（docker-compose 只有 mysql:8.0）。
+    #    之前指向 jdbc:postgresql://localhost:5432/omnitrade_tenant，
+    #    而仓库里既没有 Postgres 实例，也没有 PostgreSQL 版 DDL → 连不上库。
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/erp_tenant?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:root}
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
+        dialect: org.hibernate.dialect.MySQLDialect
 
 jwt:
   secret: ${JWT_SECRET:OmniTradeERP Secret Key For SaaS 2026 Multi-Tenant Platform}

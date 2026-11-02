@@ -357,11 +357,25 @@ def check_datasource():
     problems = []
     for yml in sorted(ROOT.glob("erp-*-service/src/main/resources/application.yml")):
         text = yml.read_text(encoding="utf-8", errors="replace")
+        # ⚠️ 必须先剥掉注释：yml 里常有「之前这里指向 jdbc:postgresql://.../xxx」这类
+        #    说明性注释，不剥掉会把注释里的旧库名当成真实配置 → 误报。
+        text = re.sub(r"^\s*#.*$", "", text, flags=re.M)
+        # ⚠️ 必须同时匹配 mysql 和 postgresql：
+        #    只匹配 jdbc:mysql:// 会让 PostgreSQL 服务**整个被跳过** ——
+        #    巡检报告说「18 个 datasource 全部找到」，其实那几个 PG 服务根本没查。
+        matched = False
         for m in re.finditer(
-                r"jdbc:mysql://[^/]+/([a-zA-Z0-9_]+)\?", text):
+                r"jdbc:(?:mysql|postgresql)://[^/]+/([a-zA-Z0-9_]+)", text):
+            matched = True
             db = m.group(1)
             svc = yml.parts[-5] if len(yml.parts) >= 5 else str(yml)
             problems.append((svc, db))
+        # ⚠️ 兜底：yml 里写了 jdbc: URL，却一个库名都没解析出来 → 说明 URL 用了
+        #    ${MYSQL_DATABASE:xxx} 这类变量占位，脚本**静默跳过**了这个服务。
+        #    静默跳过 = 假装检查通过，必须显式报出来。
+        if not matched and re.search(r"jdbc:(?:mysql|postgresql)://", text):
+            svc = yml.parts[-5] if len(yml.parts) >= 5 else str(yml)
+            problems.append((svc, "<解析不出库名：URL 里用了 ${VAR:默认值} 形式的库名>"))
     return problems
 
 

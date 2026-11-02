@@ -31,10 +31,24 @@ spring:
         refresh-enabled: true
 
   datasource:
-    url: jdbc:h2:mem:recommendation_dev;DB_CLOSE_DELAY=-1
+    # ⚠️ MODE=MySQL 必须带：schema.sql 用的是 MySQL 方言
+    #    （AUTO_INCREMENT / ENGINE=InnoDB / 内联 KEY），
+    #    H2 默认模式不认内联 KEY。
+    url: jdbc:h2:mem:recommendation_dev;DB_CLOSE_DELAY=-1;MODE=MySQL;DATABASE_TO_LOWER=TRUE
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
+
+  # ⚠️ Spring Boot 默认 spring.sql.init.mode=embedded，**只对 H2/HSQL 等内存库生效**。
+  #    本模块的 4 张表（recommend_candidate / recommend_result /
+  #    recommend_feedback / recommend_weight_snapshot）没有 JPA 实体，
+  #    ddl-auto 建不出来 → 必须显式开 sql.init 让 schema.sql 执行。
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      # ⚠️ Spring Boot 默认 data-locations=classpath:data.sql，
+      data-locations: classpath:data.sql
 
   h2:
     console:
@@ -73,6 +87,17 @@ spring:
     activate:
       on-profile: prod
   datasource:
-    url: jdbc:postgresql://postgres:5432/erp_recommendation
-    username: ${DB_USER:erp}
-    password: ${DB_PASS:erp123}
+    # 📌 项目权威数据库是 MySQL（docker-compose 只有 mysql:8.0）。
+    #    之前指向 jdbc:postgresql://postgres:5432/erp_recommendation —— 纯空配置。
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/erp_recommendation?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:root}
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      # ⚠️ Spring Boot 默认 data-locations=classpath:data.sql，
+      #    不显式关掉的话**生产环境也会灌入示例种子数据**（5 条示例商品）。
+      #    生产库只建表，不灌 demo 数据。
+      data-locations:

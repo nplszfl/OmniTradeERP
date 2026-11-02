@@ -27,11 +27,14 @@ services:
       - ./database/finance-service.sql:/docker-entrypoint-initdb.d/finance-service.sql:ro
       - ./database/inventory-prediction-service.sql:/docker-entrypoint-initdb.d/inventory-prediction-service.sql:ro
       - ./database/inventory-service.sql:/docker-entrypoint-initdb.d/inventory-service.sql:ro
+      - ./database/inventory-alert-service.sql:/docker-entrypoint-initdb.d/inventory-alert-service.sql:ro
       - ./database/logistics-service.sql:/docker-entrypoint-initdb.d/logistics-service.sql:ro
       - ./database/pricing-service.sql:/docker-entrypoint-initdb.d/pricing-service.sql:ro
       - ./database/product-description-service.sql:/docker-entrypoint-initdb.d/product-description-service.sql:ro
+      - ./database/product-recommendation-service.sql:/docker-entrypoint-initdb.d/product-recommendation-service.sql:ro
       - ./database/purchase-service.sql:/docker-entrypoint-initdb.d/purchase-service.sql:ro
       - ./database/reporting-service.sql:/docker-entrypoint-initdb.d/reporting-service.sql:ro
+      - ./database/tenant-service.sql:/docker-entrypoint-initdb.d/tenant-service.sql:ro
       - ./database/seed-data.sql:/docker-entrypoint-initdb.d/seed-data.sql:ro
       - ./database/user-service.sql:/docker-entrypoint-initdb.d/user-service.sql:ro
       - ./database/warehouse-service.sql:/docker-entrypoint-initdb.d/warehouse-service.sql:ro

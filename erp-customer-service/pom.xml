@@ -101,4 +101,18 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- 📌 必须显式声明：root pom 的 pluginManagement 只是「版本/配置模板」，
+                 不会自动生效。没有这一段，mvn package 打出来的 jar 没有 Main-Class，
+                 `java -jar xxx.jar` 直接报「没有主清单属性」→ 服务根本无法容器化部署。
+                 版本与 repackage 配置继承 root pom 的 pluginManagement。 -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
 </project>
