@@ -9,7 +9,6 @@
               <el-option label="销售报表" value="sales" />
               <el-option label="库存报表" value="inventory" />
               <el-option label="财务月报" value="finance" />
-              <el-option label="客户报表" value="customer" />
             </el-select>
             <el-button type="primary" @click="generate">生成报表</el-button>
           </div>
@@ -19,17 +18,25 @@
       <el-table :data="list" v-loading="loading" stripe>
         <el-table-column prop="name" label="报表名称" />
         <el-table-column prop="type" label="类型" width="120" />
-        <el-table-column prop="period" label="周期" width="160" />
-        <el-table-column prop="generatedAt" label="生成时间" width="200" />
-        <el-table-column prop="size" label="大小" width="100" />
+        <el-table-column prop="period" label="周期" width="200">
+          <template #default="{ row }">
+            {{ row.period || '-' }}
+            <el-tag v-if="row.granularity" size="small" type="info">{{ row.granularity }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="generatedAt" label="生成时间" width="200">
+          <template #default="{ row }">
+            {{ row.generatedAt ? String(row.generatedAt).replace('T', ' ').slice(0, 19) : '-' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'READY' ? 'success' : 'warning'" size="small">{{ row.status }}</el-tag>
+            <el-tag :type="row.status === 'GENERATED' ? 'success' : 'warning'" size="small">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="download(row)" :disabled="row.status !== 'READY'">下载</el-button>
+            <el-button link type="primary" size="small" @click="download(row)" :disabled="row.status !== 'GENERATED'">下载</el-button>
             <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -54,16 +61,14 @@ onMounted(async () => {
 async function loadList() {
   loading.value = true
   try {
-    list.value = await reportApi.list({})
-  } catch {
-    // mock
-    list.value = [
-      { id: 1, name: '2026-Q2 销售汇总',           type: 'sales',     period: '2026 Q2',      generatedAt: '2026-07-01 09:00', size: '2.3 MB', status: 'READY' },
-      { id: 2, name: '2026-06 库存周转分析',        type: 'inventory', period: '2026-06',      generatedAt: '2026-07-01 10:00', size: '1.8 MB', status: 'READY' },
-      { id: 3, name: '2026-06 财务报表',            type: 'finance',   period: '2026-06',      generatedAt: '2026-07-01 11:00', size: '5.2 MB', status: 'READY' },
-      { id: 4, name: '全平台客户分布',              type: 'customer',  period: '历史累计',     generatedAt: '2026-07-05 14:00', size: '3.1 MB', status: 'READY' },
-      { id: 5, name: '2026-07 上半月销售报表',      type: 'sales',     period: '2026-07 上旬', generatedAt: '2026-07-09 09:30', size: '1.2 MB', status: 'GENERATING' },
-    ]
+    // erp-reporting-service 的接口统一包 Result（{code, message, data}）
+    const res = await reportApi.list({})
+    list.value = res?.data ?? (Array.isArray(res) ? res : [])
+  } catch (e) {
+    // ⚠️ 原来这里用 mock 数据兜底，接口 404 时页面看着有数据，其实是前端写死的假数据。
+    console.error('报表列表加载失败', e)
+    list.value = []
+    ElMessage.error('报表列表加载失败')
   } finally {
     loading.value = false
   }
@@ -71,16 +76,29 @@ async function loadList() {
 
 async function generate() {
   try {
-    await reportApi.generate({ type: type.value })
-    ElMessage.success('报表生成任务已提交')
-  } catch {
-    ElMessage.success('报表生成任务已提交')
+    const res = await reportApi.generate({ type: type.value })
+    ElMessage.success(res?.message || '报表生成任务已提交')
+    await loadList()
+  } catch (e) {
+    console.error('报表生成失败', e)
+    ElMessage.error('报表生成失败')
   }
-  loadList()
 }
 
 function download(row: any) {
-  ElMessage.success(`下载报表：${row.name}`)
+  if (!row?.type) {
+    ElMessage.warning('该报表没有类型，无法下载')
+    return
+  }
+  reportApi.download(row.type, {
+    startDate: row.period ? `${row.period}-01` : undefined,
+    endDate: row.period ? row.period : undefined,
+  })
+    .then(() => ElMessage.success(`下载报表：${row.name}`))
+    .catch(e => {
+      console.error('报表下载失败', e)
+      ElMessage.error('报表下载失败')
+    })
 }
 
 async function remove(row: any) {

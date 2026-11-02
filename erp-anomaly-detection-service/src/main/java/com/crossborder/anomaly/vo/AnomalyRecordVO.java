@@ -2,6 +2,9 @@ package com.crossborder.anomaly.vo;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 
 import java.io.Serializable;
@@ -93,35 +96,26 @@ public class AnomalyRecordVO implements Serializable {
     }
 
     /**
-     * 分页转换
-     */
-    public static IPage<AnomalyRecordVO> from(IPage<com.crossborder.anomaly.entity.AnomalyRecord> page) {
-        return page.convert(AnomalyRecordVO::from);
-    }
-
-    /**
-     * 极简 JSON 数组解析（避免为一个字段引入整个 Jackson 依赖链上的歧义）
+     * 极简 JSON 数组解析
+     *
+     * ⚠️ 之前手写的拆分逻辑有 bug：{@code substring(1, lastIndexOf(']') + 1)} 会把结尾的
+     * {@code "]} 一起带进去，解析出 {@code 金额异常"]} 这种带尾巴的值。
+     * 这里改用 Jackson（项目本来就有），不要自己拆 JSON。
      */
     static final class JsonUtil {
+        private static final ObjectMapper MAPPER = new ObjectMapper();
+
         static List<String> parseStringList(String json) {
             if (json == null || json.isBlank()) {
                 return List.of();
             }
-            String trimmed = json.trim();
-            if (trimmed.startsWith("[")) {
-                trimmed = trimmed.substring(1, trimmed.lastIndexOf(']') + 1);
+            try {
+                return MAPPER.readValue(json, new TypeReference<List<String>>() {
+                });
+            } catch (JsonProcessingException e) {
+                // 存量脏数据不返回空列表（会变成「正常」误导人），而是降级成单个字符串
+                return List.of(json.replace("\"", "").trim());
             }
-            java.util.List<String> list = new java.util.ArrayList<>();
-            for (String part : trimmed.split(",")) {
-                String v = part.trim();
-                if (v.startsWith("\"") && v.endsWith("\"") && v.length() >= 2) {
-                    v = v.substring(1, v.length() - 1);
-                }
-                if (!v.isEmpty()) {
-                    list.add(v);
-                }
-            }
-            return list;
         }
     }
 }

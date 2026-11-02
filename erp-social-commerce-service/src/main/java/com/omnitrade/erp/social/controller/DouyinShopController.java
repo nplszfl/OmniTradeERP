@@ -7,6 +7,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.List;
 
 @RestController
@@ -58,5 +62,38 @@ public class DouyinShopController {
     @Operation(summary = "刷新抖音访问令牌")
     public ResponseEntity<DouyinShopConfig> refreshToken(@PathVariable Long id) {
         return ResponseEntity.ok(service.refreshToken(id));
+    }
+
+    /**
+     * 同步全部已配置的抖音店铺（前端：socialApi.douyinShop.sync → POST /api/v1/douyin-shop/sync）
+     *
+     * <p>⚠️ 之前前端调 /sync，后端只有 /{id}/refresh-token，路径对不上 → 404。</p>
+     */
+    @PostMapping("/sync")
+    @Operation(summary = "同步全部抖音店铺")
+    public ResponseEntity<Map<String, Object>> syncAll() {
+        List<DouyinShopConfig> shops = service.findAll();
+        int success = 0;
+        int failed = 0;
+        List<String> errors = new ArrayList<>();
+        for (DouyinShopConfig shop : shops) {
+            try {
+                service.refreshToken(shop.getId());
+                success++;
+            } catch (Exception e) {
+                failed++;
+                errors.add(shop.getShopId() + ": " + e.getMessage());
+            }
+        }
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", failed == 0);
+        result.put("message", "同步完成: 成功 " + success + " 个, 失败 " + failed + " 个");
+        result.put("total", shops.size());
+        result.put("synced", success);
+        result.put("failed", failed);
+        if (!errors.isEmpty()) {
+            result.put("errors", errors);
+        }
+        return ResponseEntity.ok(result);
     }
 }

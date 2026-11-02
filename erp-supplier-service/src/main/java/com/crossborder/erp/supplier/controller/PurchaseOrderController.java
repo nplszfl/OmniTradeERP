@@ -2,6 +2,7 @@ package com.crossborder.erp.supplier.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.supplier.entity.PurchaseOrder;
 import com.crossborder.erp.supplier.entity.PurchaseOrderItem;
 import com.crossborder.erp.supplier.service.PurchaseOrderService;
@@ -67,6 +68,30 @@ public class PurchaseOrderController {
     public void update(@PathVariable Long id, @RequestBody PurchaseOrder order) {
         order.setId(id);
         purchaseOrderService.updateOrder(order);
+    }
+
+    /**
+     * 按状态推进订单（前端：supplierApi.updatePurchaseOrderStatus
+     * → {@code PUT /supplier/purchase/{id}/status?status=APPROVED}）
+     *
+     * <p>⚠️ 之前后端只有 POST /{id}/approve、/{id}/purchasing、/{id}/received、/{id}/cancel
+     * 这些动作式接口，没有「按状态推进」的接口 → 前端这行直接 404。</p>
+     *
+     * <p>这里把状态映射到已有的状态机方法上，避免绕过服务层的流转校验。</p>
+     */
+    @PutMapping("/{id}/status")
+    public void updateStatus(@PathVariable Long id, @RequestParam String status) {
+        if (status == null || status.isBlank()) {
+            throw new BizException("状态不能为空");
+        }
+        switch (status.trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "APPROVED" -> purchaseOrderService.approveOrder(id);
+            case "PURCHASING", "IN_TRANSIT" -> purchaseOrderService.markPurchasing(id);
+            case "RECEIVED" -> purchaseOrderService.markReceived(id);
+            case "CANCELLED", "CANCELED" -> purchaseOrderService.cancelOrder(id, "状态变更为取消");
+            default -> throw new BizException("不支持的订单状态: " + status
+                    + "（可选: APPROVED / PURCHASING / IN_TRANSIT / RECEIVED / CANCELLED）");
+        }
     }
 
     /**

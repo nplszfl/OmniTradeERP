@@ -30,6 +30,10 @@ public class User {
     @TableField("last_login_time")
     private LocalDateTime lastLoginTime;
 
+    /** 最后登录IP（前端 SysUser 接口有这个字段） */
+    @TableField("last_login_ip")
+    private String lastLoginIp;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 

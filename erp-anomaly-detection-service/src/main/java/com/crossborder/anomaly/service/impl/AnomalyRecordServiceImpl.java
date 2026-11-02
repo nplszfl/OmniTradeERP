@@ -119,6 +119,13 @@ public class AnomalyRecordServiceImpl implements AnomalyRecordService {
         Long highRisk = anomalyRecordMapper.selectCount(new LambdaQueryWrapper<AnomalyRecord>()
                 .in(AnomalyRecord::getRiskLevel, List.of("HIGH", "CRITICAL")));
 
+        // ⚠️ 前端的「正常订单 / 异常订单」指的是<b>检测判定</b>，不是<b>人工复核状态</b>：
+        //     PENDING/CONFIRMED/REJECTED 是复核流程，normal/anomaly 是模型判定结果。
+        //     之前错用 confirmed+rejected 当异常数 → 统计永远不对。
+        long anomalyCount = anomalyRecordMapper.selectCount(new LambdaQueryWrapper<AnomalyRecord>()
+                .eq(AnomalyRecord::getAnomalyFlag, true));
+        long normalCount = Math.max(0, total - anomalyCount);
+
         List<AnomalyRecord> all = anomalyRecordMapper.selectList(new LambdaQueryWrapper<AnomalyRecord>()
                 .select(AnomalyRecord::getRiskScore));
         double avg = all.stream()
@@ -128,7 +135,6 @@ public class AnomalyRecordServiceImpl implements AnomalyRecordService {
                 .average()
                 .orElse(0d);
 
-        long anomalyCount = confirmed + rejected;
         double rate = total == 0 ? 0d : Math.round(anomalyCount * 10000d / total) / 100d;
 
         return AnomalyStats.builder()
@@ -139,6 +145,10 @@ public class AnomalyRecordServiceImpl implements AnomalyRecordService {
                 .highRisk(highRisk)
                 .avgRiskScore(Math.round(avg * 100d) / 100d)
                 .anomalyRate(rate)
+                // 前端 Anomaly.vue 直接读的三个字段
+                .normal(normalCount)
+                .anomaly(anomalyCount)
+                .rate(rate)
                 .build();
     }
 

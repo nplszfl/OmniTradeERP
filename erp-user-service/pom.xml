@@ -72,6 +72,13 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- H2: 单元测试内存库 -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>

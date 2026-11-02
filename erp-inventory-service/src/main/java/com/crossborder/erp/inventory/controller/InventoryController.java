@@ -14,6 +14,9 @@ import com.crossborder.erp.inventory.vo.InventoryTrend;
 import com.crossborder.erp.inventory.vo.BatchOperationResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -107,6 +110,75 @@ public class InventoryController {
         }
         page.setRecords(records);
         return Result.success(page);
+    }
+
+    /**
+     * 库存导出（前端：inventoryApi.exportInventory → {@code responseType: 'blob'}）
+     *
+     * <p>⚠️ 必须返<b>裸字节流</b>，不能包 Result：
+     * 前端用 {@code responseType: 'blob'} 下载，包一层 JSON 的话
+     * 下载到的文件里全是 {@code {"code":200,"data":"UEsDBB..."}} 这种文本。</p>
+     *
+     * <p>用 CSV + UTF-8 BOM（Excel 双击能正确识别中文），不引 easyexcel，
+     * 避免为了一个导出再拉一遍 POI 依赖树。</p>
+     */
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> export(
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) String skuCode,
+            @RequestParam(required = false) String status) {
+
+        InventoryQuery query = new InventoryQuery();
+        query.setPage(1);
+        query.setSize(10000);
+        query.setWarehouseId(warehouseId);
+        query.setSkuCode(skuCode);
+        if (status != null && !status.isEmpty()) {
+            query.setStatus(parseStatus(status));
+        }
+
+        Page<Inventory> page = inventoryService.pageInventories(query);
+
+        StringBuilder sb = new StringBuilder();
+        // BOM：没有它 Excel 打开中文全是乱码
+        sb.append('﻿');
+        sb.append("SKU,商品ID,仓库ID,库位ID,总数量,可用数量,锁定数量,安全库存,单位成本,状态,更新时间\n");
+        for (Inventory inv : page.getRecords()) {
+            sb.append(csv(inv.getSkuCode())).append(',')
+              .append(csv(inv.getProductId())).append(',')
+              .append(csv(inv.getWarehouseId())).append(',')
+              .append(csv(inv.getLocationId())).append(',')
+              .append(csv(inv.getQuantity())).append(',')
+              .append(csv(inv.getAvailableQuantity())).append(',')
+              .append(csv(inv.getLockedQuantity())).append(',')
+              .append(csv(inv.getSafetyStock())).append(',')
+              .append(csv(inv.getUnitCost())).append(',')
+              .append(csv(inv.getStatus() == null ? null : inv.getStatus().name())).append(',')
+              .append(csv(inv.getUpdateTime()))
+              .append('\n');
+        }
+
+        byte[] body = sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        String filename = "inventory-" + System.currentTimeMillis() + ".csv";
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + filename + "\"; filename*=UTF-8''" + filename)
+                .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+                .body(body);
+    }
+
+    /**
+     * CSV 字段转义：含逗号/引号/换行的要加引号，引号翻倍
+     */
+    private static String csv(Object value) {
+        if (value == null) {
+            return "";
+        }
+        String s = String.valueOf(value);
+        if (s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r")) {
+            return "\"" + s.replace("\"", "\"\"") + "\"";
+        }
+        return s;
     }
 
     /**

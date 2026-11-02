@@ -3,9 +3,12 @@ package com.crossborder.erp.reporting.controller;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.crossborder.erp.common.result.Result;
 import com.crossborder.erp.reporting.dto.ReportQueryDTO;
+import com.crossborder.erp.reporting.dto.ReportGenerateRequest;
+import com.crossborder.erp.reporting.dto.ReportListItemDTO;
 import com.crossborder.erp.reporting.entity.SalesReport;
 import com.crossborder.erp.reporting.entity.InventoryReport;
 import com.crossborder.erp.reporting.entity.FinanceReport;
+import com.crossborder.erp.reporting.service.ReportTaskService;
 import com.crossborder.erp.reporting.service.SalesReportService;
 import com.crossborder.erp.reporting.service.InventoryReportService;
 import com.crossborder.erp.reporting.service.FinanceReportService;
@@ -15,6 +18,8 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 报表控制器
@@ -28,6 +33,7 @@ public class ReportController {
     private final SalesReportService salesReportService;
     private final InventoryReportService inventoryReportService;
     private final FinanceReportService financeReportService;
+    private final ReportTaskService reportTaskService;
 
     // ========== 销售报表 ==========
 
@@ -169,5 +175,35 @@ public class ReportController {
         query.setEndDate(endDate);
         query.setWarehouseId(warehouseId);
         return Result.success(financeReportService.exportExcel(query));
+    }
+
+    // ========== 报表台账 ==========
+
+    /**
+     * 报表台账列表
+     *
+     * <p>⚠️ 这个接口之前不存在 —— 前端 erp-web/src/views/report/index.vue 调用
+     * {@code GET /report/list} 直接 404，页面靠 catch 分支的 mock 数据撑着，
+     * 看上去「有数据」，实际是前端写死的假数据。</p>
+     */
+    @GetMapping("/list")
+    public Result<List<ReportListItemDTO>> listReports() {
+        return Result.success(reportTaskService.list());
+    }
+
+    /**
+     * 提交报表生成
+     */
+    @PostMapping("/generate")
+    public Result<ReportListItemDTO> generateReport(@RequestBody ReportGenerateRequest request) {
+        return Result.success(reportTaskService.generate(request));
+    }
+
+    /**
+     * 可用的报表模板
+     */
+    @GetMapping("/templates")
+    public Result<List<Map<String, Object>>> templates() {
+        return Result.success(reportTaskService.templates());
     }
 }

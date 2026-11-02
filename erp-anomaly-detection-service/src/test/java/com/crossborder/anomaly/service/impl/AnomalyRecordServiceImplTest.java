@@ -172,7 +172,12 @@ class AnomalyRecordServiceImplTest {
         assertEquals(2L, stats.getPending());
         assertEquals(1L, stats.getRejected());
         assertEquals(2L, stats.getHighRisk());
-        assertEquals(33.33, stats.getAnomalyRate(), 0.01);
+        // 异常数按「模型判定」(anomaly_flag) 算，不是按「人工复核状态」算：
+        // S1(90) + S2(70) 判定为异常，S3(10) 正常 → 2/3 = 66.67%
+        assertEquals(2L, stats.getAnomaly());
+        assertEquals(1L, stats.getNormal());
+        assertEquals(66.67, stats.getAnomalyRate(), 0.01);
+        assertEquals(66.67, stats.getRate(), 0.01);
         assertTrue(stats.getAvgRiskScore() > 0);
     }
 }

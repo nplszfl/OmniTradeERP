@@ -32,9 +32,12 @@ CREATE TABLE IF NOT EXISTS tenant_users (
 );
 
 -- 创建租户索引
-CREATE INDEX idx_tenant_users_tenant_id ON tenant_users(tenant_id);
-CREATE INDEX idx_tenants_status ON tenants(status);
-CREATE INDEX idx_tenants_domain ON tenants(domain);
+-- ⚠️ 必须加 IF NOT EXISTS：测试里两个 @SpringBootTest 类共用同一个
+--    jdbc:h2:mem:testdb，schema.sql 会被跑第二遍，
+--    而 CREATE INDEX 没有 IF NOT EXISTS → "Index already exists" → 整个上下文起不来
+CREATE INDEX IF NOT EXISTS idx_tenant_users_tenant_id ON tenant_users(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(status);
+CREATE INDEX IF NOT EXISTS idx_tenants_domain ON tenants(domain);
 
 -- 租户订阅计划详情表
 CREATE TABLE IF NOT EXISTS tenant_subscriptions (
@@ -61,4 +64,4 @@ CREATE TABLE IF NOT EXISTS ai_usage_records (
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_ai_usage_tenant_date ON ai_usage_records(tenant_id, record_date);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_tenant_date ON ai_usage_records(tenant_id, record_date);

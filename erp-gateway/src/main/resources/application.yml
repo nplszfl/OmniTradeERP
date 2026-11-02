@@ -41,6 +41,32 @@ spring:
             - Path=/api/auth/**
           filters:
             - StripPrefix=1
+        # 用户/角色/权限/部门管理（erp-user-service）
+        # ⚠️ 这四条路由之前完全不存在 → 前端 erp-web/src/api/user.ts 的 20 处调用全是 404
+        - id: user-service
+          uri: lb://erp-user-service
+          predicates:
+            - Path=/api/user/**
+          filters:
+            - StripPrefix=1
+        - id: role-service
+          uri: lb://erp-user-service
+          predicates:
+            - Path=/api/role/**
+          filters:
+            - StripPrefix=1
+        - id: permission-service
+          uri: lb://erp-user-service
+          predicates:
+            - Path=/api/permission/**
+          filters:
+            - StripPrefix=1
+        - id: department-service
+          uri: lb://erp-user-service
+          predicates:
+            - Path=/api/department/**
+          filters:
+            - StripPrefix=1
         - id: order-service
           uri: lb://erp-order-service
           predicates:
@@ -58,7 +84,10 @@ spring:
           predicates:
             - Path=/api/platform/**
           filters:
-            - StripPrefix=2
+            # ⚠️ 必须是 1（不是 2）：后端 controller 根是 /platform/config、/platform/sync，
+            #    剥掉 /api/platform 两段后服务收到的是 /config/list，
+            #    而 controller 要的是 /platform/config/list → 每个请求都 404。
+            - StripPrefix=1
 
         # 供应商管理服务
         - id: supplier-service

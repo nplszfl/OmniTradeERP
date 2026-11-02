@@ -9,7 +9,6 @@ import com.crossborder.anomaly.entity.AnomalyRecord;
 import com.crossborder.anomaly.service.AnomalyDetectionService;
 import com.crossborder.anomaly.service.AnomalyRecordService;
 import com.crossborder.anomaly.vo.AnomalyRecordVO;
-import com.crossborder.erp.common.result.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -50,37 +49,50 @@ public class AnomalyDetectionController {
         return detectionService.detectBatch(featuresList);
     }
 
+    @PostMapping("/detect/{orderId}")
+    @Operation(summary = "按订单ID重新检测（前端「对所有未审核订单重新检测」）")
+    public AnomalyDetectionResult detectByOrderId(@PathVariable String orderId,
+                                                   @RequestBody(required = false) OrderFeatures features) {
+        OrderFeatures f = features == null ? new OrderFeatures() : features;
+        f.setOrderId(orderId);
+        return detectionService.detect(f);
+    }
+
     @GetMapping("/orders")
-    @Operation(summary = "分页查询异常检测记录")
-    public Result<IPage<AnomalyRecordVO>> listOrders(
+    @Operation(summary = "查询异常检测记录")
+    public List<AnomalyRecordVO> listOrders(
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long size,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String keyword) {
+        // ⚠️ 必须返<b>裸数组</b>：前端是
+        //     list.value = await anomalyApi.list(filter) 然后 :data="list"
+        //  包成 Result<IPage> 前端拿到的就是对象，el-table 渲染不出来。
         IPage<AnomalyRecord> result = anomalyRecordService.page(new Page<>(page, size), status, keyword);
-        return Result.success(AnomalyRecordVO.from(result));
+        return result.getRecords().stream().map(AnomalyRecordVO::from).toList();
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "查询单条异常检测记录")
-    public Result<AnomalyRecordVO> getOne(@PathVariable Long id) {
-        return Result.success(AnomalyRecordVO.from(anomalyRecordService.getById(id)));
+    public AnomalyRecordVO getOne(@PathVariable Long id) {
+        return AnomalyRecordVO.from(anomalyRecordService.getById(id));
     }
 
     @PostMapping("/{id}/confirm")
     @Operation(summary = "人工复核：确认异常 / 驳回")
-    public Result<AnomalyRecordVO> confirm(@PathVariable Long id,
-                                            @RequestParam(required = false) String status,
-                                            @RequestParam(required = false) String remark,
-                                            @RequestParam(required = false) String operator) {
+    public AnomalyRecordVO confirm(@PathVariable Long id,
+                                   @RequestParam(required = false) String status,
+                                   @RequestParam(required = false) String remark,
+                                   @RequestParam(required = false) String operator) {
         AnomalyRecord record = anomalyRecordService.confirm(id, status, remark, operator);
-        return Result.success(AnomalyRecordVO.from(record));
+        return AnomalyRecordVO.from(record);
     }
 
     @GetMapping("/stats")
     @Operation(summary = "异常统计概览")
-    public Result<AnomalyStats> stats() {
-        return Result.success(anomalyRecordService.stats());
+    public AnomalyStats stats() {
+        // 同上：前端直接 stats.value = await anomalyApi.stats() → 必须返裸对象
+        return anomalyRecordService.stats();
     }
 
     @GetMapping("/health")

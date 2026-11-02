@@ -11,23 +11,32 @@
             </div>
           </template>
           <el-table :data="list" v-loading="loading" stripe>
-            <el-table-column prop="code"     label="租户编码"  width="120" />
+            <el-table-column prop="id"       label="租户ID"    width="220" show-overflow-tooltip />
             <el-table-column prop="name"     label="租户名称" />
-            <el-table-column prop="plan"     label="套餐"      width="120">
+            <el-table-column prop="domain"   label="域名"      width="160" show-overflow-tooltip />
+            <el-table-column prop="plan"     label="套餐"      width="140">
               <template #default="{ row }">
-                <el-tag size="small" :type="row.plan === 'ENTERPRISE' ? 'danger' : (row.plan === 'PRO' ? 'warning' : '')">
+                <el-tag size="small" :type="row.plan === 'ENTERPRISE' ? 'danger' : (row.plan === 'BUSINESS' ? 'warning' : '')">
                   {{ row.plan }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="contact"  label="联系人"    width="120" />
-            <el-table-column prop="phone"    label="手机"      width="140" />
+            <el-table-column prop="region"   label="数据区域"  width="100" />
             <el-table-column prop="status"   label="状态"      width="100">
               <template #default="{ row }">
                 <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ row.status }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="expireAt" label="到期时间"  width="180" />
+            <el-table-column prop="expiresAt" label="到期时间"  width="180">
+              <template #default="{ row }">
+                {{ row.expiresAt ? String(row.expiresAt).replace('T', ' ').slice(0, 19) : '永久' }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="createdAt" label="创建时间"  width="180">
+              <template #default="{ row }">
+                {{ row.createdAt ? String(row.createdAt).replace('T', ' ').slice(0, 19) : '-' }}
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="220" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="goDashboard(row)">看板</el-button>
@@ -70,15 +79,19 @@ const loading = ref(false)
 
 const plans = [
   {
-    code: 'FREE', name: '免费版', price: 0,
+    code: 'STARTER', name: '入门版', price: 2999,
     features: ['1 个店铺', '基础订单/商品管理', '社区支持', '1000 单/月'],
   },
   {
-    code: 'PRO', name: '专业版', price: 999,
-    features: ['10 个店铺', '完整 ERP + 智能定价', '邮件支持', '10 万单/月', 'AI 智能客服'],
+    code: 'PROFESSIONAL', name: '专业版', price: 4999,
+    features: ['3 个店铺', '完整 ERP + 智能定价', '邮件支持', '15000 单/月', 'AI 智能客服'],
   },
   {
-    code: 'ENTERPRISE', name: '企业版', price: 4999,
+    code: 'BUSINESS', name: '商务版', price: 12999,
+    features: ['5 个店铺', '全模块 + 定制开发', '7×24 专属客服', '50000 单/月', '私有部署支持'],
+  },
+  {
+    code: 'ENTERPRISE', name: '企业版', price: 0,
     features: ['不限店铺', '全模块 + 定制开发', '7×24 专属客服', '不限单量', '私有部署支持'],
   },
 ]
@@ -88,15 +101,15 @@ onMounted(load)
 async function load() {
   loading.value = true
   try {
-    list.value = await tenantApi.list()
-  } catch {
-    list.value = [
-      { id: 1, code: 'T00001', name: '深圳跨境电商有限公司',    plan: 'ENTERPRISE', contact: '李总',   phone: '13800138001', status: 'ACTIVE', expireAt: '2027-06-30 23:59' },
-      { id: 2, code: 'T00002', name: 'ShopSmart Global',         plan: 'PRO',       contact: 'John',   phone: '+1-213-555-0100', status: 'ACTIVE', expireAt: '2027-03-31 23:59' },
-      { id: 3, code: 'T00003', name: '广州南沙出口商',          plan: 'PRO',       contact: '王经理', phone: '13900139002',     status: 'ACTIVE', expireAt: '2026-09-30 23:59' },
-      { id: 4, code: 'T00004', name: '杭州独立站工作室',         plan: 'FREE',      contact: '小陈',   phone: '13700137004',     status: 'ACTIVE', expireAt: '永久' },
-      { id: 5, code: 'T00005', name: '厦门物流贸易公司',         plan: 'ENTERPRISE', contact: '林总',  phone: '13600136005',     status: 'EXPIRED', expireAt: '2026-04-30 23:59' },
-    ]
+    // 后端返回裸数组（erp-tenant-service 的列表接口不包 Result）
+    const rows = await tenantApi.list()
+    list.value = Array.isArray(rows) ? rows : (rows?.data ?? [])
+  } catch (e) {
+    // ⚠️ 不要再用 mock 数据兜底 —— 接口真的调不通时，页面看着“有数据”实则是假数据。
+    //    这里直接暴露错误，让用户知道这个页面是没数据的。
+    console.error('租户列表加载失败', e)
+    list.value = []
+    ElMessage.error('租户列表加载失败')
   } finally { loading.value = false }
 }
 

@@ -6,6 +6,16 @@ const request = axios.create({
   timeout: 10000
 })
 
+// ⚠️ 必须带上 token：后端 change-password 需要从 Authorization 头解析当前用户，
+// 没有 token 后端拿不到 userId 就会直接报错
+request.interceptors.request.use(config => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
 request.interceptors.response.use(
   response => response.data,
   error => {

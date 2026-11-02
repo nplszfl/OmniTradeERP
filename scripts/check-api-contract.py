@@ -65,21 +65,36 @@ def parse_gateway_routes():
 
 
 def parse_backend_endpoints():
-    """扫描所有服务的 Controller，返回 {完整路径: (模块, Controller, 方法名)}"""
+    """扫描所有服务的 Controller，返回 {模块: {完整路径: [(METHOD, Controller名)]}}
+
+    ⚠️ 必须按模块分组：网关路由 lb://erp-x-service 指向前端调用后，
+    要去 erp-x-service 自己的 controller 里找，不能在全局接口池里找 ——
+    否则「A 服务恰好有这条路径」会掩盖「B 服务缺这条路径」的真问题。
+    """
     endpoints = {}
     for java in ROOT.glob("erp-*-service/src/main/java/**/*Controller.java"):
         text = java.read_text(encoding="utf-8")
-        class_m = re.search(r"@RequestMapping\(\"([^\"]*)\"\)\s*\n\s*(?:@\w+(?:\([^)]*\))?\s*\n\s*)*public class", text)
-        base = class_m.group(1) if class_m else ""
-        module = java.parts[len(ROOT.parts) + 1]
+        # 模块名 = 路径里第一段 erp-xxx（不要用 parts 索引，ROOT 的深度会变）
+        module = next((p for p in java.parts if p.startswith("erp-") and p.endswith("-service")), "")
+        # 类级 @RequestMapping：取 class 声明之前的那个（中间可能有 @Slf4j/@Tag 等）
+        base = ""
+        class_pos = text.find("public class")
+        if class_pos > 0:
+            head = text[:class_pos]
+            rms = list(re.finditer(r'@RequestMapping\(\s*"([^"]*)"', head))
+            if rms:
+                base = rms[-1].group(1)
+        bucket = endpoints.setdefault(module, {})
         for m in re.finditer(
             r"@(Get|Post|Put|Delete|Patch)Mapping(?:\(\s*(?:value\s*=\s*)?\"([^\"]*)\"\s*\))?",
             text,
         ):
             method = m.group(1).upper()
             sub = m.group(2) or ""
-            path = (base + sub) or "/"
-            endpoints.setdefault(path, []).append((module, method, java.name))
+            path = (base.rstrip("/") + "/" + sub.lstrip("/")).replace("//", "/")
+            if not path.startswith("/"):
+                path = "/" + path
+            bucket.setdefault(path, []).append((method, java.name))
     return endpoints
 
 
@@ -132,9 +147,9 @@ def main():
     print("=" * 78)
     print("API 契约巡检：前端 ↔ 后端 ↔ 网关")
     print("=" * 78)
-    print(f"网关路由 {len(routes)} 条 | 后端接口 {len(backend)} 个 | 前端调用 {len(frontend)} 处\n")
+    print(f"网关路由 {len(routes)} 条 | 后端接口 {sum(len(v) for v in backend.values())} 个 | 前端调用 {len(frontend)} 处\n")
 
-    problems = {"no_route": [], "no_backend": [], "dead_route": [], "no_nacos": [], "no_yml": []}
+    problems = {"no_route": [], "no_backend": [], "no_method": [], "dead_route": [], "no_nacos": [], "no_yml": []}
 
     # 1) 网关 lb:// 指向的服务是否真实存在
     known_services = set()
@@ -197,9 +212,24 @@ def main():
         else:
             forwarded = full
 
-        hit = [p for p in backend if path_matches(forwarded, p)]
+        # 只在「被路由到的那个服务」里找接口 —— 不能在全局接口池里找，
+        # 否则「A 服务恰好有这条路径」会掩盖「B 服务缺这条路径」的真问题
+        target_module = uri[5:] if uri.startswith("lb://") else None
+
+        pool = backend.get(target_module, {})
+        hit = [pool[p] for p in pool if path_matches(forwarded, p)]
         if not hit:
-            problems["no_backend"].append((fname, method, full, forwarded, rid))
+            problems["no_backend"].append(
+                (fname, method, full, forwarded, rid, target_module, len(backend.get(target_module, {})))
+            )
+        else:
+            # 路径对但 HTTP 方法不对，同样调不通 —— 比如前端 PUT /product，
+            # 后端只有 POST /product，路径能匹配上但根本是 405
+            allowed = {meth for methods in hit for meth, _ in methods}
+            if method not in allowed:
+                problems["no_method"].append(
+                    (fname, method, full, forwarded, rid, target_module, sorted(allowed), target_module)
+                )
 
     # ---------------------------------------------------------------- 输出
     def section(title, items, fmt):
@@ -233,7 +263,12 @@ def main():
     section(
         "前端调用有网关路由但后端没有对应接口",
         problems["no_backend"],
-        lambda x: f"{x[0]}: {x[1]} {x[2]}  →  转发后 {x[3]}（路由 {x[4]}）",
+        lambda x: f"{x[0]}: {x[1]} {x[2]}  →  服务收到 {x[3]}  →  {x[5]} 里没有（该服务共 {x[6]} 个接口）",
+    )
+    section(
+        "路径对但 HTTP 方法不对（会 405）",
+        problems["no_method"],
+        lambda x: f"{x[0]}: {x[1]} {x[2]}  →  后端只有 {'/'.join(x[6])}（{x[5]}）",
     )
 
     total = sum(len(v) for v in problems.values())
