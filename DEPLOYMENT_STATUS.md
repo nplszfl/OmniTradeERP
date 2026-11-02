@@ -140,18 +140,18 @@ kubectl apply -f ai-services.yaml
 
 ### 核心微服务（8 个）
 - Gateway (端口: 8080)
-- User Service (端口: 8081)
-- Product Service (端口: 8082)
-- Order Service (端口: 8083)
-- Platform Service (端口: 8084)
-- Inventory Service (端口: 8085)
-- Warehouse Service (端口: 8086)
-- Finance Service (端口: 8087)
+- User Service (端口: 8084)
+- Product Service (端口: 8083)
+- Order Service (端口: 8081)
+- Platform Service (端口: 8082)
+- Inventory Service (端口: 8094)
+- Warehouse Service (端口: 8092)
+- Finance Service (端口: 8090)
 
 ### AI 智能服务（4 个）
-- **Pricing Service (端口: 8088)** - 智能定价
-- **Inventory Prediction Service (端口: 8089)** - 库存预测
-- **AI Assistant Service (端口: 8090)** - AI 智能客服
+- **Pricing Service (端口: 8087)** - 智能定价
+- **Inventory Prediction Service (端口: 8088)** - 库存预测
+- **AI Assistant Service (端口: 8089)** - AI 智能客服
 - **Product Description Service (端口: 8091)** - 产品描述生成
 
 ### 前端（1 个）
@@ -206,13 +206,13 @@ e6a80ff7c61e   nacos/nacos-server:v2.4.1 Up 17 hours         0.0.0.0:8848->8848/
    curl http://localhost:8080/actuator/health
 
    # 测试智能定价服务
-   curl http://localhost:8088/actuator/health
+   curl http://localhost:8087/actuator/health
 
    # 测试库存预测服务
-   curl http://localhost:8089/actuator/health
+   curl http://localhost:8088/actuator/health
 
    # 测试 AI 客服服务
-   curl http://localhost:8090/actuator/health
+   curl http://localhost:8089/actuator/health
 
    # 测试产品描述生成服务
    curl http://localhost:8091/actuator/health

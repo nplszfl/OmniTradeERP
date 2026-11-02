@@ -265,16 +265,16 @@
 | 服务 | 端口 | 状态 |
 |------|------|------|
 | erp-gateway | 8080 | ✅ |
-| erp-user-service | 8081 | ✅ |
-| erp-product-service | 8082 | ✅ |
-| erp-order-service | 8083 | ✅ |
-| erp-platform-service | 8084 | ✅ |
-| erp-inventory-service | 8085 | ✅ |
-| erp-warehouse-service | 8086 | ✅ |
-| erp-finance-service | 8087 | ✅ |
-| erp-pricing-service | 8088 | ✅ |
-| erp-inventory-prediction-service | 8089 | ✅ |
-| erp-ai-assistant-service | 8090 | ✅ |
+| erp-user-service | 8084 | ✅ |
+| erp-product-service | 8083 | ✅ |
+| erp-order-service | 8081 | ✅ |
+| erp-platform-service | 8082 | ✅ |
+| erp-inventory-service | 8094 | ✅ |
+| erp-warehouse-service | 8092 | ✅ |
+| erp-finance-service | 8090 | ✅ |
+| erp-pricing-service | 8087 | ✅ |
+| erp-inventory-prediction-service | 8088 | ✅ |
+| erp-ai-assistant-service | 8089 | ✅ |
 | erp-web | 3000 | ✅ |
 
 ---

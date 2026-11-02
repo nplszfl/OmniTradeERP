@@ -201,7 +201,7 @@ public class LLMConfig {
    ┌─────────┐   ┌─────────┐ ┌─────────┐ ┌─────────┐  ┌─────────┐
    │Order    │   │Product  │ │Platform │ │  User   │  │Pricing  │
    │Service  │   │Service  │ │ Service │ │ Service │  │Service  │
-   │ (:8081) │   │ (:8083) │ │ (:8082) │ │ (:8084) │  │ (:8090) │
+   │ (:8081) │   │ (:8083) │ │ (:8082) │ │ (:8084) │  │ (:8087) │
    └─────────┘   └─────────┘ └─────────┘ └─────────┘  └─────────┘
         │              │           │           │              │
         └──────────────┴───────────┴───────────┴──────────────┘
@@ -283,20 +283,20 @@ OmniTradeERP/
 ├── erp-platform-service/       # 平台API (:8082) - Amazon/eBay/Shopee/Lazada/TikTok
 ├── erp-product-service/        # 商品服务 (:8083)
 ├── erp-user-service/           # 用户服务 (:8084)
-├── erp-inventory-service/      # 库存服务 (:8085)
-├── erp-warehouse-service/      # 仓库服务 (:8086)
-├── erp-finance-service/        # 财务服务 (:8087)
+├── erp-inventory-service/      # 库存服务 (:8094)
+├── erp-warehouse-service/      # 仓库服务 (:8092)
+├── erp-finance-service/        # 财务服务 (:8090)
 │
 # 🔥 AI服务 (v1.5.0+)
-├── erp-pricing-service/         # 💰 智能定价 (:8090)
-├── erp-inventory-prediction-service/  # 📊 库存预测 (:8091)
-├── erp-ai-assistant-service/    # 💬 AI客服 + 🧠 RAG知识库 (:8092) - 向量检索+LLM多语言 7×24
-├── erp-product-description-service/    # 📝 产品描述 (:8093)
+├── erp-pricing-service/         # 💰 智能定价 (:8087)
+├── erp-inventory-prediction-service/  # 📊 库存预测 (:8088)
+├── erp-ai-assistant-service/    # 💬 AI客服 + 🧠 RAG知识库 (:8089) - 向量检索+LLM多语言 7×24
+├── erp-product-description-service/    # 📝 产品描述 (:8091)
 │
 # 🚀 智能商业服务 (v1.6.0+)
-├── erp-reporting-service/      # 📈 智能报表服务 (:8094) - 日报/周报/月报、Excel导出
-├── erp-purchase-service/       # 🛒 智能采购建议 (:8095) - 采购预测、供应商比价、采购计划
-├── erp-inventory-alert-service/ # ⚠️ 库存预警服务 (:8096) - 滞销商品检测、低库存预警
+├── erp-reporting-service/      # 📈 智能报表服务 (:8098) - 日报/周报/月报、Excel导出
+├── erp-purchase-service/       # 🛒 智能采购建议 (:8093) - 采购预测、供应商比价、采购计划
+├── erp-inventory-alert-service/ # ⚠️ 库存预警服务 (:8086) - 滞销商品检测、低库存预警
 ├── erp-anomaly-detection-service/  # 🤖 AI订单异常检测 (:8138) - 规则引擎+AI评分双层融合
 ├── erp-product-recommendation-service/  # 🎯 AI智能选品推荐 (:8139) - 多因子加权评分+趋势预测+风险评估
 │

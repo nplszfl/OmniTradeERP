@@ -72,7 +72,10 @@ services:
   gateway:
     build:
       context: .
-      dockerfile: docker/Dockerfile.gateway
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-gateway
+        PORT: "8080"
     container_name: erp-gateway
     ports:
       - "8080:8080"
@@ -89,10 +92,13 @@ services:
   user-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.order
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-user-service
+        PORT: "8084"
     container_name: erp-user-service
     ports:
-      - "8081:8081"
+      - "8084:8084"
     environment:
       NACOS_SERVER_ADDR: nacos:8848
       MYSQL_HOST: mysql
@@ -108,10 +114,13 @@ services:
   order-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.order
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-order-service
+        PORT: "8081"
     container_name: erp-order-service
     ports:
-      - "8083:8083"
+      - "8081:8081"
     environment:
       NACOS_SERVER_ADDR: nacos:8848
       MYSQL_HOST: mysql

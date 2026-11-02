@@ -27,10 +27,15 @@ mvn clean package -DskipTests -q
 echo ""
 echo "=== 2. 准备部署文件 ==="
 mkdir -p "$TEMP_DIR"
-cp docker-compose.prod.yml "$TEMP_DIR/"
-cp -r docker/ "$TEMP_DIR/"
-cp -r database/ "$TEMP_DIR/" 2>/dev/null || true
-cp Dockerfile "$TEMP_DIR/" 2>/dev/null || true
+# compose 的 build context 是仓库根目录，服务器上要在容器里重新 mvn 构建，
+# 所以必须把各模块源码 + 根 pom 一起带过去（只带 docker/ 是构建不出来的）。
+rsync -a \
+  --exclude 'target/' \
+  --exclude '.git/' \
+  --exclude 'node_modules/' \
+  --exclude 'erp-web/dist/' \
+  --exclude '*.log' \
+  ./ "$TEMP_DIR/"
 
 # 创建Nacos命名空间（如果不存在）
 echo ""

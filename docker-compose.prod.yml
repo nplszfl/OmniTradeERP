@@ -79,7 +79,10 @@ services:
   gateway:
     build:
       context: .
-      dockerfile: docker/Dockerfile.gateway
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-gateway
+        PORT: "8080"
     container_name: erp-gateway
     ports:
       - "8080:8080"
@@ -104,10 +107,13 @@ services:
   user-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.order
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-user-service
+        PORT: "8084"
     container_name: erp-user-service
     ports:
-      - "8081:8081"
+      - "8084:8084"
     environment:
       NACOS_SERVER_ADDR: mse-d5a70466-nacos-ans.mse.aliyuncs.com:8848
       SENTINEL_DASHBOARD: sentinel:8858
@@ -126,7 +132,7 @@ services:
       - erp-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8084/actuator/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -136,40 +142,11 @@ services:
   product-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.order
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-product-service
+        PORT: "8083"
     container_name: erp-product-service
-    ports:
-      - "8082:8082"
-    environment:
-      NACOS_SERVER_ADDR: mse-d5a70466-nacos-ans.mse.aliyuncs.com:8848
-      SENTINEL_DASHBOARD: sentinel:8858
-      MYSQL_HOST: mysql
-      REDIS_HOST: redis
-      RABBITMQ_HOST: rabbitmq
-      TZ: Asia/Shanghai
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    networks:
-      - erp-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-
-  # 订单服务
-  order-service:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.order
-    container_name: erp-order-service
     ports:
       - "8083:8083"
     environment:
@@ -191,6 +168,41 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # 订单服务
+  order-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-order-service
+        PORT: "8081"
+    container_name: erp-order-service
+    ports:
+      - "8081:8081"
+    environment:
+      NACOS_SERVER_ADDR: mse-d5a70466-nacos-ans.mse.aliyuncs.com:8848
+      SENTINEL_DASHBOARD: sentinel:8858
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - erp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
       interval: 30s
       timeout: 10s
       retries: 5

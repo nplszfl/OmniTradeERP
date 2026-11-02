@@ -202,6 +202,10 @@ class PricingServiceImplTest {
 
         PricingRequest req = baseRequest();
         req.setEnableCompetitorAnalysis(true);
+        // 关掉季节性/库存调整，否则结果随当前月份变化（3-5月 +2%、11-12月 +5%），
+        // 断言就不再是确定的 120 了
+        req.setEnableSeasonalAdjustment(false);
+        req.setEnableInventoryAdjustment(false);
 
         PricingResponse resp = service.calculateOptimalPrice(req);
 
@@ -219,22 +223,15 @@ class PricingServiceImplTest {
 
         PricingRequest req = baseRequest();
         req.setEnableCompetitorAnalysis(true);
+        req.setEnableSeasonalAdjustment(false);
+        req.setEnableInventoryAdjustment(false);
 
         PricingResponse resp = service.calculateOptimalPrice(req);
 
         assertNotNull(resp);
         assertNull(resp.getCompetitorAvgPrice());
         // 走基础价 120 (无季节性/库存调整)
-        // 4月是春季旺季 +2%, 所以实际是 120 * 1.02
-        BigDecimal expected = new BigDecimal("120.00");
-        // 根据当前月份不同：1,2,6,7,8,9,10 → 120; 3,4,5 → 122.40; 11,12 → 126.00
-        int month = java.time.LocalDateTime.now().getMonthValue();
-        if (month >= 3 && month <= 5) {
-            expected = new BigDecimal("122.40");
-        } else if (month == 11 || month == 12) {
-            expected = new BigDecimal("126.00");
-        }
-        assertEquals(0, expected.compareTo(resp.getRecommendedPrice()));
+        assertEquals(0, new BigDecimal("120.00").compareTo(resp.getRecommendedPrice()));
     }
 
     // ========== validatePrice 边界 ==========
@@ -412,8 +409,10 @@ class PricingServiceImplTest {
         req.setCurrentPrice(new BigDecimal("120.00"));
         req.setTargetProfitMargin(new BigDecimal("20"));
         req.setEnableCompetitorAnalysis(true);
-        req.setEnableSeasonalAdjustment(true);
-        req.setEnableInventoryAdjustment(true);
+        // 默认关闭季节性/库存调整：季节性因子随当前月份变化（3-5月 +2%、11-12月 +5%），
+        // 开着会让断言变成“随日期翻车”的定时炸弹。需要测季节性的用例自行打开。
+        req.setEnableSeasonalAdjustment(false);
+        req.setEnableInventoryAdjustment(false);
         return req;
     }
 

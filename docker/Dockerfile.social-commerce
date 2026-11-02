@@ -23,11 +23,11 @@ RUN apk add --no-cache curl
 
 COPY --from=builder /app/erp-social-commerce-service/target/*.jar app.jar
 
-EXPOSE 8086
+EXPOSE 8096
 
 ENV JAVA_OPTS="-Xms256m -Xmx512m -XX:+UseG1GC"
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8086/actuator/health || exit 1
+  CMD curl -f http://localhost:8096/actuator/health || exit 1
 
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

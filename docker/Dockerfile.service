@@ -1,0 +1,55 @@
+# 通用微服务镜像
+#
+# 用 build arg 指定模块与端口，避免为每个服务复制一份几乎相同的 Dockerfile：
+#
+#   docker build -f docker/Dockerfile.service \
+#     --build-arg MODULE=erp-user-service --build-arg PORT=8084 -t erp-user-service .
+#
+# MODULE  = Maven 模块目录名（同时是 artifactId 前缀）
+# PORT    = 服务监听端口，必须与该模块 src/main/resources/application.yml 的 server.port 一致
+#
+# 说明：
+# - 只构建目标模块及其依赖（-pl ${MODULE} -am），比全 reactor 构建快很多
+# - jar 名归一化：有的模块产出 <artifact>-<version>-exec.jar（带 classifier），
+#   有的只产出 <artifact>-<version>.jar，统一复制成 /app/app.jar，避免 COPY 通配符歧义
+ARG MODULE=erp-order-service
+ARG PORT=8081
+
+FROM maven:3.9-eclipse-temurin-21 AS builder
+ARG MODULE
+WORKDIR /app
+
+# 容器内使用 aliyun 镜像（宿主机 ~/.m2/settings.xml 不会自动进容器）
+COPY docker/maven-settings.xml /root/.m2/settings.xml
+
+# 复制源码并构建目标模块
+COPY . .
+RUN mvn -B clean package -DskipTests -pl ${MODULE} -am \
+    && set -eu; \
+       JAR="$(ls /app/${MODULE}/target/${MODULE}-*-exec.jar 2>/dev/null | head -1 || true)"; \
+       if [ -z "$JAR" ]; then \
+         JAR="$(ls /app/${MODULE}/target/${MODULE}-*.jar | head -1)"; \
+       fi; \
+       cp "$JAR" /app/app.jar
+
+FROM eclipse-temurin:21-jre-alpine
+ARG MODULE
+ARG PORT
+WORKDIR /app
+
+# 安装时区数据
+RUN apk add --no-cache tzdata && \
+    cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    echo "Asia/Shanghai" > /etc/timezone && \
+    apk del tzdata
+
+COPY --from=builder /app/app.jar ./app.jar
+
+ENV JAVA_OPTS="-Xms512m -Xmx1024m -XX:+UseG1GC"
+
+EXPOSE ${PORT}
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/actuator/health || exit 1
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

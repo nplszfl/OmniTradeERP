@@ -1,0 +1,20 @@
+# Docker 构建上下文忽略项
+# 没有这个文件时，docker build 会把 1.7GB 的 target/ 目录全部传给守护进程，
+# 构建极慢且容易把构建产物和源码搞混。
+
+# Maven 构建产物（镜像内会重新编译）
+**/target/
+
+# 版本控制
+.git/
+.gitignore
+
+# 前端依赖与产物（frontend 镜像内会自己 npm install + build）
+**/node_modules/
+erp-web/dist/
+
+# 日志与临时文件
+*.log
+*.pid
+tmp/
+.DS_Store

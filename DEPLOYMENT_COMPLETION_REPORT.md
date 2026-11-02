@@ -41,9 +41,9 @@
 
 | 服务名 | 容器名 | 端口 | Dockerfile |
 |--------|--------|------|------------|
-| pricing-service | erp-pricing-service | 8088 | Dockerfile.pricing |
-| inventory-prediction-service | erp-inventory-prediction-service | 8089 | Dockerfile.inventory-prediction |
-| ai-assistant-service | erp-ai-assistant-service | 8090 | Dockerfile.ai-assistant |
+| pricing-service | erp-pricing-service | 8087 | Dockerfile.pricing |
+| inventory-prediction-service | erp-inventory-prediction-service | 8088 | Dockerfile.inventory-prediction |
+| ai-assistant-service | erp-ai-assistant-service | 8089 | Dockerfile.ai-assistant |
 | product-description-service | erp-product-description-service | 8091 | Dockerfile.product-description |
 
 **环境变量：**
@@ -64,9 +64,9 @@
 
 | 服务名 | 容器名 | 端口 | Dockerfile |
 |--------|--------|------|------------|
-| pricing-service | erp-test-pricing-service | 8088 | Dockerfile.pricing |
-| inventory-prediction-service | erp-test-inventory-prediction-service | 8089 | Dockerfile.inventory-prediction |
-| ai-assistant-service | erp-test-ai-assistant-service | 8090 | Dockerfile.ai-assistant |
+| pricing-service | erp-test-pricing-service | 8087 | Dockerfile.pricing |
+| inventory-prediction-service | erp-test-inventory-prediction-service | 8088 | Dockerfile.inventory-prediction |
+| ai-assistant-service | erp-test-ai-assistant-service | 8089 | Dockerfile.ai-assistant |
 | product-description-service | erp-test-product-description-service | 8091 | Dockerfile.product-description |
 
 **环境变量：** 与生产环境一致

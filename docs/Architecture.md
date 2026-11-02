@@ -50,16 +50,16 @@
 | 服务 | 端口 | 说明 |
 |------|------|------|
 | erp-gateway | 8080 | API网关 |
-| erp-user-service | 8081 | 用户/权限 |
-| erp-order-service | 8082 | 订单管理 |
+| erp-user-service | 8084 | 用户/权限 |
+| erp-order-service | 8081 | 订单管理 |
 | erp-product-service | 8083 | 商品管理 |
-| erp-inventory-service | 8084 | 库存管理 |
-| erp-finance-service | 8085 | 财务管理 |
-| erp-warehouse-service | 8086 | 仓库管理 |
-| erp-platform-service | 8087 | 平台对接 |
-| erp-pricing-service | 8088 | 智能定价(AI) |
-| erp-inventory-prediction-service | 8089 | 库存预测(AI) |
-| erp-ai-assistant-service | 8090 | AI客服(AI) |
+| erp-inventory-service | 8094 | 库存管理 |
+| erp-finance-service | 8090 | 财务管理 |
+| erp-warehouse-service | 8092 | 仓库管理 |
+| erp-platform-service | 8082 | 平台对接 |
+| erp-pricing-service | 8087 | 智能定价(AI) |
+| erp-inventory-prediction-service | 8088 | 库存预测(AI) |
+| erp-ai-assistant-service | 8089 | AI客服(AI) |
 | erp-product-description-service | 8091 | 产品描述(AI) |
 
 ## 技术栈

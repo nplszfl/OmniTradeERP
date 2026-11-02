@@ -73,7 +73,10 @@ services:
   gateway:
     build:
       context: .
-      dockerfile: docker/Dockerfile.gateway
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-gateway
+        PORT: "8080"
     container_name: erp-gateway
     ports:
       - "8080:8080"
@@ -90,10 +93,13 @@ services:
   user-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.order
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-user-service
+        PORT: "8084"
     container_name: erp-user-service
     ports:
-      - "8081:8081"
+      - "8084:8084"
     environment:
       NACOS_SERVER_ADDR: nacos:8848
       MYSQL_HOST: mysql
@@ -109,10 +115,13 @@ services:
   product-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.order
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-product-service
+        PORT: "8083"
     container_name: erp-product-service
     ports:
-      - "8082:8082"
+      - "8083:8083"
     environment:
       NACOS_SERVER_ADDR: nacos:8848
       MYSQL_HOST: mysql
@@ -125,10 +134,13 @@ services:
   order-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.order
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-order-service
+        PORT: "8081"
     container_name: erp-order-service
     ports:
-      - "8083:8083"
+      - "8081:8081"
     environment:
       NACOS_SERVER_ADDR: nacos:8848
       MYSQL_HOST: mysql
@@ -141,10 +153,13 @@ services:
   platform-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.order
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-platform-service
+        PORT: "8082"
     container_name: erp-platform-service
     ports:
-      - "8084:8084"
+      - "8082:8082"
     environment:
       NACOS_SERVER_ADDR: nacos:8848
       MYSQL_HOST: mysql
@@ -157,10 +172,13 @@ services:
   inventory-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.order
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-inventory-service
+        PORT: "8094"
     container_name: erp-inventory-service
     ports:
-      - "8085:8085"
+      - "8094:8094"
     environment:
       NACOS_SERVER_ADDR: nacos:8848
       MYSQL_HOST: mysql
@@ -173,10 +191,13 @@ services:
   warehouse-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.order
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-warehouse-service
+        PORT: "8092"
     container_name: erp-warehouse-service
     ports:
-      - "8086:8086"
+      - "8092:8092"
     environment:
       NACOS_SERVER_ADDR: nacos:8848
       MYSQL_HOST: mysql
@@ -189,10 +210,13 @@ services:
   finance-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.order
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-finance-service
+        PORT: "8090"
     container_name: erp-finance-service
     ports:
-      - "8087:8087"
+      - "8090:8090"
     environment:
       NACOS_SERVER_ADDR: nacos:8848
       MYSQL_HOST: mysql
@@ -207,10 +231,13 @@ services:
   pricing-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.pricing
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-pricing-service
+        PORT: "8087"
     container_name: erp-pricing-service
     ports:
-      - "8088:8088"
+      - "8087:8087"
     environment:
       NACOS_SERVER_ADDR: nacos:8848
       TZ: Asia/Shanghai
@@ -221,10 +248,13 @@ services:
   inventory-prediction-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.inventory-prediction
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-inventory-prediction-service
+        PORT: "8088"
     container_name: erp-inventory-prediction-service
     ports:
-      - "8089:8089"
+      - "8088:8088"
     environment:
       NACOS_SERVER_ADDR: nacos:8848
       TZ: Asia/Shanghai
@@ -235,10 +265,13 @@ services:
   ai-assistant-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.ai-assistant
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-ai-assistant-service
+        PORT: "8089"
     container_name: erp-ai-assistant-service
     ports:
-      - "8090:8090"
+      - "8089:8089"
     environment:
       NACOS_SERVER_ADDR: nacos:8848
       TZ: Asia/Shanghai
@@ -249,7 +282,10 @@ services:
   product-description-service:
     build:
       context: .
-      dockerfile: docker/Dockerfile.product-description
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-product-description-service
+        PORT: "8091"
     container_name: erp-product-description-service
     ports:
       - "8091:8091"

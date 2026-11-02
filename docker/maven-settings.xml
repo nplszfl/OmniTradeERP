@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  容器内构建用的 Maven 配置。
+  宿主机 ~/.m2/settings.xml 里配了 aliyun 镜像，但容器里没有，
+  直接走 Maven Central 在国内会非常慢，所以把镜像配置打进镜像。
+-->
+<settings>
+  <mirrors>
+    <mirror>
+      <id>aliyun</id>
+      <name>Aliyun Maven Mirror</name>
+      <url>https://maven.aliyun.com/repository/central</url>
+      <mirrorOf>central</mirrorOf>
+    </mirror>
+  </mirrors>
+</settings>
