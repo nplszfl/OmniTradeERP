@@ -493,6 +493,90 @@ def check_jpa_tables(tables, modes):
     return results
 
 
+# 模块 schema.sql ↔ database/*.sql 配对检查
+# 同一套 DDL 有两份副本（服务内副本给 dev/test 的 H2 用，database/ 的给生产 MySQL 用），
+# 两份不一致 → 生产的表结构和 dev 测的根本不是一回事，最难排查。
+MODULE_DB_PAIR = {
+    "erp-anomaly-detection-service": "database/anomaly-detection-service.sql",
+    "erp-inventory-alert-service": "database/inventory-alert-service.sql",
+    "erp-product-recommendation-service": "database/product-recommendation-service.sql",
+    "erp-tenant-service": "database/tenant-service.sql",
+}
+
+
+def _tables_in(text):
+    """从 DDL 文本里抽出表名集合（剥掉注释）"""
+    text = re.sub(r"--[^\n]*", "", text)
+    # ⚠️ 反引号必须闭合：`?` 可选会导致 billing_rules_XX 被截成 billing_rules，
+    #    表名漂移就检测不出来了。
+    found = set()
+    for m in re.finditer(
+            r"CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:`([a-zA-Z0-9_]+)`|([a-zA-Z0-9_]+))\s*\(",
+            text, re.I):
+        found.add((m.group(1) or m.group(2)).lower())
+    return found
+
+
+def _cols_in(text, table):
+    """抽出某张表的列名集合"""
+    text = re.sub(r"--[^\n]*", "", text)
+    m = re.search(r"CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:`" + re.escape(table) +
+                  r"`|" + re.escape(table) + r")\s*\((.*?)\n\s*\)\s*(?:ENGINE|;|$)",
+                  text, re.I | re.S)
+    if not m:
+        return None
+    cols = set()
+    for line in m.group(1).splitlines():
+        line = line.strip().rstrip(",")
+        if not line:
+            continue
+        cm = re.match(r"`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s+[A-Za-z]", line)
+        if cm and cm.group(1).lower() not in ("primary", "unique", "key", "index",
+                                              "constraint", "foreign", "fulltext",
+                                              "spatial", "check"):
+            cols.add(cm.group(1).lower())
+    return cols
+
+
+def check_module_db_drift():
+    """模块 schema.sql 与 database/*.sql 的表/列是否一致"""
+    problems = []
+    for module, db_file in MODULE_DB_PAIR.items():
+        mod_sql = ROOT / module / "src/main/resources/schema.sql"
+        db_sql = ROOT / db_file
+        if not mod_sql.exists():
+            problems.append((module, db_file, "模块内没有 schema.sql，无法比对"))
+            continue
+        if not db_sql.exists():
+            problems.append((module, db_file, "database/ 下没有对应的建库脚本"))
+            continue
+        t_mod = _tables_in(mod_sql.read_text(encoding="utf-8"))
+        t_db = _tables_in(db_sql.read_text(encoding="utf-8"))
+        only_mod = t_mod - t_db
+        only_db = t_db - t_mod
+        if only_mod:
+            problems.append((module, db_file,
+                             f"表 {', '.join(sorted(only_mod))} 只在模块 schema.sql 里有，database/ 里没有"))
+        if only_db:
+            problems.append((module, db_file,
+                             f"表 {', '.join(sorted(only_db))} 只在 database/ 里���，模块 schema.sql 没有"))
+        for tbl in sorted(t_mod & t_db):
+            c_mod = _cols_in(mod_sql.read_text(encoding="utf-8"), tbl)
+            c_db = _cols_in(db_sql.read_text(encoding="utf-8"), tbl)
+            if c_mod is None or c_db is None:
+                continue
+            if c_mod != c_db:
+                diff_m = c_mod - c_db
+                diff_d = c_db - c_mod
+                detail = []
+                if diff_m:
+                    detail.append(f"模块多 {', '.join(sorted(diff_m))}")
+                if diff_d:
+                    detail.append(f"database 多 {', '.join(sorted(diff_d))}")
+                problems.append((module, db_file, f"表 {tbl} 的列不一致 → {'；'.join(detail)}"))
+    return problems
+
+
 def main():
     strict = "--strict" in sys.argv
     schemas, tables = parse_ddl()
@@ -544,6 +628,18 @@ def main():
         print()
 
     # datasource 库名
+    # 模块 schema.sql ↔ database/*.sql 一致性
+    print("-" * 78)
+    print("模块 schema.sql ↔ database/*.sql 一致性检查")
+    print("-" * 78)
+    drift = check_module_db_drift()
+    for module, db_file, detail in drift:
+        print(f"❌ {module} ↔ {db_file}")
+        print(f"   {detail}")
+    if not drift:
+        print(f"✓ {len(MODULE_DB_PAIR)} 对模块 DDL 副本表/列完全一致")
+    print()
+
     print("-" * 78)
     print("datasource 库名检查")
     print("-" * 78)
@@ -558,13 +654,13 @@ def main():
     print()
 
     print("=" * 78)
-    print(f"合计问题 {total + len(ds_bad)} 项（其中致命 {fatal + len(ds_bad)} 项）")
+    print(f"合计问题 {total + len(ds_bad) + len(drift)} 项（其中致命 {fatal + len(ds_bad) + len(drift)} 项）")
     if by_kind:
         for k, v in sorted(by_kind.items()):
             print(f"  {k}: {v} 项")
     print("=" * 78)
 
-    if strict and fatal > 0:
+    if strict and (fatal > 0 or ds_bad or drift):
         return 1
     return 0
 

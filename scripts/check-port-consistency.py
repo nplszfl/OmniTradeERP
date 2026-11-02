@@ -46,6 +46,10 @@ SERVICE_MODULE = {
     "tenant-service": "erp-tenant-service",
     "anomaly-detection-service": "erp-anomaly-detection-service",
     "product-recommendation-service": "erp-product-recommendation-service",
+    # ⚠️ 这两个之前漏了 → 它们的端口映射/build.args 一直没被校验。
+    #    补上之后如果端口写错，脚本会报出来。
+    "logistics-service": "erp-logistics-service",
+    "supplier-service": "erp-supplier-service",
 }
 
 # k8s / docker 文件里的服务名 → 模块目录
@@ -71,6 +75,9 @@ K8S_SERVICE_MODULE = {
     "erp-tenant-service": "erp-tenant-service",
     "erp-anomaly-detection-service": "erp-anomaly-detection-service",
     "erp-product-recommendation-service": "erp-product-recommendation-service",
+    # ⚠️ 之前漏了 → erp-logistics-service 的 containerPort / 探针 / Service 端口
+    #    从来没被校验过（k8s/core-services.yaml 里确实有它的 Deployment + Service）。
+    "erp-logistics-service": "erp-logistics-service",
 }
 
 # docker/Dockerfile.<x> → 模块目录
@@ -341,6 +348,62 @@ def check_docs(ports):
                         err(f"[doc/{rel}:{i}] {key} 写了 {got}，应为 {want}")
 
 
+def report_coverage(ports):
+    """📌 报告「哪些东西没被检查到」。
+
+    这个函数存在的原因：本脚本历史上多次出现「映射表漏了一个服务 →
+    它的端口从未被校验，但报告仍然显示『检查通过』」。
+    静默跳过比报错更危险：巡检要能报出「我什么都没查到」。
+    """
+    uncovered = []
+
+    # 1. 有 application.yml 的模块，必须都出现在 compose 映射表里
+    for module in sorted(ports):
+        if module not in SERVICE_MODULE.values():
+            uncovered.append(f"模块 {module} 不在 compose 映射表 SERVICE_MODULE 里 → compose 端口未校验")
+
+    # 2. compose 里的服务（排除基础设施）必须有模块映射
+    infra = {"mysql", "redis", "rabbitmq", "nacos", "sentinel", "certbot",
+             "frontend", "nginx", "erp-network"}
+    for path in sorted(glob.glob(os.path.join(ROOT, "docker-compose*.yml"))):
+        name = os.path.basename(path)
+        try:
+            doc = yaml.safe_load(open(path, encoding="utf-8"))
+        except Exception:
+            continue
+        for svc in ((doc or {}).get("services") or {}):
+            if svc in infra or svc in SERVICE_MODULE:
+                continue
+            if svc.endswith("-data") or svc.endswith("-logs"):
+                continue
+            uncovered.append(f"{name} 的服务 {svc} 不在 SERVICE_MODULE 里 → 端口未校验")
+
+    # 3. k8s 里的应用 Service（排除基础设施）必须有模块映射
+    k8s_infra = {"erp-ingress", "mysql-service", "nacos-service",
+                 "redis-service", "rabbitmq-service", "sentinel-service"}
+    for path in sorted(glob.glob(os.path.join(ROOT, "k8s", "*.yaml"))):
+        name = os.path.basename(path)
+        try:
+            docs = list(yaml.safe_load_all(open(path, encoding="utf-8")))
+        except Exception:
+            continue
+        for doc in docs:
+            if not isinstance(doc, dict) or doc.get("kind") != "Service":
+                continue
+            svc = (doc.get("metadata") or {}).get("name")
+            if not svc or svc in k8s_infra or svc in K8S_SERVICE_MODULE:
+                continue
+            if svc == "erp-gateway-service":
+                continue  # gateway 的别名 Service，与 erp-gateway 重复
+            uncovered.append(f"k8s/{name} 的 Service {svc} 不在 K8S_SERVICE_MODULE 里 → 端口未校验")
+
+    for u in uncovered:
+        warn(u)
+    if uncovered:
+        warn(f"共 {len(uncovered)} 处「未被校验」的条目 —— 请补映射表，否则这些端口错了也不会被发现")
+    return uncovered
+
+
 def main():
     ports = load_ports()
     if not ports:
@@ -350,6 +413,7 @@ def main():
     check_k8s(ports)
     check_dockerfiles(ports)
     check_docs(ports)
+    report_coverage(ports)
 
     print(f"服务端口表（application.yml 为准，共 {len(ports)} 个服务）：")
     for module, port in sorted(ports.items(), key=lambda kv: kv[1]):
