@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS tenant_usage_records (
     KEY `idx_usage_tenant_period` (`tenant_id`, `billing_period`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='租户用量记录表';
 
+
 CREATE TABLE IF NOT EXISTS billing_rules (
     `id`            VARCHAR(36)   NOT NULL COMMENT 'ID(UUID)',
     `name`          VARCHAR(255)  NOT NULL COMMENT '规则名称',
@@ -139,3 +140,27 @@ CREATE TABLE IF NOT EXISTS tenant_bills (
     KEY `idx_tenant_bills_tenant_period` (`tenant_id`, `billing_period`),
     KEY `idx_tenant_bills_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='租户账单表';
+
+-- ⚠️⚠️ billing_period 必须是 VARCHAR(7)，不能是 VARBINARY！
+-- Hibernate **6.2.x 不支持 java.time.YearMonth**（整个 hibernate-core 里连
+-- YearMonthType 都没有）→ 它把 YearMonth 当成 Serializable 类型处理，
+-- `ddl-auto: update` 会**把这一列悄悄改成 varbinary(255)**。
+-- 后果：表里有数据时，读取时用 Java 反序列化一个 VARCHAR 字符串 →
+--   org.hibernate.type.SerializationException: could not deserialize
+--   → GET /api/tenant/billing/bills 直接 500。
+--   （表里**没数据**时不报错 —— 查不到行就不会反序列化，所以这个坑特别隐蔽）
+-- 现在实体上加了 @Convert(converter = YearMonthConverter.class)，
+-- 期望类型回到 VARCHAR，这里再显式 ALTER 一次修正已经被改坏的库。
+--
+-- 先删掉已经被当成二进制垃圾写进去的行（正则不匹配的），
+-- 避免 ALTER 时转换失败；后面 seed-tenant.sql 会重新种上正确的行。
+DELETE FROM `tenant_bills`
+    WHERE `billing_period` IS NOT NULL
+      AND NOT (CAST(`billing_period` AS CHAR) REGEXP '^[0-9]{4}-[0-9]{2}$');
+DELETE FROM `tenant_usage_records`
+    WHERE `billing_period` IS NOT NULL
+      AND NOT (CAST(`billing_period` AS CHAR) REGEXP '^[0-9]{4}-[0-9]{2}$');
+ALTER TABLE `tenant_bills`
+    MODIFY COLUMN `billing_period` VARCHAR(7) NOT NULL COMMENT '计费周期(YYYY-MM)';
+ALTER TABLE `tenant_usage_records`
+    MODIFY COLUMN `billing_period` VARCHAR(7) NOT NULL COMMENT '计费周期(YYYY-MM)';

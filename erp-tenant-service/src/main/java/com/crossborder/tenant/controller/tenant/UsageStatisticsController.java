@@ -1,5 +1,6 @@
 package com.crossborder.tenant.controller.tenant;
 
+import com.crossborder.tenant.config.TenantContext;
 import com.crossborder.tenant.dto.dashboard.UsageStatisticsDTO;
 import com.crossborder.tenant.service.UsageStatisticsService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -25,15 +26,21 @@ public class UsageStatisticsController {
 
     @Operation(summary = "获取当前月份使用量")
     @GetMapping("/current")
-    public ResponseEntity<UsageStatisticsDTO> getCurrentMonthUsage() {
-        return ResponseEntity.ok(usageStatisticsService.getCurrentMonthUsage());
+    public ResponseEntity<UsageStatisticsDTO> getCurrentMonthUsage(
+            @RequestParam(required = false) String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.scope(TenantContext.resolve(tenantId))) {
+            return ResponseEntity.ok(usageStatisticsService.getCurrentMonthUsage());
+        }
     }
 
     @Operation(summary = "获取指定月份使用量")
     @GetMapping("/period")
     public ResponseEntity<UsageStatisticsDTO> getUsageByPeriod(
-            @RequestParam @DateTimeFormat(pattern = "yyyy-MM") YearMonth period) {
-        return ResponseEntity.ok(usageStatisticsService.getUsageByPeriod(period));
+            @RequestParam @DateTimeFormat(pattern = "yyyy-MM") YearMonth period,
+            @RequestParam(required = false) String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.scope(TenantContext.resolve(tenantId))) {
+            return ResponseEntity.ok(usageStatisticsService.getUsageByPeriod(period));
+        }
     }
 
     @Operation(summary = "记录API调用（内部接口）")

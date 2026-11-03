@@ -75,11 +75,24 @@ public class PlatformCredentialService {
         
         if (dto.getShopName() != null) credential.setShopName(dto.getShopName());
         if (dto.getClientId() != null) credential.setClientId(dto.getClientId());
-        if (dto.getClientSecret() != null) credential.setClientSecret(dto.getClientSecret());
-        if (dto.getRefreshToken() != null) credential.setRefreshToken(dto.getRefreshToken());
+        // 🔴 敏感凭证：**忽略掩码值**，否则前端拿列表里的 `rt-am****0001` 回传
+        //    就会把库里的真实 token 覆盖成掩码 → 凭证直接失效（而且不报错，
+        //    要等到真正调平台 API 401 才发现）。
+        if (isRealSecret(dto.getClientSecret())) credential.setClientSecret(dto.getClientSecret());
+        if (isRealSecret(dto.getRefreshToken())) credential.setRefreshToken(dto.getRefreshToken());
         
         credential = credentialRepository.save(credential);
         return toDTO(credential);
+    }
+
+    /**
+     * 判断入参是不是「真实明文」而不是出参的掩码
+     *
+     * <p>出参掩码格式固定为 {@code 前4位 + **** + 后4位}，
+     * 所以只要中间带 {@code ****} 就当成「用户没改」→ 不覆盖库里的值。</p>
+     */
+    private boolean isRealSecret(String value) {
+        return value != null && !value.isBlank() && !value.contains("****");
     }
 
     /**
@@ -93,6 +106,18 @@ public class PlatformCredentialService {
         credentialRepository.delete(credential);
     }
 
+    /**
+     * 实体 → DTO
+     *
+     * 🔴 <b>敏感字段脱敏</b>：accessToken / refreshToken / clientSecret 是
+     *    <b>能直接调平台 API 的凭证</b>，明文出参 = 任何拿到列表接口的人
+     *    都能冒充该店铺操作平台。
+     *    前端（erp-web/src/views/platform）只把它们当<b>输入</b>（密码框），
+     *    列表展示并不需要明文 → 所以出参只给「是否存在」的标记。
+     *
+     * <p>📌 保持 DTO 字段本身不变（前端 contract 不动），
+     * 只在<b>出参</b>时替换成掩码 —— 入参仍然收明文。</p>
+     */
     private PlatformCredentialDTO toDTO(PlatformCredential credential) {
         return PlatformCredentialDTO.builder()
                 .id(credential.getId())
@@ -102,13 +127,31 @@ public class PlatformCredentialService {
                 .shopId(credential.getShopId())
                 .clientId(credential.getClientId())
                 .developerId(credential.getDeveloperId())
-                .refreshToken(credential.getRefreshToken())
+                // 敏感凭证：只告知「有没有」，不给明文
+                .clientSecret(mask(credential.getClientSecret()))
+                .refreshToken(mask(credential.getRefreshToken()))
+                .accessToken(mask(credential.getAccessToken()))
                 .marketplace(credential.getMarketplace())
                 .status(credential.getStatus())
-                .accessToken(credential.getAccessToken())
                 .tokenExpiresAt(credential.getTokenExpiresAt())
                 .lastSyncAt(credential.getLastSyncAt())
                 .createdAt(credential.getCreatedAt())
                 .build();
+    }
+
+    /**
+     * 凭证掩码：null → null；非空 → 只保留首尾各 4 位，中间用 * 遮住。
+     *
+     * <p>为什么不是直接置 null：前端要显示「已配置 / 未配置」，
+     * 置 null 会让页面误判成没配过。</p>
+     */
+    private String mask(String secret) {
+        if (secret == null || secret.isBlank()) {
+            return null;
+        }
+        if (secret.length() <= 8) {
+            return "****";
+        }
+        return secret.substring(0, 4) + "****" + secret.substring(secret.length() - 4);
     }
 }

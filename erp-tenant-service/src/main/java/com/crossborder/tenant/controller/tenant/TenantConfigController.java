@@ -1,5 +1,6 @@
 package com.crossborder.tenant.controller.tenant;
 
+import com.crossborder.tenant.config.TenantContext;
 import com.crossborder.tenant.dto.*;
 import com.crossborder.tenant.entity.TenantPlan;
 import com.crossborder.tenant.service.BillingService;
@@ -28,8 +29,11 @@ public class TenantConfigController {
 
     @Operation(summary = "获取当前套餐信息")
     @GetMapping("/plan")
-    public ResponseEntity<TenantDTO> getCurrentPlan() {
-        return ResponseEntity.ok(tenantConfigService.getCurrentPlan());
+    public ResponseEntity<TenantDTO> getCurrentPlan(
+            @RequestParam(required = false) String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.scope(TenantContext.resolve(tenantId))) {
+            return ResponseEntity.ok(tenantConfigService.getCurrentPlan());
+        }
     }
 
     @Operation(summary = "变更套餐")
@@ -57,8 +61,11 @@ public class TenantConfigController {
 
     @Operation(summary = "获取功能开关列表")
     @GetMapping("/features")
-    public ResponseEntity<List<FeatureFlagDTO>> getFeatureFlags() {
-        return ResponseEntity.ok(tenantConfigService.getFeatureFlags());
+    public ResponseEntity<List<FeatureFlagDTO>> getFeatureFlags(
+            @RequestParam(required = false) String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.scope(TenantContext.resolve(tenantId))) {
+            return ResponseEntity.ok(tenantConfigService.getFeatureFlags());
+        }
     }
 
     @Operation(summary = "更新功能开关")
@@ -66,13 +73,20 @@ public class TenantConfigController {
     public ResponseEntity<FeatureFlagDTO> updateFeatureFlag(
             @PathVariable String featureKey,
             @RequestParam Boolean enabled,
-            @RequestParam(required = false) String config) {
-        return ResponseEntity.ok(tenantConfigService.updateFeatureFlag(featureKey, enabled, config));
+            @RequestParam(required = false) String config,
+            @RequestParam(required = false) String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.scope(TenantContext.resolve(tenantId))) {
+            return ResponseEntity.ok(tenantConfigService.updateFeatureFlag(featureKey, enabled, config));
+        }
     }
 
     @Operation(summary = "检查功能是否启用")
     @GetMapping("/features/{featureKey}/enabled")
-    public ResponseEntity<Map<String, Boolean>> isFeatureEnabled(@PathVariable String featureKey) {
-        return ResponseEntity.ok(Map.of("enabled", tenantConfigService.isFeatureEnabled(featureKey)));
+    public ResponseEntity<Map<String, Boolean>> isFeatureEnabled(
+            @PathVariable String featureKey,
+            @RequestParam(required = false) String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.scope(TenantContext.resolve(tenantId))) {
+            return ResponseEntity.ok(Map.of("enabled", tenantConfigService.isFeatureEnabled(featureKey)));
+        }
     }
 }

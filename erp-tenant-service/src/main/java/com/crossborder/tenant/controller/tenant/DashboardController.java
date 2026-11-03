@@ -1,5 +1,6 @@
 package com.crossborder.tenant.controller.tenant;
 
+import com.crossborder.tenant.config.TenantContext;
 import com.crossborder.tenant.dto.dashboard.DailyUsageDTO;
 import com.crossborder.tenant.dto.dashboard.DashboardDTO;
 import com.crossborder.tenant.service.DashboardService;
@@ -25,19 +26,28 @@ public class DashboardController {
 
     @Operation(summary = "获取仪表盘数据")
     @GetMapping
-    public ResponseEntity<DashboardDTO> getDashboard() {
-        return ResponseEntity.ok(dashboardService.getDashboard());
+    public ResponseEntity<DashboardDTO> getDashboard(
+            @RequestParam(required = false) String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.scope(TenantContext.resolve(tenantId))) {
+            return ResponseEntity.ok(dashboardService.getDashboard());
+        }
     }
 
     @Operation(summary = "获取使用量趋势")
     @GetMapping("/trend")
-    public ResponseEntity<List<DailyUsageDTO>> getUsageTrend() {
-        return ResponseEntity.ok(dashboardService.getUsageTrend());
+    public ResponseEntity<List<DailyUsageDTO>> getUsageTrend(
+            @RequestParam(required = false) String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.scope(TenantContext.resolve(tenantId))) {
+            return ResponseEntity.ok(dashboardService.getUsageTrend());
+        }
     }
 
     @Operation(summary = "获取配额使用概览")
     @GetMapping("/quota")
-    public ResponseEntity<Map<String, Object>> getQuotaOverview() {
-        return ResponseEntity.ok(dashboardService.getQuotaOverview());
+    public ResponseEntity<Map<String, Object>> getQuotaOverview(
+            @RequestParam(required = false) String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.scope(TenantContext.resolve(tenantId))) {
+            return ResponseEntity.ok(dashboardService.getQuotaOverview());
+        }
     }
 }

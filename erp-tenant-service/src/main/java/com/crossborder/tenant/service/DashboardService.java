@@ -19,7 +19,6 @@ import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 /**
  * 租户仪表盘服务 - 提供租户端数据概览
@@ -124,28 +123,36 @@ public class DashboardService {
     }
 
     /**
-     * 获取使用量趋势（最近7天）
+     * 获取使用量趋势（最近 7 个计费周期）
+     *
+     * <p>⚠️ 之前的实现直接用 {@code Math.random()} 造数
+     * （代码里还写着「模拟数据，实际应从日志表查询」），页面上的趋势图
+     * **每次刷新数字都不一样** —— 看着像真的，其实全是假数据。
+     * 现在改成读 {@code tenant_usage_records} 的真实用量。</p>
      */
     public List<DailyUsageDTO> getUsageTrend() {
         String tenantId = TenantContext.getTenant();
-        LocalDate today = LocalDate.now();
-        
-        // 生成7天趋势（实际项目中从数据库查询）
-        return IntStream.rangeClosed(1, 7)
-                .mapToObj(i -> {
-                    LocalDate date = today.minusDays(7 - i);
-                    // 模拟数据，实际应从日志表查询
-                    long apiCalls = (long) (Math.random() * 1000);
-                    int orders = (int) (Math.random() * 50);
-                    long storage = (long) (Math.random() * 100 * 1024 * 1024);
-                    
-                    return DailyUsageDTO.builder()
-                            .date(date)
-                            .apiCalls(apiCalls)
-                            .orders(orders)
-                            .storageBytes(storage)
-                            .build();
-                })
+
+        List<UsageRecord> records = usageRecordRepository
+                .findTop12ByTenantIdOrderByBillingPeriodDesc(tenantId);
+
+        // 按周期升序输出（图表从左到右 = 从旧到新），最多取最近 7 个
+        List<UsageRecord> recent = records.stream()
+                .filter(r -> r.getBillingPeriod() != null)
+                .sorted(Comparator.comparing(UsageRecord::getBillingPeriod).reversed())
+                .limit(7)
+                .sorted(Comparator.comparing(UsageRecord::getBillingPeriod))
+                .toList();
+
+        return recent.stream()
+                .map(r -> DailyUsageDTO.builder()
+                        // 用周期的第一天作为横坐标（数据粒度是月，不是天）
+                        .date(r.getBillingPeriod().atDay(1))
+                        .period(r.getBillingPeriod().toString())
+                        .apiCalls(r.getApiCalls() != null ? r.getApiCalls() : 0L)
+                        .orders(r.getOrderCount() != null ? r.getOrderCount() : 0)
+                        .storageBytes(r.getStorageBytes() != null ? r.getStorageBytes() : 0L)
+                        .build())
                 .collect(Collectors.toList());
     }
 

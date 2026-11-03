@@ -1,6 +1,7 @@
 package com.crossborder.tenant.entity.billing;
 
 import jakarta.persistence.*;
+import com.crossborder.tenant.converter.YearMonthConverter;
 import lombok.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -29,7 +30,12 @@ public class Bill {
 
     /**
      * 账单周期
+     *
+     * ⚠️ 必须显式指定 YearMonth → VARCHAR 转换器：Hibernate 6.2.x **不支持 YearMonth**，
+     *    会当成 Serializable 处理 → 有数据时读取直接抛
+     *    {@code SerializationException: could not deserialize}（接口 500）
      */
+    @Convert(converter = YearMonthConverter.class)
     @Column(nullable = false)
     private YearMonth billingPeriod;
 

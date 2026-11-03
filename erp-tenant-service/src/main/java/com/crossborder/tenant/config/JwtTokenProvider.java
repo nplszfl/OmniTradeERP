@@ -80,4 +80,16 @@ public class JwtTokenProvider {
             return false;
         }
     }
+
+    /**
+     * 从Token获取用户名
+     */
+    public String getUsernameFromToken(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+        return claims.get("username", String.class);
+    }
 }

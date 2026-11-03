@@ -278,12 +278,36 @@ spring:
         # 租户服务
         # 后端 controller 根路径本来就是 /api/tenant/**（dashboard/billing/usage/config），
         # 所以这里不能用 StripPrefix（会把 /api/tenant 砍掉）→ StripPrefix=0 原样转发。
-        # 另外后端还有 /api/v1/tenant、/api/v1/auth、/api/v1/platforms，
-        # 这三个通过 discovery locator（/erp-tenant-service/**）或 /api/v1/** 直连访问。
         - id: tenant-service
           uri: lb://erp-tenant-service
           predicates:
             - Path=/api/tenant/**
+          filters:
+            - StripPrefix=0
+
+        # ⚠️ 租户模块还有一组 /api/v1/** 路径（自助注册登录、租户用户、升级套餐、平台凭据），
+        #    之前**没有网关路由** → 前端根本调不到（只能走 discovery locator 的
+        #    /erp-tenant-service/** 这种非标准路径）。
+        #    这三条路由把 /api/v1/tenant/**、/api/v1/auth/**、/api/v1/platforms/**
+        #    转到 erp-tenant-service，同样 StripPrefix=0（后端根路径就带 /api/v1）。
+        #    认证：/api/v1/auth/** 在服务侧 permitAll（登录/注册），
+        #    其余两个需要租户自己的 JWT（由服务内的 TenantJwtAuthenticationFilter 校验）。
+        - id: tenant-service-v1-tenant
+          uri: lb://erp-tenant-service
+          predicates:
+            - Path=/api/v1/tenant/**
+          filters:
+            - StripPrefix=0
+        - id: tenant-service-v1-auth
+          uri: lb://erp-tenant-service
+          predicates:
+            - Path=/api/v1/auth/**
+          filters:
+            - StripPrefix=0
+        - id: tenant-service-v1-platforms
+          uri: lb://erp-tenant-service
+          predicates:
+            - Path=/api/v1/platforms/**
           filters:
             - StripPrefix=0
 

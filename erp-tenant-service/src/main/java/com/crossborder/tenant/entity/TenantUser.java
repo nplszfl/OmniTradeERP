@@ -1,5 +1,6 @@
 package com.crossborder.tenant.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
@@ -39,7 +40,12 @@ public class TenantUser {
 
     /**
      * 密码（加密）
+     *
+     * 🔴 加 {@code @JsonIgnore} 是双保险：现在 /api/v1/auth/me 走 DTO（password 是 null），
+     *    但只要哪天有人图省事直接返回实体，bcrypt 哈希就会**原样发给前端**。
+     *    密码哈希泄露 = 可离线爆破，不该依赖调用方自觉。
      */
+    @JsonIgnore
     @Column(nullable = false)
     private String password;
 

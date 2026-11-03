@@ -49,6 +49,11 @@ services:
       #    t_permission），必须排在所有 service.sql 之后，否则种子数据会被后面
       #    的 DROP TABLE 洗掉（历史上 t_permission/t_role_permission 就这样被清零过）。
       - ./database/seed-live-data.sql:/docker-entrypoint-initdb.d/zz-seed-live-data.sql:ro
+      # ⚠️ 租户种子单独一个文件（而不是并进 seed-live-data.sql）：
+      #    docker-entrypoint-initdb.d 里每个 .sql 是**一个独立的 mysql 会话**，
+      #    一条语句报错 → 从出错行起该文件剩余语句全部不执行，退出码可能仍是 0。
+      #    拆开 = 故障隔离。zz- 前缀保证排在 tenant-service.sql 建表之后。
+      - ./database/seed-tenant.sql:/docker-entrypoint-initdb.d/zz-seed-tenant.sql:ro
     networks:
       - erp-network
     healthcheck:

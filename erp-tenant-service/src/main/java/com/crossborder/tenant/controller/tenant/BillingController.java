@@ -1,5 +1,6 @@
 package com.crossborder.tenant.controller.tenant;
 
+import com.crossborder.tenant.config.TenantContext;
 import com.crossborder.tenant.dto.billing.BillDTO;
 import com.crossborder.tenant.dto.billing.BillingRuleDTO;
 import com.crossborder.tenant.service.BillingService;
@@ -25,24 +26,33 @@ public class BillingController {
 
     @Operation(summary = "获取账单列表")
     @GetMapping("/bills")
-    public ResponseEntity<List<BillDTO>> getBills() {
-        return ResponseEntity.ok(billingService.getBills());
+    public ResponseEntity<List<BillDTO>> getBills(
+            @RequestParam(required = false) String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.scope(TenantContext.resolve(tenantId))) {
+            return ResponseEntity.ok(billingService.getBills());
+        }
     }
 
     @Operation(summary = "获取当前月份账单")
     @GetMapping("/bills/current")
-    public ResponseEntity<BillDTO> getCurrentBill() {
-        BillDTO bill = billingService.getCurrentBill();
-        if (bill == null) {
-            return ResponseEntity.notFound().build();
+    public ResponseEntity<BillDTO> getCurrentBill(
+            @RequestParam(required = false) String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.scope(TenantContext.resolve(tenantId))) {
+            BillDTO bill = billingService.getCurrentBill();
+            if (bill == null) {
+                return ResponseEntity.notFound().build();
+            }
+            return ResponseEntity.ok(bill);
         }
-        return ResponseEntity.ok(bill);
     }
 
     @Operation(summary = "获取待支付账单")
     @GetMapping("/bills/pending")
-    public ResponseEntity<List<BillDTO>> getPendingBills() {
-        return ResponseEntity.ok(billingService.getPendingBills());
+    public ResponseEntity<List<BillDTO>> getPendingBills(
+            @RequestParam(required = false) String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.scope(TenantContext.resolve(tenantId))) {
+            return ResponseEntity.ok(billingService.getPendingBills());
+        }
     }
 
     @Operation(summary = "支付账单")

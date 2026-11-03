@@ -96,10 +96,28 @@ class TenantListControllerTest {
     }
 
     @Test
-    @DisplayName("未认证访问被拦截（SecurityFilterChain 生效）")
-    void listRequiresAuthentication() throws Exception {
+    @DisplayName("管理端列表不要求登录（与其它 ERP 服务一致，网关也不鉴权）")
+    void listIsPermitAllForAdmin() throws Exception {
+        // 📌 修复前的行为是 403：SecurityConfig 写了 anyRequest().authenticated()，
+        //    却没有任何认证 provider / JWT 过滤器往 SecurityContext 放 Authentication
+        //    → 除 /api/v1/auth/** 外所有接口一律 403 **空 body**，
+        //    前端租户页面整页空白。
+        //    现在 /api/tenant/** 显式 permitAll（管理端），
+        //    /api/v1/tenant/** 保持 authenticated（租户自助）。
         mockMvc.perform(get("/api/tenant/list"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3));
+    }
+
+    @Test
+    @DisplayName("租户自助接口未带 token → 401 + JSON 报文（不是空 body）")
+    void selfServiceRequiresToken() throws Exception {
+        mockMvc.perform(get("/api/v1/tenant"))
+                .andExpect(status().isUnauthorized())
+                // 📌 Spring Security 默认在未认证时返回 403 **空 body**，
+                //    前端拿不到任何信息 → 显式配了 AuthenticationEntryPoint 返回 401 + JSON。
+                .andExpect(jsonPath("$.code").value(401))
+                .andExpect(jsonPath("$.message").exists());
     }
 
     @Test
