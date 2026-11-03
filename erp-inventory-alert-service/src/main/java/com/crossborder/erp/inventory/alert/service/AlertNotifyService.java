@@ -3,6 +3,7 @@ package com.crossborder.erp.inventory.alert.service;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.crossborder.erp.inventory.alert.entity.InventoryAlert;
+import com.crossborder.erp.inventory.alert.notify.SmsSender;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +23,17 @@ public class AlertNotifyService {
 
     @Autowired
     private JavaMailSender mailSender;
+
+    /**
+     * 短信通道（默认是「模拟实现」，不投递任何短信）
+     *
+     * 📌 以前这里是 {@code private void sendSms(...)} —— 一个只打日志的桩，
+     *    但上层 {@code sendSmsNotification()} 无条件 {@code return true}，
+     *    导致预警被标成 {@code notified=true}：**库里写着「已通知」，实际没人收到**。
+     *    现在短信走 {@link SmsSender} 抽象，真实投递与否由实现如实报告。
+     */
+    @Autowired
+    private SmsSender smsSender;
 
     @Value("${spring.mail.username:noreply@example.com}")
     private String fromEmail;
@@ -48,14 +60,24 @@ public class AlertNotifyService {
             String subject = buildEmailSubject(alert);
             String content = buildEmailContent(alert);
 
+            int sent = 0;
             for (String email : emails) {
                 email = email.trim();
                 if (!email.isEmpty()) {
                     sendEmail(email, subject, content);
+                    sent++;
                 }
             }
 
-            log.info("邮件通知发送成功: alertId={}, emails={}", alert.getId(), emailList);
+            // 📌 边界：emailList 形如 "," / "  " → 解析出 0 个有效地址，
+            //    以前照样 return true → notified=true，但一个人都没通知到。
+            if (sent == 0) {
+                log.warn("邮件通知无有效收件人，不视为已发送: alertId={}, emails={}",
+                        alert.getId(), emailList);
+                return false;
+            }
+
+            log.info("邮件通知发送成功: alertId={}, emails={}, count={}", alert.getId(), emailList, sent);
             return true;
         } catch (Exception e) {
             log.error("邮件通知发送失败: alertId={}, error={}", alert.getId(), e.getMessage(), e);
@@ -76,8 +98,17 @@ public class AlertNotifyService {
     }
 
     /**
-     * 发送短信通知（模拟实现）
-     * 实际项目中需要对接短信网关（阿里云、腾讯云等）
+     * 发送短信通知
+     *
+     * <p>🔴 <b>返回值必须是「真的投递出去了」</b>，而不是「跑了一遍流程」。</p>
+     *
+     * <p>📌 以前这里是「模拟实现」（只打一行日志）+ 无条件 {@code return true}
+     * → 上层把预警标成 {@code notified=true}，
+     * <b>数据库里写着「已通知」，实际一个人都没收到</b>。</p>
+     *
+     * <p>现在短信走 {@link SmsSender}：默认实现是
+     * {@link com.crossborder.erp.inventory.alert.notify.SimulatedSmsSender}，
+     * 它诚实地返回 {@code false}。接入真实网关后会自动换成真实实现。</p>
      */
     public boolean sendSmsNotification(InventoryAlert alert, String phoneList) {
         try {
@@ -96,29 +127,32 @@ public class AlertNotifyService {
 
             String smsContent = buildSmsContent(alert);
 
+            int delivered = 0;
+            int attempted = 0;
             for (String phone : phones) {
                 phone = phone.trim();
                 if (!phone.isEmpty()) {
-                    // 实际项目中调用短信网关API
-                    sendSms(phone, smsContent);
+                    attempted++;
+                    if (smsSender.send(phone, smsContent)) {
+                        delivered++;
+                    }
                 }
             }
 
-            log.info("短信通知发送成功: alertId={}, phones={}", alert.getId(), phoneList);
+            // 📌 一条都没投递出去 → 不能算「已通知」
+            if (delivered == 0) {
+                log.warn("短信通知未实际投递（provider={}, 尝试={} 条），不视为已发送: alertId={}, phones={}",
+                        smsSender.providerName(), attempted, alert.getId(), phoneList);
+                return false;
+            }
+
+            log.info("短信通知发送成功: alertId={}, phones={}, delivered={}/{}",
+                    alert.getId(), phoneList, delivered, attempted);
             return true;
         } catch (Exception e) {
             log.error("短信通知发送失败: alertId={}, error={}", alert.getId(), e.getMessage(), e);
             return false;
         }
-    }
-
-    /**
-     * 发送短信（模拟实现）
-     */
-    private void sendSms(String phone, String content) {
-        // TODO: 实现实际短信发送逻辑
-        // 可以集成阿里云短信、腾讯云短信等
-        log.info("📱 模拟发送短信到 {}: {}", phone, content);
     }
 
     /**
