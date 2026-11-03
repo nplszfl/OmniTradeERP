@@ -1,5 +1,8 @@
 <template>
   <div class="ai-assistant">
+    <el-tabs v-model="activeTab" class="ai-tabs">
+      <!-- ========== 对话 ========== -->
+      <el-tab-pane label="对话" name="chat">
     <el-card shadow="never" class="chat-card">
       <template #header>
         <div class="card-head">
@@ -29,13 +32,93 @@
         </div>
       </div>
     </el-card>
+      </el-tab-pane>
+
+      <!-- ========== 知识库管理 ========== -->
+      <el-tab-pane label="知识库" name="knowledge">
+        <el-card shadow="never">
+          <template #header>
+            <div class="card-head">
+              <span><el-icon><Collection /></el-icon> 知识库管理</span>
+              <div>
+                <el-button size="small" type="primary" :icon="Plus" @click="openAddDialog">新增知识</el-button>
+                <el-button size="small" :icon="Refresh" @click="loadKnowledge">刷新</el-button>
+              </div>
+            </div>
+          </template>
+
+          <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px"
+            title="这里的知识就是 AI 客服回答问题时检索的问答对（表 knowledge_base）。新增后立即生效，聊天检索会用到。" />
+
+          <el-form inline style="margin-bottom: 8px">
+            <el-form-item label="分类">
+              <el-select v-model="kbCategory" placeholder="全部分类" clearable style="width: 160px" @change="handleKbSearch">
+                <el-option v-for="c in kbCategories" :key="c" :label="c" :value="c" />
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" :icon="Search" @click="handleKbSearch">查询</el-button>
+            </el-form-item>
+          </el-form>
+
+          <el-table :data="kbList" v-loading="kbLoading" border stripe>
+            <el-table-column prop="id" label="ID" width="80" />
+            <el-table-column prop="category" label="分类" width="100" />
+            <el-table-column prop="question" label="问题" min-width="220" show-overflow-tooltip />
+            <el-table-column prop="answer" label="答案" min-width="260" show-overflow-tooltip />
+            <el-table-column label="标签" width="150">
+              <template #default="{ row }">
+                <el-tag v-for="t in row.tags || []" :key="t" size="small" style="margin-right: 4px">{{ t }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="danger" size="small" @click="handleDeleteKb(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <el-pagination
+            style="margin-top: 12px; justify-content: flex-end"
+            layout="total, prev, pager, next"
+            :total="kbTotal"
+            :page-size="kbPageSize"
+            :current-page="kbPage"
+            @current-change="handleKbPageChange" />
+        </el-card>
+      </el-tab-pane>
+    </el-tabs>
+
+    <!-- 新增知识对话框 -->
+    <el-dialog v-model="kbDialogVisible" title="新增知识" width="520px">
+      <el-form :model="kbForm" label-width="80px">
+        <el-form-item label="分类" required>
+          <el-input v-model="kbForm.category" placeholder="如：订单 / 物流 / 售后" />
+        </el-form-item>
+        <el-form-item label="问题" required>
+          <el-input v-model="kbForm.question" type="textarea" :rows="2" placeholder="用户可能会问的问题" />
+        </el-form-item>
+        <el-form-item label="答案" required>
+          <el-input v-model="kbForm.answer" type="textarea" :rows="4" placeholder="标准答案" />
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-input v-model="kbForm.tagsText" placeholder="逗号分隔，如：订单,查询" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="kbDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="kbSaving" @click="submitKb">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
-import { aiAssistantApi } from '@/api/ai'
-import { MagicStick } from '@element-plus/icons-vue'
+import { ref, nextTick, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { aiAssistantApi, knowledgeBaseApi, type KnowledgeBaseItem } from '@/api/ai'
+import { MagicStick, Collection, Plus, Refresh, Search } from '@element-plus/icons-vue'
+import { unwrapPage } from '@/utils/response'
 
 const messages = ref<{ role: 'user' | 'bot'; content: string }[]>([
   { role: 'bot', content: '您好，我是 AI 助手。基于 330+ 行业知识库，可以回答订单、物流、库存、财务、退款等问题。' },
@@ -83,10 +166,112 @@ function newSession() {
   messages.value = [{ role: 'bot', content: '新会话已开始，请提问。' }]
   sessionId.value = ''
 }
+
+// ========== 知识库管理 ==========
+const activeTab = ref('chat')
+const kbLoading = ref(false)
+const kbSaving = ref(false)
+const kbList = ref<KnowledgeBaseItem[]>([])
+const kbCategories = ref<string[]>([])
+const kbCategory = ref<string>('')
+const kbPage = ref(1)
+const kbPageSize = 20
+const kbTotal = ref(0)
+const kbDialogVisible = ref(false)
+const kbForm = ref({ category: '', question: '', answer: '', tagsText: '' })
+
+const loadKnowledge = async () => {
+  kbLoading.value = true
+  try {
+    const res = await knowledgeBaseApi.list({
+      page: kbPage.value,
+      size: kbPageSize,
+      category: kbCategory.value || undefined
+    })
+    const pageData = unwrapPage(res)
+    kbList.value = pageData.records || []
+    kbTotal.value = pageData.total || 0
+  } catch (error) {
+    console.error('加载知识库失败', error)
+  } finally {
+    kbLoading.value = false
+  }
+}
+
+const loadKbCategories = async () => {
+  try {
+    const res = await knowledgeBaseApi.categories()
+    kbCategories.value = Array.isArray(res) ? res : []
+  } catch (error) {
+    console.error('加载知识分类失败', error)
+  }
+}
+
+const handleKbSearch = () => {
+  kbPage.value = 1
+  loadKnowledge()
+}
+
+const handleKbPageChange = (p: number) => {
+  kbPage.value = p
+  loadKnowledge()
+}
+
+const openAddDialog = () => {
+  kbForm.value = { category: '', question: '', answer: '', tagsText: '' }
+  kbDialogVisible.value = true
+}
+
+const submitKb = async () => {
+  const f = kbForm.value
+  if (!f.category.trim() || !f.question.trim() || !f.answer.trim()) {
+    ElMessage.warning('分类、问题、答案都要填')
+    return
+  }
+  kbSaving.value = true
+  try {
+    await knowledgeBaseApi.add({
+      category: f.category.trim(),
+      question: f.question.trim(),
+      answer: f.answer.trim(),
+      tags: f.tagsText.split(',').map(t => t.trim()).filter(Boolean)
+    })
+    ElMessage.success('知识已新增')
+    kbDialogVisible.value = false
+    loadKnowledge()
+    loadKbCategories()
+  } catch (error) {
+    console.error('新增知识失败', error)
+  } finally {
+    kbSaving.value = false
+  }
+}
+
+const handleDeleteKb = async (row: KnowledgeBaseItem) => {
+  try {
+    await ElMessageBox.confirm(`确定删除知识「${row.question}」？`, '提示', { type: 'warning' })
+  } catch {
+    return   // 用户取消
+  }
+  try {
+    await knowledgeBaseApi.remove(row.id)
+    ElMessage.success('已删除')
+    loadKnowledge()
+  } catch (error) {
+    console.error('删除知识失败', error)
+  }
+}
+
+onMounted(() => {
+  loadKnowledge()
+  loadKbCategories()
+})
 </script>
 
 <style scoped>
 .ai-assistant { padding: 16px; height: calc(100vh - 100px); }
+.ai-tabs { height: 100%; }
+.ai-tabs :deep(.el-tabs__content) { height: calc(100% - 40px); overflow-y: auto; }
 .chat-card { display: flex; flex-direction: column; height: 100%; }
 .card-head { display: flex; justify-content: space-between; align-items: center; }
 .chat-messages {

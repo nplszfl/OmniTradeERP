@@ -107,12 +107,45 @@ export const inventoryPredictApi = {
   tasks: (params: any) => request.get<any, any[]>('/inventory-prediction/tasks', { params }),
 }
 
+/** 知识库条目（问答对，对应后端表 knowledge_base） */
+export interface KnowledgeBaseItem {
+  id: number
+  category: string
+  question: string
+  answer: string
+  language?: string
+  tags?: string[]
+  priority?: number
+  active?: boolean
+  createTime?: string
+  updateTime?: string
+}
+
 export const aiAssistantApi = {
   chat: (data: { sessionId?: string; message: string }) => request.post<any, { reply: string; sessionId: string }>('/ai/assistant/chat', data),
   history: (sessionId: string) => request.get<any, any[]>(`/ai/assistant/history/${sessionId}`),
   knowledge: {
-    list:   (params: any) => request.get<any, any[]>('/ai/assistant/knowledge', { params }),
+    // 语义检索（RAG 文档侧 knowledge_document）
+    // ⚠️ 后端 /api/ai/knowledge/search 的 q 是**必填**参数，不传会 400
+    list:   (params: { q: string; topK?: number }) => request.get<any, any[]>('/ai/assistant/knowledge', { params }),
     add:    (data: any)   => request.post<any, any>('/ai/assistant/knowledge', data),
     remove: (id: number)  => request.delete<any, any>(`/ai/assistant/knowledge/${id}`),
   },
+}
+
+/**
+ * 知识库管理（问答对，knowledge_base 表）
+ * ⚠️ 与上面的 knowledge（RAG 文档）是**两张不同的表**，不要混用：
+ *    knowledge        → knowledge_document（向量检索用）
+ *    knowledgeBase    → knowledge_base（问答对，聊天检索用的就是这张）
+ * 📌 之前这套管理接口前端压根没有页面 → 知识库永远是空的。
+ */
+export const knowledgeBaseApi = {
+  list: (params: { page?: number; size?: number; category?: string }) =>
+    request.get<any, any>('/ai/knowledge/base/list', { params }),
+  categories: () => request.get<any, string[]>('/ai/knowledge/base/categories'),
+  // 新增走 /ai/assistant/knowledge（网关会改写到 /api/v1/ai-assistant/knowledge）
+  add: (data: { category: string; question: string; answer: string; tags?: string[]; priority?: number }) =>
+    request.post<any, any>('/ai/assistant/knowledge', data),
+  remove: (id: number) => request.delete<any, boolean>(`/ai/knowledge/base/${id}`),
 }

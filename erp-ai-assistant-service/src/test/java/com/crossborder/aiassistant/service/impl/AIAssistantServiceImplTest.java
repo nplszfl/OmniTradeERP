@@ -4,6 +4,8 @@ import com.crossborder.aiassistant.config.LLMConfig;
 import com.crossborder.aiassistant.dto.ChatRequest;
 import com.crossborder.aiassistant.dto.ChatResponse;
 import com.crossborder.aiassistant.dto.ServiceStatistics;
+import com.crossborder.aiassistant.entity.KnowledgeBase;
+import com.crossborder.aiassistant.repository.KnowledgeBaseRepository;
 import com.crossborder.aiassistant.service.AIAssistantService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,6 +18,9 @@ import reactor.core.publisher.Flux;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.when;
 
 /**
  * AIAssistantService 单元测试
@@ -29,6 +34,13 @@ class AIAssistantServiceImplTest {
     @Mock
     private LLMConfig llmConfig;
 
+    /**
+     * 📌 知识库仓储：服务里原本用的是内存 ArrayList，
+     *    现在改成读写 knowledge_base 表，所以单测必须 mock 这个仓储。
+     */
+    @Mock
+    private KnowledgeBaseRepository knowledgeBaseRepository;
+
     @InjectMocks
     private AIAssistantServiceImpl aiAssistantService;
 
@@ -36,6 +48,26 @@ class AIAssistantServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        // 知识库仓储的默认行为：返回 2 条启用中的知识
+        KnowledgeBase k1 = KnowledgeBase.builder()
+                .id(1L).category("订单").question("如何查询我的订单？")
+                .answer("在「我的订单」页面查看").language("zh")
+                .tags(List.of("订单")).priority(10).active(true).build();
+        KnowledgeBase k2 = KnowledgeBase.builder()
+                .id(2L).category("物流").question("订单发货后多久能收到？")
+                .answer("国内1-3天，国际7-15天").language("zh")
+                .tags(List.of("物流")).priority(9).active(true).build();
+        lenient().when(knowledgeBaseRepository.findByActiveTrue()).thenReturn(List.of(k1, k2));
+        lenient().when(knowledgeBaseRepository.countByActiveTrue()).thenReturn(2L);
+        lenient().when(knowledgeBaseRepository.save(any(KnowledgeBase.class)))
+                .thenAnswer(inv -> {
+                    KnowledgeBase arg = inv.getArgument(0);
+                    if (arg.getId() == null) {
+                        arg.setId(99L);
+                    }
+                    return arg;
+                });
+
         chatRequest = new ChatRequest();
         chatRequest.setUserId(1001L);
         chatRequest.setSessionId("session-001");

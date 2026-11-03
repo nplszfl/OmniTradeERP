@@ -323,6 +323,113 @@ ON DUPLICATE KEY UPDATE
     `alert_status` = VALUES(`alert_status`), `handle_remark` = VALUES(`handle_remark`);
 
 -- ============================================================
+-- 5.5 客户（活表 t_customer / t_customer_tag / t_customer_group /
+--     t_customer_tag_relation / t_customer_follow_record，库 erp_customer）
+-- ============================================================
+-- ⚠️ 之前**完全没有客户种子数据** ——
+--    seed-data.sql 种了 role/user/product/warehouse/inventory/order/finance，
+--    但没有 customer。结果：客户列表页即使把「多剥一层 .data」的 bug 修好了，
+--    页面还是**一张空表**（库里 0 行）。
+--
+-- ⚠️ uk_customer_platform 是 (platform, platform_customer_id)，
+--    所以平台客户号在同一个平台内必须唯一。
+--
+-- ⚠️ t_customer.id 是 BIGINT 主键（没有 auto_increment），
+--    这里用 9001+ 的号段，避免和运行时雪花 ID 撞号。
+USE `erp_customer`;
+
+INSERT INTO `t_customer`
+    (`id`, `name`, `email`, `phone`, `platform`, `platform_customer_id`,
+     `country`, `state`, `city`, `address`, `postal_code`, `level`,
+     `total_orders`, `total_spent`, `avg_order_value`, `last_order_at`,
+     `remark`, `status`)
+VALUES
+    (9001, '张伟',   'zhangwei@example.com',   '+86-138-0000-0001', 'AMAZON', 'AMZ-C10001', 'US', 'New York',    'New York',    '100 Main St',        '10001', 'VIP',    15, 12850.0000, 856.6667, '2026-10-28 10:22:00', '高频复购，注意物流时效',   'ACTIVE'),
+    (9002, '李娜',   'lina@example.com',       '+86-139-0000-0002', 'EBAY',   'EBAY-E20002','UK', 'England',    'London',      '25 Oxford Rd',       'W1S 2LF', 'NORMAL',  3,   320.5000, 106.8333, '2026-10-15 09:10:00', NULL,                          'ACTIVE'),
+    (9003, '王芳',   'wangfang@example.com',   '+86-137-0000-0003', 'SHOPIEE','SHOP-S30003','SG', 'Singapore',  'Singapore',   '80 Robinson Rd',     '068914', 'NORMAL',  2,    89.9000,  44.9500, '2026-09-30 14:05:00', NULL,                          'ACTIVE'),
+    (9004, '陈杰',   'chenjie@example.com',    '+86-136-0000-0004', 'AMAZON', 'AMZ-C10004', 'DE', 'Bayern',     'München',     '12 Maximilianstr.',  '80539',  'VIP',    22, 24680.0000, 1121.8182, '2026-11-01 16:40:00', '大客户，走海运',           'ACTIVE'),
+    (9005, '刘洋',   'liuyang@example.com',    '+86-135-0000-0005', 'TIKTOK', 'TT-T40005',   'FR', 'Ile-de-France','Paris',     '88 Rue de Rivoli',   '75001',  'NORMAL',  1,    59.0000,  59.0000, '2026-08-12 11:30:00', NULL,                          'ACTIVE'),
+    (9006, '赵敏',   'zhaomin@example.com',    '+86-188-0000-0006', 'LAZADA', 'LZD-D40006',  'MY', 'Kuala Lumpur','Kuala Lumpur','12 Jalan Bukit Bintang','50100','NORMAL', 4,   412.3000, 103.0750, '2026-10-20 08:45:00', NULL,                        'ACTIVE'),
+    (9007, '孙悦',   'sunyue@example.com',     '+86-189-0000-0007', 'AMAZON', 'AMZ-C10007', 'JP', 'Tokyo',      'Tokyo',       '1-1-1 Marunouchi',   '100-0005','VIP',   11,  9860.0000, 896.3636, '2026-10-30 19:15:00', '偏好次日达',              'ACTIVE'),
+    (9008, '周强',   'zhouqiang@example.com',  '+86-186-0000-0008', 'EBAY',   'EBAY-E20008','CA', 'Ontario',    'Toronto',     '200 Yonge St',       'M5E 1E5','NORMAL',  2,   158.9000,  79.4500, '2026-07-19 13:00:00', NULL,                          'ACTIVE'),
+    (9009, '吴静',   'wujing@example.com',     '+86-150-0000-0009', 'SHOPIEE','SHOP-S30009','TH', 'Bangkok',    'Bangkok',     '999 Silom Rd',       '10100',  'NORMAL',  6,   735.6000, 122.6000, '2026-10-05 15:25:00', '对包装很在意',            'ACTIVE'),
+    (9010, '郑凯',   'zhengkai@example.com',   '+86-151-0000-0010', 'TIKTOK', 'TT-T40010',   'ES', 'Madrid',     'Madrid',      'Calle Gran Via 12',  '28013',  'NORMAL',  1,    39.9000,  39.9000, '2026-06-03 10:10:00', NULL,                          'ACTIVE'),
+    (9011, '冯雪',   'fengxue@example.com',    '+86-152-0000-0011', 'AMAZON', 'AMZ-C10011', 'AU', 'New South Wales','Sydney',  '100 George St',       '2000',   'NORMAL',  3,   268.4000,  89.4667, '2026-09-22 17:50:00', NULL,                          'ACTIVE'),
+    (9012, '何涛',   'hetao@example.com',      '+86-153-0000-0012', 'EBAY',   'EBAY-E20012','US', 'California', 'Los Angeles', '700 S Flower St',    '90015',  'INACTIVE',0,    0.0000,   0.0000,  NULL,                   '账户已冻结，疑似刷单',   'BLOCKED')
+ON DUPLICATE KEY UPDATE
+    `name` = VALUES(`name`), `email` = VALUES(`email`), `phone` = VALUES(`phone`),
+    `country` = VALUES(`country`), `state` = VALUES(`state`), `city` = VALUES(`city`),
+    `address` = VALUES(`address`), `postal_code` = VALUES(`postal_code`),
+    `level` = VALUES(`level`), `total_orders` = VALUES(`total_orders`),
+    `total_spent` = VALUES(`total_spent`), `avg_order_value` = VALUES(`avg_order_value`),
+    `last_order_at` = VALUES(`last_order_at`), `remark` = VALUES(`remark`),
+    `status` = VALUES(`status`);
+
+-- 客户标签
+INSERT INTO `t_customer_tag`
+    (`id`, `name`, `color`, `description`, `sort_order`, `remark`, `status`)
+VALUES
+    (9101, '高价值',   '#F56C6C', '累计消费高、复购稳定',       1, NULL, 'ACTIVE'),
+    (9102, '高频复购', '#E6A23C', '近半年下单 3 次以上',       2, NULL, 'ACTIVE'),
+    (9103, '海运客户', '#409EFF', '大件商品、倾向海运',         3, NULL, 'ACTIVE'),
+    (9104, '次日达',   '#67C23A', '对时效敏感、要求次日达',     4, NULL, 'ACTIVE'),
+    (9105, '包装敏感', '#909399', '对包装有特殊要求',         5, NULL, 'ACTIVE'),
+    (9106, '待激活',   '#F0A020', '注册未下单，需跟进',         6, NULL, 'ACTIVE')
+ON DUPLICATE KEY UPDATE
+    `color` = VALUES(`color`), `description` = VALUES(`description`),
+    `sort_order` = VALUES(`sort_order`), `remark` = VALUES(`remark`),
+    `status` = VALUES(`status`);
+
+-- 客户分组
+INSERT INTO `t_customer_group`
+    (`id`, `name`, `description`, `member_count`, `sort_order`, `status`)
+VALUES
+    (9201, '核心客户',   '年消费 1 万美元以上',         2, 1, 'ACTIVE'),
+    (9202, '欧洲市场',   '欧盟国家客户',               3, 2, 'ACTIVE'),
+    (9203, '东南亚市场', '东南亚国家客户',             3, 3, 'ACTIVE'),
+    (9204, '沉睡客户',   '超过 90 天未下单',           1, 4, 'ACTIVE')
+ON DUPLICATE KEY UPDATE
+    `description` = VALUES(`description`), `member_count` = VALUES(`member_count`),
+    `sort_order` = VALUES(`sort_order`), `status` = VALUES(`status`);
+
+-- 客户 ↔ 标签 关联
+INSERT INTO `t_customer_tag_relation` (`id`, `customer_id`, `tag_id`, `create_time`)
+VALUES
+    (9301, 9001, 9101, '2026-03-01 10:00:00'),
+    (9302, 9001, 9102, '2026-03-01 10:00:00'),
+    (9303, 9004, 9101, '2026-03-02 10:00:00'),
+    (9304, 9004, 9103, '2026-03-02 10:00:00'),
+    (9305, 9007, 9101, '2026-03-03 10:00:00'),
+    (9306, 9007, 9104, '2026-03-03 10:00:00'),
+    (9307, 9009, 9105, '2026-03-04 10:00:00'),
+    (9308, 9005, 9106, '2026-03-05 10:00:00'),
+    (9309, 9010, 9106, '2026-03-05 10:00:00')
+ON DUPLICATE KEY UPDATE
+    `create_time` = VALUES(`create_time`);
+
+-- 客户跟进记录（含今天到期、便于验证「今日待跟进」）
+INSERT INTO `t_customer_follow_record`
+    (`id`, `customer_id`, `follow_type`, `content`, `follow_time`, `next_follow_time`,
+     `result`, `follow_user_id`, `follow_user_name`, `follower_name`, `remark`)
+-- ⚠️ 时间用 NOW() 相对偏移（不要写死日期）：
+--    写死的话过几天「今日待跟进」就永远是空的，
+--    而 NOW() 偏移在**每次重新初始化时**都落在合理区间。
+VALUES
+    (9401, 9001, 'EMAIL', '发送最新物流时效说明，客户已确认满意', NOW() - INTERVAL 6 DAY,  NOW() + INTERVAL 12 DAY, 'SUCCESS', 1, 'admin', '客服小林', 'VIP 客户，保持每周触达'),
+    (9402, 9001, 'PHONE', '回访物流破损问题，已安排补发',       NOW() - INTERVAL 1 DAY,  NOW() + INTERVAL 9 DAY,  'SUCCESS', 1, 'admin', '客服小林', NULL),
+    (9403, 9004, 'VISIT', '线下拜访，确认 Q4 大单采购计划',      NOW() - INTERVAL 2 DAY,  NOW() + INTERVAL 5 DAY,  'PENDING', 1, 'admin', '销售老王', '重点跟进，预计 20000 美元'),
+    (9404, 9007, 'WECHAT', '推送新品到货通知，客户要求预留',    NOW() - INTERVAL 4 DAY,  NOW() + INTERVAL 0 DAY,  'PENDING', 1, 'admin', '客服小林', '今日到期'),
+    (9405, 9009, 'EMAIL', '包装方案确认，等待客户回复',        NOW() - INTERVAL 29 DAY, NOW() + INTERVAL 1 DAY,  'PENDING', 1, 'admin', '客服小林', '明日到期'),
+    (9406, 9003, 'PHONE', '首次电话接通，介绍活动款',          NOW() - INTERVAL 34 DAY, NOW() + INTERVAL 0 DAY,  'PENDING', 1, 'admin', '客服小林', '今日到期'),
+    (9407, 9002, 'EMAIL', '退换货流程说明已发送',              NOW() - INTERVAL 19 DAY, NOW() - INTERVAL 9 DAY, 'SUCCESS', 1, 'admin', '客服小林', NULL),
+    (9408, 9006, 'OTHER', '首次触达，客户暂无采购意向',        NOW() - INTERVAL 14 DAY, NOW() + INTERVAL 28 DAY, 'FAILED', 1, 'admin', '客服小林', '换联系方式再试')
+ON DUPLICATE KEY UPDATE
+    `content` = VALUES(`content`), `follow_time` = VALUES(`follow_time`),
+    `next_follow_time` = VALUES(`next_follow_time`), `result` = VALUES(`result`),
+    `follow_user_name` = VALUES(`follow_user_name`), `follower_name` = VALUES(`follower_name`),
+    `remark` = VALUES(`remark`);
+
+-- ============================================================
 -- 6. 库存预警规则（活表 t_inventory_alert_rule，库 erp_inventory_alert）
 -- ============================================================
 -- ⚠️ warehouse_id 是**仓库编码**（VARCHAR，如 'WH-DE-HH'），

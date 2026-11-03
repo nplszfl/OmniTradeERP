@@ -1,9 +1,12 @@
 package com.crossborder.aiassistant.service.impl;
 
+import jakarta.annotation.PostConstruct;
 import com.crossborder.aiassistant.config.LLMConfig;
 import com.crossborder.aiassistant.dto.ChatRequest;
 import com.crossborder.aiassistant.dto.ChatResponse;
 import com.crossborder.aiassistant.dto.ServiceStatistics;
+import com.crossborder.aiassistant.entity.KnowledgeBase;
+import com.crossborder.aiassistant.repository.KnowledgeBaseRepository;
 import com.crossborder.aiassistant.service.AIAssistantService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,8 +36,18 @@ public class AIAssistantServiceImpl implements AIAssistantService {
     // 模拟对话历史存储
     private final Map<String, List<ChatMessage>> sessionHistory = new ConcurrentHashMap<>();
 
-    // 模拟知识库
-    private final List<Knowledge> knowledgeBase = new ArrayList<>();
+    /**
+     * 知识库仓储（表 knowledge_base）
+     *
+     * 📌 原来是 {@code private final List<Knowledge> knowledgeBase = new ArrayList<>();}，
+     *    注释直接写着「模拟知识库」。后果：
+     *    · 数据库 knowledge_base 表里的种子数据（6 条）**从来没人读**；
+     *    · 通过接口新增的知识**重启就丢**；
+     *    · 前端没有管理入口 → 知识库永远只有代码里硬编码的 4 条。
+     *    现在改成读写真实表，聊天检索和前端管理用的是同一份数据。
+     */
+    @Autowired
+    private KnowledgeBaseRepository knowledgeBaseRepository;
 
     @Autowired
     private LLMConfig llmConfig;
@@ -46,9 +59,59 @@ public class AIAssistantServiceImpl implements AIAssistantService {
     private long responseTimeSum = 0;
     private long responseTimeCount = 0;
 
-    public AIAssistantServiceImpl() {
-        // 初始化知识库
-        initKnowledgeBase();
+    /**
+     * 初始化知识库
+     *
+     * ⚠️ 必须用 @PostConstruct 而不是构造函数：
+     *    构造函数执行时 @Autowired 的仓储还没注入，
+     *    查表必然 NPE（而且异常发生在 bean 创建阶段，整个服务起不来）。
+     */
+    @PostConstruct
+    public void initKnowledgeBase() {
+        log.info("初始化知识库...");
+
+        // 📌 只在表里**一条都没有**时才灌默认知识。
+        //    否则每次重启都会把 4 条示例知识重复插一遍。
+        long existing = knowledgeBaseRepository.count();
+        if (existing > 0) {
+            log.info("知识库已有 {} 条记录，跳过默认知识初始化", existing);
+            return;
+        }
+
+        // 添加示例知识（仅当表为空时）
+        Knowledge k1 = new Knowledge();
+        k1.setCategory("订单");
+        k1.setQuestion("如何查询我的订单？");
+        k1.setAnswer("您可以在「我的订单」页面查看所有订单信息，包括待付款、待发货、已发货等状态。");
+        k1.setLanguage("zh");
+        k1.setTags(Arrays.asList("订单", "查询"));
+        addKnowledge(k1);
+
+        Knowledge k2 = new Knowledge();
+        k2.setCategory("物流");
+        k2.setQuestion("订单发货后多久能收到？");
+        k2.setAnswer("一般情况下，国内订单1-3天，国际订单7-15天。具体时效取决于物流方式。");
+        k2.setLanguage("zh");
+        k2.setTags(Arrays.asList("物流", "时效"));
+        addKnowledge(k2);
+
+        Knowledge k3 = new Knowledge();
+        k3.setCategory("产品");
+        k3.setQuestion("产品有质量问题怎么办？");
+        k3.setAnswer("如果产品有质量问题，请在收到货7天内申请售后，我们会安排退换货。");
+        k3.setLanguage("zh");
+        k3.setTags(Arrays.asList("售后", "质量"));
+        addKnowledge(k3);
+
+        Knowledge k4 = new Knowledge();
+        k4.setCategory("退货");
+        k4.setQuestion("如何申请退货？");
+        k4.setAnswer("您可以在订单详情页申请退货退款，填写退货原因后，我们会安排快递上门取件。");
+        k4.setLanguage("zh");
+        k4.setTags(Arrays.asList("退货", "退款", "售后"));
+        addKnowledge(k4);
+
+        log.info("知识库初始化完成 - 知识条目数: {}", knowledgeBaseRepository.count());
     }
 
     @Override
@@ -257,12 +320,26 @@ public class AIAssistantServiceImpl implements AIAssistantService {
     public void addKnowledge(Knowledge knowledge) {
         log.info("添加知识 - 分类: {}, 问题: {}", knowledge.getCategory(), knowledge.getQuestion());
 
-        knowledge.setId(System.currentTimeMillis());
+        // 📌 原来只是往内存 List 里塞 —— 重启就没了，
+        //    而且和数据库 knowledge_base 表没有任何关系。
+        //    现在真正落库，前端管理界面和聊天检索共用这一份数据。
+        KnowledgeBase entity = KnowledgeBase.builder()
+                .category(knowledge.getCategory())
+                .question(knowledge.getQuestion())
+                .answer(knowledge.getAnswer())
+                .language(knowledge.getLanguage() == null ? "zh" : knowledge.getLanguage())
+                .tags(knowledge.getTags())
+                .priority(knowledge.getPriority() == null ? 0 : knowledge.getPriority())
+                .viewCount(0)
+                .helpfulCount(0)
+                .active(true)
+                .build();
+        KnowledgeBase saved = knowledgeBaseRepository.save(entity);
+
+        knowledge.setId(saved.getId());
         knowledge.setActive(true);
 
-        knowledgeBase.add(knowledge);
-
-        log.info("知识添加成功");
+        log.info("知识添加成功: id={}", saved.getId());
     }
 
     @Override
@@ -283,7 +360,10 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         // 简化版检索（实际应该使用向量数据库）
         List<Knowledge> results = new ArrayList<>();
 
-        for (Knowledge knowledge : knowledgeBase) {
+        // 📌 从真实表读（原来读的是内存 List，重启即空）
+        List<KnowledgeBase> stored = knowledgeBaseRepository.findByActiveTrue();
+        for (KnowledgeBase row : stored) {
+            Knowledge knowledge = toKnowledge(row);
             if (!knowledge.getActive()) {
                 continue;
             }
@@ -304,48 +384,6 @@ public class AIAssistantServiceImpl implements AIAssistantService {
     }
 
     // ========== 私有方法 ==========
-
-    /**
-     * 初始化知识库
-     */
-    private void initKnowledgeBase() {
-        log.info("初始化知识库...");
-
-        // 添加示例知识
-        Knowledge k1 = new Knowledge();
-        k1.setCategory("订单");
-        k1.setQuestion("如何查询我的订单？");
-        k1.setAnswer("您可以在「我的订单」页面查看所有订单信息，包括待付款、待发货、已发货等状态。");
-        k1.setLanguage("zh");
-        k1.setTags(Arrays.asList("订单", "查询"));
-        addKnowledge(k1);
-
-        Knowledge k2 = new Knowledge();
-        k2.setCategory("物流");
-        k2.setQuestion("订单发货后多久能收到？");
-        k2.setAnswer("一般情况下，国内订单1-3天，国际订单7-15天。具体时效取决于物流方式。");
-        k2.setLanguage("zh");
-        k2.setTags(Arrays.asList("物流", "时效"));
-        addKnowledge(k2);
-
-        Knowledge k3 = new Knowledge();
-        k3.setCategory("产品");
-        k3.setQuestion("产品有质量问题怎么办？");
-        k3.setAnswer("如果产品有质量问题，请在收到货7天内申请售后，我们会安排退换货。");
-        k3.setLanguage("zh");
-        k3.setTags(Arrays.asList("售后", "质量"));
-        addKnowledge(k3);
-
-        Knowledge k4 = new Knowledge();
-        k4.setCategory("退货");
-        k4.setQuestion("如何申请退货？");
-        k4.setAnswer("您可以在订单详情页申请退货退款，填写退货原因后，我们会安排快递上门取件。");
-        k4.setLanguage("zh");
-        k4.setTags(Arrays.asList("退货", "退款", "售后"));
-        addKnowledge(k4);
-
-        log.info("知识库初始化完成 - 知识条目数: {}", knowledgeBase.size());
-    }
 
     /**
      * 检测语言
@@ -578,6 +616,22 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         return entities;
     }
 
+    /**
+     * 实体 → 接口内的 Knowledge
+     */
+    private Knowledge toKnowledge(KnowledgeBase row) {
+        Knowledge k = new Knowledge();
+        k.setId(row.getId());
+        k.setCategory(row.getCategory());
+        k.setQuestion(row.getQuestion());
+        k.setAnswer(row.getAnswer());
+        k.setLanguage(row.getLanguage());
+        k.setTags(row.getTags());
+        k.setPriority(row.getPriority());
+        k.setActive(row.getActive() == null || row.getActive());
+        return k;
+    }
+
     // ========== 统计方法 ==========
 
     @Override
@@ -585,7 +639,7 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         log.info("获取服务统计信息");
 
         statistics.setTotalConversations(statistics.getTotalConversations());
-        statistics.setKnowledgeBaseSize(knowledgeBase.size());
+        statistics.setKnowledgeBaseSize(knowledgeBaseRepository.countByActiveTrue());
         statistics.setActiveSessions(sessionHistory.size());
 
         // 计算平均响应时间

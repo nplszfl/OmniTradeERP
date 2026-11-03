@@ -221,6 +221,16 @@ spring:
             - Method=DELETE
           filters:
             - RewritePath=/api/ai/assistant/knowledge/(?<id>.*), /api/ai/knowledge/documents/$\{id}
+        # 知识库管理接口（列表/分类/删除）
+        # 前端「AI 客服助手 → 知识库」页签用。
+        # 📌 后端 controller 根就是 /api/ai/knowledge → StripPrefix=0 原样转发。
+        - id: ai-knowledge-base
+          uri: lb://erp-ai-assistant-service
+          predicates:
+            - Path=/api/ai/knowledge/base/**
+          filters:
+            - StripPrefix=0
+
         - id: ai-assistant-service
           uri: lb://erp-ai-assistant-service
           predicates:
