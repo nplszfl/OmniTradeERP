@@ -1,5 +1,6 @@
 package com.crossborder.erp.platform.schedule;
 
+import com.crossborder.erp.common.result.Result;
 import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
 import com.crossborder.erp.platform.api.PlatformOrderSync;
@@ -119,20 +120,34 @@ public class OrderSyncSchedule {
      * 保存订单到订单服务
      */
     @Timed(value = "sync.save.order", description = "保存订单到订单服务")
-    private void saveOrderToOrderService(Order order, List<OrderItem> items) {
+    // 📌 包级可见（不是 private）：这样才能写单测直接验证
+    //    「后端返回 Result<Order> 时必须拆开取 data」这件事 ——
+    //    之前拆错了，`existingOrder != null` 恒成立，一单都同步不进来。
+    void saveOrderToOrderService(Order order, List<OrderItem> items) {
         try {
             // 检查订单是否已存在
-            Order existingOrder = orderServiceClient.getOrderByPlatformOrderNo(order.getPlatform(), order.getPlatformOrderNo());
+            // ⚠️ 后端返回的是 Result<Order>，必须拆开取 data ——
+            //    直接拿整个 Result 当 Order 用，会得到一个字段全空的对象，
+            //    `!= null` 恒成立 → 每一次同步都「订单已存在，跳过」，一单都存不进来。
+            Result<Order> existingResult = orderServiceClient
+                    .getOrderByPlatformOrderNo(order.getPlatform(), order.getPlatformOrderNo());
+            Order existingOrder = existingResult == null ? null : existingResult.getData();
             if (existingOrder != null) {
                 log.info("订单已存在，跳过: {}", order.getPlatformOrderNo());
                 return;
             }
             
             // 调用订单服务保存订单
-            Long orderId = orderServiceClient.createOrder(new OrderServiceClient.OrderCreateRequest(order, items));
+            Result<Long> createdResult = orderServiceClient
+                    .createOrder(new OrderServiceClient.OrderCreateRequest(order, items));
+            Long orderId = createdResult == null ? null : createdResult.getData();
             log.info("订单保存成功: platformOrderNo={}, orderId={}", order.getPlatformOrderNo(), orderId);
         } catch (Exception e) {
-            log.error("保存订单失败: {}", order.getPlatformOrderNo(), e);
+            // ⚠️ 这里只记日志是不够的 —— 之前路径写错导致每次都 404，
+            //    而异常被吞成一行 ERROR 日志，看起来像「同步跑过了」。
+            //    现在把原因写清楚：到底是「调不通」还是「存失败」。
+            log.error("保存订单失败（订单服务调用异常，platformOrderNo={}）：{}",
+                    order.getPlatformOrderNo(), e.toString(), e);
         }
     }
 }

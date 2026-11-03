@@ -85,6 +85,9 @@ jobs:
     - name: 响应形状契约（前端解包方式 ↔ 后端返回类型）
       run: python3 scripts/check-response-shape.py --strict
 
+    - name: Feign 契约（Feign 调用 ↔ 目标服务 Controller 映射）
+      run: python3 scripts/check-feign-contract.py --strict
+
     - name: 网关路径改写 ↔ 后端 controller 根路径
       run: python3 scripts/check-gateway-strip.py
 

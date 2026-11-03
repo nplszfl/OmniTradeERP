@@ -47,6 +47,7 @@ jobs:
         python3 scripts/check-sql-schema.py --strict
         python3 scripts/check-api-contract.py --strict
         python3 scripts/check-response-shape.py --strict
+        python3 scripts/check-feign-contract.py --strict
         python3 scripts/check-gateway-strip.py
 
   # 前端代码检查
