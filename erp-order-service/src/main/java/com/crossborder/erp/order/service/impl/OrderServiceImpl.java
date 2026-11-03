@@ -51,17 +51,41 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         String internalOrderNo = generateInternalOrderNo(order.getPlatform());
         order.setInternalOrderNo(internalOrderNo);
 
+        // 🔴 币种兜底：t_order.currency_code / t_order_item.currency_code
+        //    都是 NOT NULL 且**无默认值**，而 MyBatis-Plus 的 insert 默认
+        //    FieldStrategy.NOT_NULL 会**跳过 null 字段** → INSERT 里根本没有这一列
+        //    → MySQL 报 "Field 'currency_code' doesn't have a default value" → 订单存不进去。
+        //    📌 这里做**最后一道防线**：适配器已经会设真实币种，
+        //       但任何一个新平台忘了设，都会让整个同步链路一单都存不进来。
+        //       用 warn 而不是静默兜底 —— 缺失是要被看见的。
+        if (isBlank(order.getCurrencyCode())) {
+            log.warn("订单币种缺失，已兜底为 USD（平台={}, 订单号={}）",
+                    order.getPlatform(), order.getPlatformOrderNo());
+            order.setCurrencyCode(DEFAULT_CURRENCY);
+        }
+
         // 保存订单
         save(order);
 
         // 保存订单商品明细
         for (OrderItem item : orderItems) {
             item.setOrderId(order.getId());
+            // 📌 明细行的币种同理：没设就继承订单的
+            if (isBlank(item.getCurrencyCode())) {
+                item.setCurrencyCode(order.getCurrencyCode());
+            }
             orderItemMapper.insert(item);
         }
 
         log.info("订单创建成功, 内部订单号: {}, 商品数量: {}", internalOrderNo, orderItems.size());
         return order.getId();
+    }
+
+    /** 币种兜底值（跨境场景绝大多数是 USD） */
+    private static final String DEFAULT_CURRENCY = "USD";
+
+    private static boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
     }
 
     @Override

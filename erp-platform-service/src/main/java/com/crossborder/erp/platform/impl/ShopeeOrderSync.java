@@ -268,6 +268,10 @@ public class ShopeeOrderSync implements PlatformOrderSync {
         // 金额信息
         order.setOrderAmount(new BigDecimal(shopeeOrder.getString("total_amount")));
         order.setProductAmount(new BigDecimal(shopeeOrder.getString("total_amount")));
+        // 🔴 币种必须设：t_order.currency_code 是 NOT NULL 且**无默认值**，
+        //    MyBatis-Plus 的 insert 会**跳过 null 字段** → INSERT 里没有这一列
+        //    → MySQL 报 "Field 'currency_code' doesn't have a default value" → 订单存不进去。
+        order.setCurrencyCode(shopeeOrder.getString("currency"));
 
         // 订单状态
         String shopeeStatus = shopeeOrder.getString("order_status");
@@ -338,6 +342,8 @@ public class ShopeeOrderSync implements PlatformOrderSync {
         // 单价和数量
         item.setUnitPrice(new BigDecimal(shopeeItem.getString("model_original_price")));
         item.setQuantity(shopeeItem.getInteger("model_quantity_purchased"));
+        // 📌 t_order_item.currency_code 同样 NOT NULL 且无默认值
+        item.setCurrencyCode(shopeeItem.getString("currency"));
 
         // 计算总金额
         if (item.getUnitPrice() != null && item.getQuantity() != null) {

@@ -286,6 +286,13 @@ public class AmazonOrderSync implements PlatformOrderSync {
         JSONObject orderTotal = amazonOrder.getJSONObject("OrderTotal");
         if (orderTotal != null) {
             order.setOrderAmount(new BigDecimal(orderTotal.getString("Amount")));
+            // 🔴 币种必须设：t_order.currency_code 是 NOT NULL 且**无默认值**，
+            //    MyBatis-Plus 的 insert 默认 FieldStrategy.NOT_NULL 会**跳过 null 字段**，
+            //    于是 INSERT 里根本没有 currency_code 这一列 →
+            //    MySQL 报 "Field 'currency_code' doesn't have a default value" → 整个订单存不进去。
+            //    📌 之前从没设过 → 平台订单同步**一单都存不进来**，
+            //    异常又被 catch 吞成一行日志，看起来像「同步跑过了」。
+            order.setCurrencyCode(orderTotal.getString("Currency"));
         }
 
         // 订单状态
@@ -364,6 +371,8 @@ public class AmazonOrderSync implements PlatformOrderSync {
         JSONObject unitPrice = amazonItem.getJSONObject("UnitPrice");
         if (unitPrice != null) {
             item.setUnitPrice(new BigDecimal(unitPrice.getString("Amount")));
+            // 📌 t_order_item.currency_code 同样 NOT NULL 且无默认值
+            item.setCurrencyCode(unitPrice.getString("Currency"));
         }
         
         item.setQuantity(amazonItem.getInteger("QuantityOrdered"));
