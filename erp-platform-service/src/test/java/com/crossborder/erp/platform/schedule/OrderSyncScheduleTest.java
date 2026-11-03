@@ -5,6 +5,7 @@ import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
 import com.crossborder.erp.platform.feign.OrderServiceClient;
 import com.crossborder.erp.platform.service.PlatformConfigService;
+import com.crossborder.erp.platform.support.PlatformSyncRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,7 +37,7 @@ class OrderSyncScheduleTest {
         orderServiceClient = mock(OrderServiceClient.class);
         schedule = new OrderSyncSchedule(
                 mock(PlatformConfigService.class),
-                Collections.emptyMap(),
+                new PlatformSyncRegistry(Collections.emptyList()),
                 orderServiceClient);
     }
 

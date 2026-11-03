@@ -5,12 +5,12 @@ import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
 import com.crossborder.erp.platform.api.PlatformOrderSync;
 import com.crossborder.erp.platform.service.impl.PlatformOrderSyncServiceImpl;
+import com.crossborder.erp.platform.support.PlatformSyncRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -30,18 +30,21 @@ public class PlatformOrderSyncServiceImplTest {
     private PlatformOrderSyncServiceImpl platformOrderSyncService;
     private PlatformOrderSync amazonSync;
     private PlatformOrderSync shopeeSync;
-    private Map<String, PlatformOrderSync> platformSyncMap;
+    private PlatformSyncRegistry platformSyncRegistry;
 
     @BeforeEach
     void setUp() {
         amazonSync = mock(PlatformOrderSync.class);
         shopeeSync = mock(PlatformOrderSync.class);
 
-        platformSyncMap = new HashMap<>();
-        platformSyncMap.put("amazon", amazonSync);
-        platformSyncMap.put("shopee", shopeeSync);
+        when(amazonSync.getPlatformType()).thenReturn(PlatformType.AMAZON);
+        when(shopeeSync.getPlatformType()).thenReturn(PlatformType.SHOPEE);
 
-        platformOrderSyncService = new PlatformOrderSyncServiceImpl(platformSyncMap);
+        // 📌 用真实的 PlatformSyncRegistry，不再手工 put —— 手工 put 恰好绕开了
+        //    「Spring 注入 Map 的 key 是 bean 名」这个真实缺陷。
+        platformSyncRegistry = new PlatformSyncRegistry(List.of(amazonSync, shopeeSync));
+
+        platformOrderSyncService = new PlatformOrderSyncServiceImpl(platformSyncRegistry);
     }
 
     // ==================== syncOrders ====================

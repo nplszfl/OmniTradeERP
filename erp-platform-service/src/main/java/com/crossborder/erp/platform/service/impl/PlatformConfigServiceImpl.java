@@ -7,6 +7,7 @@ import com.crossborder.erp.platform.api.PlatformOrderSync;
 import com.crossborder.erp.platform.entity.PlatformConfig;
 import com.crossborder.erp.platform.mapper.PlatformConfigMapper;
 import com.crossborder.erp.platform.service.PlatformConfigService;
+import com.crossborder.erp.platform.support.PlatformSyncRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,7 +26,7 @@ import java.util.stream.Collectors;
 public class PlatformConfigServiceImpl extends ServiceImpl<PlatformConfigMapper, PlatformConfig>
         implements PlatformConfigService {
 
-    private final Map<String, PlatformOrderSync> platformSyncMap;
+    private final PlatformSyncRegistry platformSyncRegistry;
 
     @Override
     public List<PlatformConfig> getAllConfigs() {
@@ -77,15 +78,18 @@ public class PlatformConfigServiceImpl extends ServiceImpl<PlatformConfigMapper,
             throw new BizException("配置不存在");
         }
 
-        PlatformOrderSync sync = platformSyncMap.get(config.getPlatform().toLowerCase());
-        if (sync == null) {
-            throw new BizException("暂不支持该平台");
-        }
+        PlatformOrderSync sync = platformSyncRegistry.require(config.getPlatform());
 
         try {
             return sync.validateConfig(config.getShopId());
         } catch (Exception e) {
-            log.error("测试连接失败", e);
+            // 📌 注意：这里 catch 住异常返回 false 是**有意的**（连接测试语义就是
+            //    「连不上」），但必须**记下原因** —— 否则页面只显示「测试失败」，
+            //    运营完全不知道是「凭据无效」还是「平台未实现」。
+            //    📌 另一个坑：不能把 PlatformApiException（平台未实现）也吞成 false，
+            //    那会把「功能没做」伪装成「凭据不对」。
+            log.error("测试连接失败: platform={}, shopId={}", config.getPlatform(),
+                    config.getShopId(), e);
             return false;
         }
     }

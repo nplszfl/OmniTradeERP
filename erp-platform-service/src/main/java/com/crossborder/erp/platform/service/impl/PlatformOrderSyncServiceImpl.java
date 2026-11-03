@@ -6,6 +6,7 @@ import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
 import com.crossborder.erp.platform.api.PlatformOrderSync;
 import com.crossborder.erp.platform.service.PlatformOrderSyncService;
+import com.crossborder.erp.platform.support.PlatformSyncRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,15 +23,11 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class PlatformOrderSyncServiceImpl implements PlatformOrderSyncService {
 
-    private final Map<String, PlatformOrderSync> platformSyncMap;
+    private final PlatformSyncRegistry platformSyncRegistry;
 
     @Override
     public List<Order> syncOrders(String platform, String shopId, LocalDateTime startTime, LocalDateTime endTime) {
-        PlatformOrderSync sync = platformSyncMap.get(platform.toLowerCase());
-        if (sync == null) {
-            log.warn("不支持的平台: {}", platform);
-            throw new BizException("暂不支持该平台: " + platform);
-        }
+        PlatformOrderSync sync = platformSyncRegistry.require(platform);
 
         log.info("开始同步平台订单: platform={}, shopId={}", platform, shopId);
         return sync.syncOrders(startTime, endTime, shopId);
@@ -38,20 +35,14 @@ public class PlatformOrderSyncServiceImpl implements PlatformOrderSyncService {
 
     @Override
     public Order getOrderByNo(String platform, String platformOrderNo, String shopId) {
-        PlatformOrderSync sync = platformSyncMap.get(platform.toLowerCase());
-        if (sync == null) {
-            throw new BizException("暂不支持该平台: " + platform);
-        }
+        PlatformOrderSync sync = platformSyncRegistry.require(platform);
 
         return sync.getOrderByNo(platformOrderNo, shopId);
     }
 
     @Override
     public boolean validateConfig(String platform, String shopId) {
-        PlatformOrderSync sync = platformSyncMap.get(platform.toLowerCase());
-        if (sync == null) {
-            throw new BizException("暂不支持该平台: " + platform);
-        }
+        PlatformOrderSync sync = platformSyncRegistry.require(platform);
 
         return sync.validateConfig(shopId);
     }

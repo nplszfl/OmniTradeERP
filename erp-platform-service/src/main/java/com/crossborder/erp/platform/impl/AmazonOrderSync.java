@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.crossborder.erp.common.constant.PlatformType;
+import com.crossborder.erp.common.exception.PlatformApiException;
 import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
 import com.crossborder.erp.platform.api.PlatformOrderSync;
@@ -76,8 +77,13 @@ public class AmazonOrderSync implements PlatformOrderSync {
             return orders;
 
         } catch (Exception e) {
-            log.error("同步亚马逊订单失败", e);
-            return orders;
+            // 🔴 原来这里 `return orders`（空列表）→ **API 调用失败和「真的没有订单」
+            //    完全无法区分**。定时任务会记成「同步成功，count=0」，
+            //    凭据失效 / 平台限流 / 签名错误全部被吞掉，没有任何告警。
+            //    📌 教训：空集合不是「无数据」的语义，是「我不知道」的语义。
+            log.error("同步亚马逊订单失败: shopId={}", shopId, e);
+            throw PlatformApiException.amazon("SYNC_ORDERS_FAILED",
+                    "同步亚马逊订单失败: " + e.getMessage(), e);
         }
     }
 
@@ -106,8 +112,9 @@ public class AmazonOrderSync implements PlatformOrderSync {
             return order;
 
         } catch (Exception e) {
-            log.error("获取亚马逊订单详情失败", e);
-            return null;
+            log.error("获取亚马逊订单详情失败: orderNo={}", platformOrderNo, e);
+            throw PlatformApiException.amazon("GET_ORDER_FAILED",
+                    "获取亚马逊订单详情失败: " + e.getMessage(), e);
         }
     }
 
@@ -135,8 +142,9 @@ public class AmazonOrderSync implements PlatformOrderSync {
             return items;
 
         } catch (Exception e) {
-            log.error("同步亚马逊订单商品明细失败", e);
-            return items;
+            log.error("同步亚马逊订单商品明细失败: orderNo={}", platformOrderNo, e);
+            throw PlatformApiException.amazon("SYNC_ORDER_ITEMS_FAILED",
+                    "同步亚马逊订单商品明细失败: " + e.getMessage(), e);
         }
     }
 
@@ -159,7 +167,9 @@ public class AmazonOrderSync implements PlatformOrderSync {
             return participations != null && participations.size() > 0;
 
         } catch (Exception e) {
-            log.error("验证亚马逊API配置失败", e);
+            // 📌 validateConfig 返回 false 是**有意的语义**（连接测试就是问「通不通」），
+            //    不属于静默失败。但必须记下原因，否则页面只显示「测试失败」。
+            log.error("验证亚马逊API配置失败: shopId={}", shopId, e);
             return false;
         }
     }

@@ -1,5 +1,6 @@
 package com.crossborder.erp.platform.schedule;
 
+import com.crossborder.erp.common.exception.PlatformApiException;
 import com.crossborder.erp.common.result.Result;
 import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
@@ -7,6 +8,7 @@ import com.crossborder.erp.platform.api.PlatformOrderSync;
 import com.crossborder.erp.platform.entity.PlatformConfig;
 import com.crossborder.erp.platform.feign.OrderServiceClient;
 import com.crossborder.erp.platform.service.PlatformConfigService;
+import com.crossborder.erp.platform.support.PlatformSyncRegistry;
 import io.micrometer.core.annotation.Timed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,9 +16,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * 订单同步调度器（带监控）
@@ -28,17 +30,8 @@ import java.util.stream.Collectors;
 public class OrderSyncSchedule {
 
     private final PlatformConfigService platformConfigService;
-    private final Map<String, PlatformOrderSync> platformSyncMap;
+    private final PlatformSyncRegistry platformSyncRegistry;
     private final OrderServiceClient orderServiceClient;
-
-    /**
-     * 获取所有平台的同步实现（包含过滤后的bean）
-     */
-    private Map<String, PlatformOrderSync> getPlatformSyncMap() {
-        return platformSyncMap.entrySet().stream()
-                .filter(e -> e.getValue() != null)
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-    }
 
     /**
      * 每10分钟同步一次订单
@@ -49,53 +42,78 @@ public class OrderSyncSchedule {
         log.info("开始定时同步订单...");
 
         List<PlatformConfig> configs = platformConfigService.getAllConfigs();
-        configs.stream()
-                .filter(config -> config.getStatus() == 1) // 只同步启用的配置
-                .forEach(this::syncPlatformOrders);
+        List<String> succeeded = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
 
-        log.info("订单同步完成");
+        for (PlatformConfig config : configs) {
+            if (config.getStatus() != 1) {
+                continue;   // 只同步启用的配置
+            }
+            // 📌 单个平台失败不能影响其它平台 —— 但必须**记下来**。
+            //    以前只打一句「订单同步完成」，看不出哪个平台挂了；
+            //    空壳平台返回 0 条时更是「成功但 0 条」，完全看不出问题。
+            try {
+                int count = syncPlatformOrders(config);
+                succeeded.add(config.getPlatform() + "(" + count + ")");
+            } catch (Exception e) {
+                failed.add(config.getPlatform());
+                log.error("平台订单同步失败: platform={}, shop={}", config.getPlatform(),
+                        config.getShopName(), e);
+            }
+        }
+
+        if (failed.isEmpty()) {
+            log.info("订单同步完成: 成功={}", succeeded);
+        } else {
+            // 🔴 有平台失败时用 error 级别 —— 否则「部分平台挂了」在日志里
+            //    和「全部正常」长得一模一样，监控根本发现不了。
+            log.error("订单同步完成但存在失败平台: 成功={}, 失败={}", succeeded, failed);
+        }
     }
 
     /**
      * 同步单个平台的订单
+     *
+     * @return 同步到的订单数
+     * @throws RuntimeException 平台调用失败 / 未实现时向上抛，由调度器统一记录
      */
     @Timed(value = "sync.platform.orders", description = "同步平台订单")
-    private void syncPlatformOrders(PlatformConfig config) {
-        try {
-            String platform = config.getPlatform();
-            String shopId = config.getShopId();
+    private int syncPlatformOrders(PlatformConfig config) {
+        String platform = config.getPlatform();
+        String shopId = config.getShopId();
 
-            PlatformOrderSync sync = platformSyncMap.get(platform.toLowerCase());
-            if (sync == null) {
-                log.warn("暂不支持平台: {}", platform);
-                return;
-            }
-
-            // 同步最近1小时的订单
-            LocalDateTime endTime = LocalDateTime.now();
-            LocalDateTime startTime = endTime.minusHours(1);
-
-            log.info("同步平台订单: platform={}, shopId={}, time={}", platform, shopId, startTime);
-
-            List<Order> orders = sync.syncOrders(startTime, endTime, shopId);
-
-            for (Order order : orders) {
-                try {
-                    // 查询订单商品明细
-                    List<OrderItem> items = sync.syncOrderItems(order.getPlatformOrderNo(), shopId);
-
-                    // 调用订单服务保存订单
-                    saveOrderToOrderService(order, items);
-                } catch (Exception e) {
-                    log.error("保存订单失败: {}", order.getPlatformOrderNo(), e);
-                }
-            }
-
-            log.info("平台订单同步完成: platform={}, count={}", platform, orders.size());
-
-        } catch (Exception e) {
-            log.error("同步平台订单失败: {}", config.getShopName(), e);
+        PlatformOrderSync sync = platformSyncRegistry.get(platform);
+        if (sync == null) {
+            throw new PlatformApiException(platform, "UNSUPPORTED_PLATFORM",
+                    "暂不支持平台: " + platform
+                            + "（已支持: " + platformSyncRegistry.registeredPlatforms() + "）");
         }
+
+        // 同步最近1小时的订单
+        LocalDateTime endTime = LocalDateTime.now();
+        LocalDateTime startTime = endTime.minusHours(1);
+
+        log.info("同步平台订单: platform={}, shopId={}, time={}", platform, shopId, startTime);
+
+        // 📌 这里**不捕获**异常：平台调用失败必须让调用方知道。
+        //    空壳平台（eBay/Lazada/TikTok）现在抛 PlatformApiException，
+        //    不会再伪装成「同步成功，count=0」。
+        List<Order> orders = sync.syncOrders(startTime, endTime, shopId);
+
+        for (Order order : orders) {
+            try {
+                // 查询订单商品明细
+                List<OrderItem> items = sync.syncOrderItems(order.getPlatformOrderNo(), shopId);
+
+                // 调用订单服务保存订单
+                saveOrderToOrderService(order, items);
+            } catch (Exception e) {
+                log.error("保存订单失败: {}", order.getPlatformOrderNo(), e);
+            }
+        }
+
+        log.info("平台订单同步完成: platform={}, count={}", platform, orders.size());
+        return orders.size();
     }
 
     /**

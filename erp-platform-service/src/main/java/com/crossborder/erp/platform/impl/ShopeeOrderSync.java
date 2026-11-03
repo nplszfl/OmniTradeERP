@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.crossborder.erp.common.constant.PlatformType;
+import com.crossborder.erp.common.exception.PlatformApiException;
 import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
 import com.crossborder.erp.platform.api.PlatformOrderSync;
@@ -68,8 +69,10 @@ public class ShopeeOrderSync implements PlatformOrderSync {
             return orders;
 
         } catch (Exception e) {
-            log.error("同步Shopee订单失败", e);
-            return orders;
+            // 🔴 原来 return 空列表 → API 失败与「真的没有订单」无法区分
+            log.error("同步Shopee订单失败: shopId={}", shopId, e);
+            throw PlatformApiException.shopee("SYNC_ORDERS_FAILED",
+                    "同步Shopee订单失败: " + e.getMessage(), e);
         }
     }
 
@@ -96,8 +99,9 @@ public class ShopeeOrderSync implements PlatformOrderSync {
             return order;
 
         } catch (Exception e) {
-            log.error("获取Shopee订单详情失败", e);
-            return null;
+            log.error("获取Shopee订单详情失败: orderNo={}", platformOrderNo, e);
+            throw PlatformApiException.shopee("GET_ORDER_FAILED",
+                    "获取Shopee订单详情失败: " + e.getMessage(), e);
         }
     }
 
@@ -126,8 +130,9 @@ public class ShopeeOrderSync implements PlatformOrderSync {
             return items;
 
         } catch (Exception e) {
-            log.error("同步Shopee订单商品明细失败", e);
-            return items;
+            log.error("同步Shopee订单商品明细失败: orderNo={}", platformOrderNo, e);
+            throw PlatformApiException.shopee("SYNC_ORDER_ITEMS_FAILED",
+                    "同步Shopee订单商品明细失败: " + e.getMessage(), e);
         }
     }
 
@@ -150,7 +155,8 @@ public class ShopeeOrderSync implements PlatformOrderSync {
             return error == null || "null".equals(error);
 
         } catch (Exception e) {
-            log.error("验证Shopee API配置失败", e);
+            // 📌 validateConfig 返回 false 是有意语义（连接测试问「通不通」），但要记原因
+            log.error("验证Shopee API配置失败: shopId={}", shopId, e);
             return false;
         }
     }

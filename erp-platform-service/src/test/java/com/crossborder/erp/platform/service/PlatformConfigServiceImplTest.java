@@ -4,10 +4,12 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.crossborder.erp.common.constant.PlatformType;
 import com.crossborder.erp.platform.api.PlatformOrderSync;
 import com.crossborder.erp.platform.entity.PlatformConfig;
 import com.crossborder.erp.platform.mapper.PlatformConfigMapper;
 import com.crossborder.erp.platform.service.impl.PlatformConfigServiceImpl;
+import com.crossborder.erp.platform.support.PlatformSyncRegistry;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,9 +19,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.util.ReflectionUtils;
 
 import java.lang.reflect.Field;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -39,7 +39,7 @@ public class PlatformConfigServiceImplTest {
     private PlatformConfigMapper platformConfigMapper;
     private PlatformOrderSync amazonSync;
     private PlatformOrderSync shopeeSync;
-    private Map<String, PlatformOrderSync> platformSyncMap;
+    private PlatformSyncRegistry platformSyncRegistry;
 
     @BeforeAll
     static void initTableInfo() {
@@ -56,11 +56,15 @@ public class PlatformConfigServiceImplTest {
         amazonSync = mock(PlatformOrderSync.class);
         shopeeSync = mock(PlatformOrderSync.class);
 
-        platformSyncMap = new HashMap<>();
-        platformSyncMap.put("amazon", amazonSync);
-        platformSyncMap.put("shopee", shopeeSync);
+        when(amazonSync.getPlatformType()).thenReturn(PlatformType.AMAZON);
+        when(shopeeSync.getPlatformType()).thenReturn(PlatformType.SHOPEE);
 
-        platformConfigService = new PlatformConfigServiceImpl(platformSyncMap);
+        // 📌 用真实的 PlatformSyncRegistry（它按 getPlatformType() 建 key），
+        //    **不要**再手工 put("amazon", ...) —— 那正是当初掩盖缺陷的做法。
+        //    手工 put 的 map 在生产环境里根本不存在。
+        platformSyncRegistry = new PlatformSyncRegistry(List.of(amazonSync, shopeeSync));
+
+        platformConfigService = new PlatformConfigServiceImpl(platformSyncRegistry);
         injectBaseMapper(platformConfigService, platformConfigMapper);
     }
 
