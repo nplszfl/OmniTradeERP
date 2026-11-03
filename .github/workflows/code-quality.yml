@@ -72,6 +72,8 @@ jobs:
         python3 scripts/check-db-schema-provision.py
         python3 scripts/check-seed-table-refs.py
         python3 scripts/check-seed-idempotency.py
+        python3 scripts/check-workflow-validity.py
+        python3 scripts/check-action-versions.py
 
   # 前端代码检查
   frontend-code-quality:
@@ -149,7 +151,7 @@ jobs:
           ${{ runner.os }}-m2-
 
     - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@0.28.0
+      uses: aquasecurity/trivy-action@v0.28.0
       with:
         scan-type: 'fs'
         scan-ref: '.'

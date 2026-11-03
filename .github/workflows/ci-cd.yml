@@ -152,6 +152,15 @@ jobs:
     - name: Workflow 文件合法性（GitHub 会直接拒收的写法）
       run: python3 scripts/check-workflow-validity.py
 
+    # 📌 **action 版本必须真实存在** ——
+    #    `uses: owner/repo@v0.28.0`（tag 实际叫 `v0.28.0`）在本地 YAML **完全合法**，
+    #    只有 GitHub 在运行时拉 action 才会发现拉不到 →
+    #    ##[error]Unable to resolve action → 挂在 "Set up job" 阶段
+    #    → **整个 job 一个 step 都没跑**
+    #    📌 本项目实测：code-quality.yml 的 Security Scan job 连续几个月都是这么挂的。
+    - name: Action 版本存在性（联网核对真实 tag/branch）
+      run: python3 scripts/check-action-versions.py
+
   # ============================================================
   # 结构巡检：需要**真实 MySQL 结构**的两个闸门
   # ============================================================
