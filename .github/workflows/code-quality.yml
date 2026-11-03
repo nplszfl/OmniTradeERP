@@ -132,6 +132,14 @@ jobs:
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
+    # 📌 **必须显式声明 security-events: write** ——
+    #    上传 SARIF 到 GitHub Security 需要这个权限，
+    #    而 workflow 默认的 GITHUB_TOKEN 只有 read
+    #    → ##[error]Resource not accessible by integration
+    #    → 扫描结果**跑完了却传不上去** → 安全告警形同虚设
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
     - name: Checkout code
@@ -180,6 +188,9 @@ jobs:
         vuln-type: 'os,library'
 
     - name: Upload Trivy results to GitHub Security
-      uses: github/codeql-action/upload-sarif@v2
+      # 📌 必须是 **v4** —— v1/v2 已被 GitHub 废弃（2025-01-10 起）：
+      #    ##[error]CodeQL Action major versions v1 and v2 have been deprecated.
+      #    → 整个 step 直接死 → job 挂 → 安全扫描**永远传不上去**
+      uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: 'trivy-results.sarif'

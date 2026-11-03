@@ -193,6 +193,7 @@ def parse_file(path):
     cur_db = None
     inserts = defaultdict(list)   # table -> [(id, protected)]
     owns = set()                  # 这个文件 CREATE 了哪些表
+    ddl_body = {}                 # 表名 → CREATE TABLE 的列定义正文（用于比较两份 DDL 是否一致）
     events = []                   # [(kind, table)] kind ∈ insert/ddl/drop
     drops = []                    # [(table, 是否有 IF EXISTS)]
     fks = []                      # [(constraint, 父表, 子表)]
@@ -225,6 +226,14 @@ def parse_file(path):
         for cm in re.finditer(r"CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+`?([A-Za-z0-9_]+)`?", s, re.I):
             owns.add(f"{cur_db}.{cm.group(1)}" if cur_db else cm.group(1))
             events.append(("ddl", f"{cur_db}.{cm.group(1)}" if cur_db else cm.group(1)))
+            # 📌 同时记下**列定义正文** —— 用于判断两份 DDL 是不是**真的一样**
+            #    （一样 → 谁先谁后无所谓；不一样 → 生效版本取决于字母序 → 危险）
+            body = re.search(r"CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+`?"
+                             + re.escape(cm.group(1)) + r"`?\s*\((.*?)\n\)\s*(?:ENGINE|;)",
+                             s, re.I | re.S)
+            if body:
+                key = f"{cur_db}.{cm.group(1)}" if cur_db else cm.group(1)
+                ddl_body[key] = " ".join(body.group(1).split())
 
         # INSERT INTO ...
         im = re.match(r"INSERT\s+(IGNORE\s+)?INTO\s+`?([A-Za-z0-9_]+)`?\s*\(([^)]*)\)", s, re.I | re.S)
@@ -257,7 +266,7 @@ def parse_file(path):
             key = int(raw_id) if raw_id.isdigit() else raw_id.lower()
             inserts[full].append((key, protected))
 
-    return inserts, owns, events, drops, fks
+    return inserts, owns, events, drops, fks, ddl_body
 
 
 def _ff_of(fname, all_fks, constraint):
@@ -292,7 +301,7 @@ def main():
     # 同一张表被多个文件插入 → 主键交集 → 后执行的那份必须带保护
     by_table = defaultdict(list)   # table -> [(file, {id: protected})]
     for f in files:
-        inserts, _, _, _, _ = parsed[f]
+        inserts, _, _, _, _, _ = parsed[f]
         for tbl, rows in inserts.items():
             ids = defaultdict(bool)
             for i, prot in rows:
@@ -330,8 +339,8 @@ def main():
     for i in range(len(files)):
         for j in range(i + 1, len(files)):
             f_early, f_late = files[i], files[j]
-            inserts_early, _, _, _, _ = parsed[f_early]
-            _, owns_late, _, _, _ = parsed[f_late]
+            inserts_early, _, _, _, _, _ = parsed[f_early]
+            _, owns_late, _, _, _, _ = parsed[f_late]
             for tbl in inserts_early:
                 if tbl in owns_late:
                     errors.append(
@@ -348,7 +357,7 @@ def main():
     #    seed-tenant.sql 开头自带 DROP TABLE tenants + CREATE TABLE tenants，
     #    如果这个 DROP+CREATE 出现在 INSERT **之后** → 刚插的数据被清空。
     for f in files:
-        _, _, events, _, _ = parsed[f]
+        _, _, events, _, _, _ = parsed[f]
         seen_insert = set()
         for kind, tbl in events:
             if kind == "insert":
@@ -376,12 +385,12 @@ def main():
     #         的粗判，宁可多报也不漏报。）
     all_fks = []
     for f in files:
-        _, _, _, _, fks = parsed[f]
+        _, _, _, _, fks, _ = parsed[f]
         for c, parent, child in fks:
             all_fks.append((f, c, parent, child))
 
     for f in files:
-        _, _, _, drops, _ = parsed[f]
+        _, _, _, drops, _, _ = parsed[f]
         for tbl, has_if_exists in drops:
             refs = [(c, child) for (_ff, c, parent, child) in all_fks if parent == tbl]
             if not refs:
@@ -402,8 +411,86 @@ def main():
                 f"      → 应先 DROP 子表，或给子表也加 DROP，或改用 TRUNCATE/DELETE"
             )
 
+    # ── 检查 5：同一张表被**多个文件** CREATE → 谁的 schema 生效取决于文件名字母序 ──
+    #    📌 **实测踩到过（2026-11-04，CI Schema Audit 间歇性挂）**：
+    #       `erp_user.t_permission` 有**两份 DDL**：
+    #         - `init.sql`（老 schema，**没有** `component` 列）—— 字母序靠前
+    #         - `user-service.sql`（新 schema，**有** `component` 列）—— 靠后
+    #       最终生效的是**字母序靠后的**那份（user-service.sql），
+    #       所以「正常情况下」是对的 —— **但只在字母序恰好如此时才对**。
+    #       📌 危险在于：把 user-service.sql 改名（比如加个 zz- 前缀），
+    #          或者将来某个服务文件的字母序变了 → **生效的就变成老 schema**
+    #          → 实体映射到线上不存在的列 → 运行期 Unknown column。
+    #       ⚠️ 更隐蔽的是：init.sql 里 `sort_order INT DEFAULT 0`（**可空**），
+    #          user-service.sql 里是 `sort_order INT NOT NULL DEFAULT 0`
+    #          —— 这不只是列名差异，是**约束语义**差异。
+    #    📌 为什么单测查不出来：单测用 H2 / mock，根本不读 init.sql。
+    #    📌 为什么巡检脚本能查出来：两份 DDL 都在 database/*.sql 里，静态可解析。
+    owner_map = defaultdict(list)
+    for f in files:
+        _, owns, _, _, _, _ = parsed[f]
+        for tbl in owns:
+            owner_map[tbl].append(f)
+
+    for tbl, owners in sorted(owner_map.items()):
+        if len(owners) < 2:
+            continue
+        owners_sorted = sorted(owners, key=execution_name)
+
+        # 📌 **关键：两份 DDL 是不是真的一样？**
+        #    一样 → 谁先谁后**完全无所谓** → 只是冗余，不是隐患 → 提示即可
+        #    不一样 → 生效版本取决于字母序 → 改个文件名就翻转 → **真隐患** → 报错
+        bodies = {}
+        for o in owners:
+            b = parsed[o][5].get(tbl)
+            if b:
+                bodies.setdefault(b, []).append(o)
+
+        if len(bodies) == 1:
+            # 📌 定义完全一致 → 无隐患，只提示冗余
+            infos.append(
+                f"ℹ️  表 `{tbl}` 被 {len(owners)} 个文件重复定义（init.sql + user-service.sql），"
+                f"但**定义逐字一致** → 执行顺序不影响结果"
+            )
+            continue
+
+        # 定义不一致 → 逐个列出差异列
+        diffs = []
+        for b, fs in bodies.items():
+            cols = set(re.findall(r"`([A-Za-z0-9_]+)`", b))
+            diffs.append((fs, cols))
+
+        detail_lines = []
+        for fs, cols in diffs:
+            detail_lines.append(
+                f"      · {', '.join(execution_name(x) for x in fs)} 定义了 {len(cols)} 列"
+            )
+        all_cols = set()
+        for _fs, cols in diffs:
+            all_cols |= cols
+        for fs, cols in diffs:
+            missing = all_cols - cols
+            if missing:
+                detail_lines.append(
+                    f"      · {', '.join(execution_name(x) for x in fs)} **缺列**："
+                    f"{', '.join(sorted(missing))}"
+                )
+
+        errors.append(
+            f"🔴 同一张表被**多个文件** CREATE，且**定义不一致**"
+            f" → 生效版本取决于文件名字母序\n"
+            f"      表 `{tbl}`\n"
+            f"      DDL 属主：{', '.join(execution_name(o) for o in owners_sorted)}\n"
+            f"      → 实际生效的是**字母序最后**那个："
+            f"{execution_name(owners_sorted[-1])}\n"
+            + "\n".join(detail_lines) + "\n"
+            f"      → 只要有人改文件名（加前缀/改名），**生效版本就会翻转**\n"
+            f"      → 翻转后实体可能映射到线上不存在的列 → 运行期 Unknown column\n"
+            f"      → 应把两份 DDL 改成**逐字一致**（或只保留一份）"
+        )
+
     # ── 报告 ──────────────────────────────────────────────────────────
-    total_ins = sum(len(rows) for ins, _, _, _, _ in parsed.values() for rows in ins.values())
+    total_ins = sum(len(rows) for ins, _, _, _, _, _ in parsed.values() for rows in ins.values())
     print(f"📋 按实际执行顺序检查 {len(files)} 个 .sql 文件，{total_ins} 条 INSERT\n")
 
     if infos:

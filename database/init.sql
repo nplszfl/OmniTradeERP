@@ -329,41 +329,99 @@ CREATE TABLE `t_warehouse_in_out_item` (
 CREATE DATABASE IF NOT EXISTS `erp_user` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `erp_user`;
 
--- 用户表
+-- ===================================================
+-- 用户 / 角色 / 权限
+-- ===================================================
+-- 📌 **这里必须和 database/user-service.sql 逐字一致** ——
+--    📌 实测踩坑：这份曾经是**老 schema**（t_permission 没有 `component` 列、
+--       t_role 没有 `sort_order`、t_user 没有 `last_login_ip`），
+--       而 user-service.sql 是新 schema。
+--       两份 DDL 谁生效取决于**文件名字母序**（init < user-service），
+--       所以「正常情况」是对的 —— 但只要有人改文件名，**生效版本就翻转** →
+--       实体映射到线上不存在的列 → 运行期 Unknown column。
+--    ✅ check-seed-idempotency.py 的检查 5 会盯着这件事。
 DROP TABLE IF EXISTS `t_user`;
 CREATE TABLE `t_user` (
     `id` BIGINT NOT NULL COMMENT '主键ID',
     `username` VARCHAR(100) NOT NULL COMMENT '用户名',
-    `password` VARCHAR(255) NOT NULL COMMENT '密码(加密)',
+    `password` VARCHAR(255) NOT NULL COMMENT '密码(BCrypt)',
     `real_name` VARCHAR(100) COMMENT '真实姓名',
     `email` VARCHAR(200) COMMENT '邮箱',
     `phone` VARCHAR(50) COMMENT '手机号',
     `avatar` VARCHAR(500) COMMENT '头像URL',
     `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态(0禁用 1启用)',
     `last_login_time` DATETIME COMMENT '最后登录时间',
+    `last_login_ip` VARCHAR(64) COMMENT '最后登录IP',
     `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标记',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_username` (`username`),
-    UNIQUE KEY `uk_email` (`email`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
+    KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
 
--- 角色表
+-- ===================================================
+-- 角色
+-- ===================================================
 DROP TABLE IF EXISTS `t_role`;
 CREATE TABLE `t_role` (
     `id` BIGINT NOT NULL COMMENT '主键ID',
     `role_code` VARCHAR(50) NOT NULL COMMENT '角色编码',
     `role_name` VARCHAR(100) NOT NULL COMMENT '角色名称',
     `description` VARCHAR(500) COMMENT '角色描述',
-    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态',
+    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态(0禁用 1启用)',
+    `sort_order` INT NOT NULL DEFAULT 0 COMMENT '排序号',
     `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_role_code` (`role_code`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='角色表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='角色表';
 
--- 用户角色关联表
+-- ===================================================
+-- 权限（树形）
+-- ===================================================
+DROP TABLE IF EXISTS `t_permission`;
+CREATE TABLE `t_permission` (
+    `id` BIGINT NOT NULL COMMENT '主键ID',
+    `parent_id` BIGINT NOT NULL DEFAULT 0 COMMENT '父权限ID(根为0)',
+    `permission_code` VARCHAR(100) NOT NULL COMMENT '权限编码',
+    `permission_name` VARCHAR(200) NOT NULL COMMENT '权限名称',
+    `permission_type` VARCHAR(50) NOT NULL COMMENT '权限类型(menu/button/api)',
+    `url` VARCHAR(500) COMMENT '菜单URL/API路径',
+    `component` VARCHAR(255) COMMENT '前端组件路径',
+    `icon` VARCHAR(100) COMMENT '图标',
+    `sort_order` INT NOT NULL DEFAULT 0 COMMENT '排序号',
+    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态',
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_parent_id` (`parent_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='权限表';
+
+-- ===================================================
+-- 部门（树形）—— 新增
+-- ===================================================
+DROP TABLE IF EXISTS `t_department`;
+CREATE TABLE `t_department` (
+    `id` BIGINT NOT NULL COMMENT '主键ID',
+    `dept_code` VARCHAR(50) NOT NULL COMMENT '部门编码',
+    `dept_name` VARCHAR(100) NOT NULL COMMENT '部门名称',
+    `parent_id` BIGINT NOT NULL DEFAULT 0 COMMENT '上级部门ID(根为0)',
+    `leader` VARCHAR(50) COMMENT '负责人',
+    `phone` VARCHAR(50) COMMENT '联系电话',
+    `email` VARCHAR(200) COMMENT '邮箱',
+    `sort_order` INT NOT NULL DEFAULT 0 COMMENT '排序号',
+    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态(0禁用 1启用)',
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_dept_code` (`dept_code`),
+    KEY `idx_dept_parent_id` (`parent_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='部门表';
+
+-- ===================================================
+-- 关联表
+-- ===================================================
 DROP TABLE IF EXISTS `t_user_role`;
 CREATE TABLE `t_user_role` (
     `id` BIGINT NOT NULL COMMENT '主键ID',
@@ -371,28 +429,10 @@ CREATE TABLE `t_user_role` (
     `role_id` BIGINT NOT NULL COMMENT '角色ID',
     `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_user_role` (`user_id`, `role_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户角色关联表';
+    UNIQUE KEY `uk_user_role` (`user_id`, `role_id`),
+    KEY `idx_ur_role_id` (`role_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户角色关联表';
 
--- 权限表
-DROP TABLE IF EXISTS `t_permission`;
-CREATE TABLE `t_permission` (
-    `id` BIGINT NOT NULL COMMENT '主键ID',
-    `parent_id` BIGINT DEFAULT 0 COMMENT '父权限ID',
-    `permission_code` VARCHAR(100) NOT NULL COMMENT '权限编码',
-    `permission_name` VARCHAR(200) NOT NULL COMMENT '权限名称',
-    `permission_type` VARCHAR(50) NOT NULL COMMENT '权限类型(menu/button/api)',
-    `url` VARCHAR(500) COMMENT '菜单URL/API路径',
-    `icon` VARCHAR(100) COMMENT '图标',
-    `sort_order` INT DEFAULT 0 COMMENT '排序',
-    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态',
-    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    PRIMARY KEY (`id`),
-    KEY `idx_parent_id` (`parent_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='权限表';
-
--- 角色权限关联表
 DROP TABLE IF EXISTS `t_role_permission`;
 CREATE TABLE `t_role_permission` (
     `id` BIGINT NOT NULL COMMENT '主键ID',
@@ -400,9 +440,20 @@ CREATE TABLE `t_role_permission` (
     `permission_id` BIGINT NOT NULL COMMENT '权限ID',
     `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_role_permission` (`role_id`, `permission_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='角色权限关联表';
+    UNIQUE KEY `uk_role_permission` (`role_id`, `permission_id`),
+    KEY `idx_rp_permission_id` (`permission_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='角色权限关联表';
 
+DROP TABLE IF EXISTS `t_user_department`;
+CREATE TABLE `t_user_department` (
+    `id` BIGINT NOT NULL COMMENT '主键ID',
+    `user_id` BIGINT NOT NULL COMMENT '用户ID',
+    `department_id` BIGINT NOT NULL COMMENT '部门ID',
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_user_department` (`user_id`, `department_id`),
+    KEY `idx_ud_department_id` (`department_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户部门关联表';
 -- ===================================================
 -- 财务数据库
 -- ===================================================
