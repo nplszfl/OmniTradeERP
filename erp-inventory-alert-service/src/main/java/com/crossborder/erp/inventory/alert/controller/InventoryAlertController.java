@@ -273,6 +273,21 @@ public class InventoryAlertController {
         return Result.success();
     }
 
+    /**
+     * 扫描活库存并生成预警（预警引擎的手动入口）
+     *
+     * 📌 与 /check 的区别：/check 要求调用方自己传 currentStock，
+     *    实际上没有任何调用方，导致预警引擎从来没跑过；
+     *    这里直接从活表 erp_inventory.erp_inventory 读真实可用库存来判定。
+     *
+     * @return 本次新建的预警条数
+     */
+    @PostMapping("/check/scan")
+    public Result<Integer> scanLiveInventory() {
+        int created = alertService.scanLiveInventory();
+        return Result.success(created);
+    }
+
     // ========== 滞销商品管理 ==========
 
     /**

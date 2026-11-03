@@ -4,6 +4,7 @@ import com.crossborder.erp.inventory.alert.entity.InventoryAlert;
 import com.crossborder.erp.inventory.alert.entity.InventoryAlertRule;
 import com.crossborder.erp.inventory.alert.entity.ReplenishmentSuggestion;
 import com.crossborder.erp.inventory.alert.mapper.InventoryAlertRuleMapper;
+import com.crossborder.erp.inventory.alert.mapper.LiveInventoryMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -34,6 +35,7 @@ public class InventoryAlertServiceTest {
     private ReplenishmentSuggestionService replenishmentSuggestionService;
     private AlertStatisticsService alertStatisticsService;
     private InventoryAlertRuleMapper inventoryAlertRuleMapper;
+    private LiveInventoryMapper liveInventoryMapper;
 
     @BeforeEach
     void setUp() {
@@ -42,12 +44,14 @@ public class InventoryAlertServiceTest {
         replenishmentSuggestionService = mock(ReplenishmentSuggestionService.class);
         alertStatisticsService = mock(AlertStatisticsService.class);
         inventoryAlertRuleMapper = mock(InventoryAlertRuleMapper.class);
+        liveInventoryMapper = mock(LiveInventoryMapper.class);
 
         inventoryAlertService = new InventoryAlertService(
                 alertRecordService,
                 alertNotifyService,
                 replenishmentSuggestionService,
-                alertStatisticsService
+                alertStatisticsService,
+                liveInventoryMapper
         );
         // ServiceImpl 内部通过 baseMapper 落库，单元测试中注入 mock mapper
         injectBaseMapper(inventoryAlertService, inventoryAlertRuleMapper);

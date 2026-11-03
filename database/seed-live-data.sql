@@ -120,7 +120,13 @@ VALUES
     -- 德国汉堡仓（warehouse 4）—— 可用 18 < 安全库存 25 → WARNING
     (13, 1002, 4, 6, 'SKU-WAT-002-SLV', 20,   18,   2,   25,  280.00, 'WARNING'),
     -- 日本东京仓（warehouse 5）
-    (14, 1001, 5, 7, 'SKU-BLU-001-BLK', 30,   28,   2,   10,  120.00, 'NORMAL')
+    (14, 1001, 5, 7, 'SKU-BLU-001-BLK', 30,   28,   2,   10,  120.00, 'NORMAL'),
+    -- 洛杉矶仓手机支架：可用 8 < 安全库存 20 → WARNING（速销款断货风险）
+    (15, 1004, 3, NULL, 'SKU-STN-004',    12,   8,    4,   20,  12.00, 'WARNING'),
+    -- 汉堡仓精华液：可用 20 < 安全库存 50 → WARNING
+    (16, 1010, 4, NULL, 'SKU-BTY-010',    25,   20,   5,   50,  70.00, 'WARNING'),
+    -- 洛杉矶仓真空收纳袋：可用 0 → DANGER（已售罄）
+    (17, 1007, 3, NULL, 'SKU-STG-007',    0,    0,    0,   50,  18.00, 'DANGER')
 ON DUPLICATE KEY UPDATE
     `location_id` = VALUES(`location_id`), `sku_code` = VALUES(`sku_code`),
     `quantity` = VALUES(`quantity`), `available_quantity` = VALUES(`available_quantity`),
@@ -315,6 +321,48 @@ ON DUPLICATE KEY UPDATE
     `inventory_id` = VALUES(`inventory_id`), `alert_type` = VALUES(`alert_type`),
     `current_qty` = VALUES(`current_qty`), `safety_stock` = VALUES(`safety_stock`),
     `alert_status` = VALUES(`alert_status`), `handle_remark` = VALUES(`handle_remark`);
+
+-- ============================================================
+-- 6. 库存预警规则（活表 t_inventory_alert_rule，库 erp_inventory_alert）
+-- ============================================================
+-- ⚠️ warehouse_id 是**仓库编码**（VARCHAR，如 'WH-DE-HH'），
+--    不是 erp_inventory.warehouse_id 的数字主键。
+--    预警扫描（AlertScanScheduler → LiveInventoryMapper）会
+--    JOIN erp_warehouse.wms_warehouse 拿 warehouse_code 来匹配规则。
+--
+-- ⚠️ 阈值直接对齐 erp_inventory.safety_stock（同一条库存的补货点），
+--    这样「库存状态 WARNING」和「生成 LOW 预警」是同一套口径，不会互相打架。
+--
+-- 下面 8 条规则里，6 条**不应该**触发（库存充足），只有 3 条会触发：
+--   · 1002 @ 汉堡仓   可用 18 <= 预警值 20  → LOW
+--   · 1004 @ 洛杉矶仓 可用 8  <= 预警值 15  → LOW
+--   · 1010 @ 汉堡仓   可用 20 <= 预警值 40  → LOW
+--   · 1007 @ 洛杉矶仓 可用 0  <= 最低库存 10 → OUT
+-- 其余（1001@洛杉矶 48、1001@东京 28、1005@南沙 280、上海仓通用）库存充足 → 不产生预警。
+-- 这几条「不该触发的规则」是刻意留的：用来验证扫描逻辑不会无脑刷预警。
+USE `erp_inventory_alert`;
+
+INSERT INTO `t_inventory_alert_rule`
+    (`id`, `tenant_id`, `product_id`, `sku`, `product_name`,
+     `warehouse_id`, `warehouse_name`,
+     `safe_stock`, `alert_stock`, `min_stock`, `alert_type`,
+     `advance_days`, `notify_type`, `notify_to`, `enabled`, `remark`)
+VALUES
+    (9001, NULL, 1001, 'SKU-BLU-001-BLK', '无线蓝牙耳机 Pro', 'WH-US-LA', '美国洛杉矶仓',  20,  15,  5, 'LOW', 3, 'ALL', NULL, 1, '洛杉矶仓蓝牙耳机补货点'),
+    (9002, NULL, 1001, 'SKU-BLU-001-BLK', '无线蓝牙耳机 Pro', 'WH-JP-TK', '日本东京仓',    10,   8,  3, 'LOW', 3, 'ALL', NULL, 1, '东京仓蓝牙耳机补货点'),
+    (9003, NULL, 1005, 'SKU-PWB-005-BLK', '20000mAh 充电宝',   'WH-CN-GZ', '广州南沙保税仓',100,  80, 40, 'LOW', 3, 'ALL', NULL, 1, '南沙仓充电宝补货点'),
+    (9004, NULL, 1002, 'SKU-WAT-002-SLV', '智能手表 X1',       'WH-DE-HH', '德国汉堡仓',    25,  20, 10, 'LOW', 3, 'ALL', NULL, 1, '汉堡仓智能手表补货点'),
+    (9005, NULL, 1004, 'SKU-STN-004',     '便携手机支架',      'WH-US-LA', '美国洛杉矶仓',  20,  15,  5, 'LOW', 3, 'ALL', NULL, 1, '洛杉矶仓手机支架补货点'),
+    (9006, NULL, 1010, 'SKU-BTY-010',     '精华液 30ml',       'WH-DE-HH', '德国汉堡仓',    50,  40, 20, 'LOW', 3, 'ALL', NULL, 1, '汉堡仓精华液补货点'),
+    (9007, NULL, 1007, 'SKU-STG-007',     '真空收纳袋 10 件',  'WH-US-LA', '美国洛杉矶仓',  50,  40, 10, 'OUT', 3, 'ALL', NULL, 1, '洛杉矶仓真空收纳袋补货点'),
+    (9008, NULL, NULL, NULL, NULL,         'WH-CN-SH', '上海中心仓',      200, 150, 50, 'LOW', 3, 'ALL', NULL, 1, '上海中心仓通用预警规则')
+ON DUPLICATE KEY UPDATE
+    `product_id` = VALUES(`product_id`), `sku` = VALUES(`sku`),
+    `product_name` = VALUES(`product_name`), `warehouse_id` = VALUES(`warehouse_id`),
+    `warehouse_name` = VALUES(`warehouse_name`), `safe_stock` = VALUES(`safe_stock`),
+    `alert_stock` = VALUES(`alert_stock`), `min_stock` = VALUES(`min_stock`),
+    `alert_type` = VALUES(`alert_type`), `notify_type` = VALUES(`notify_type`),
+    `enabled` = VALUES(`enabled`), `remark` = VALUES(`remark`);
 
 -- ============================================================
 -- 完

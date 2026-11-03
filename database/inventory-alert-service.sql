@@ -14,6 +14,13 @@
 --    所以 SET NAMES 必须写在每个文件内部，容器级 locale 兜底不可靠。
 SET NAMES utf8mb4;
 
+-- 📌 COLLATE 必须显式写成 utf8mb4_unicode_ci：
+--    MySQL 8 的服务器默认是 utf8mb4_0900_ai_ci，而 erp_warehouse.wms_warehouse
+--    用的是 utf8mb4_unicode_ci。两边 collation 不同 → 一旦在 SQL 里直接
+--    JOIN warehouse_code 和 warehouse_id 就会报
+--    "Illegal mix of collations (utf8mb4_0900_ai_ci, utf8mb4_unicode_ci)"。
+--    预警扫描（LiveInventoryMapper）**故意不在 SQL 里 JOIN** 这两列，
+--    改成在 Java 侧比对字符串，两种 collation 都能用。
 CREATE DATABASE IF NOT EXISTS `erp_inventory_alert` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `erp_inventory_alert`;
 
@@ -43,7 +50,7 @@ CREATE TABLE IF NOT EXISTS t_inventory_alert (
     KEY `idx_alert_product` (`product_id`),
     KEY `idx_alert_status` (`status`),
     KEY `idx_alert_sku` (`sku`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='库存预警表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT='库存预警表';
 
 CREATE TABLE IF NOT EXISTS t_inventory_alert_rule (
     `id`              BIGINT       NOT NULL COMMENT '主键ID',
@@ -71,7 +78,7 @@ CREATE TABLE IF NOT EXISTS t_inventory_alert_rule (
     PRIMARY KEY (`id`),
     KEY `idx_alert_rule_product` (`product_id`),
     KEY `idx_alert_rule_sku` (`sku`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='库存预警规则表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT='库存预警规则表';
 
 CREATE TABLE IF NOT EXISTS t_inventory_alert_statistics (
     `id`                        BIGINT      NOT NULL COMMENT '主键ID',
@@ -91,7 +98,7 @@ CREATE TABLE IF NOT EXISTS t_inventory_alert_statistics (
     `update_time`               DATETIME    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
     KEY `idx_alert_stat_date` (`statistics_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='库存预警统计表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT='库存预警统计表';
 
 CREATE TABLE IF NOT EXISTS t_replenishment_suggestion (
     `id`                    BIGINT       NOT NULL COMMENT '主键ID',
@@ -125,7 +132,7 @@ CREATE TABLE IF NOT EXISTS t_replenishment_suggestion (
     PRIMARY KEY (`id`),
     KEY `idx_replenishment_product` (`product_id`),
     KEY `idx_replenishment_status` (`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='补货建议表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT='补货建议表';
 
 CREATE TABLE IF NOT EXISTS t_slow_moving_inventory (
     `id`                BIGINT       NOT NULL COMMENT '主键ID',
@@ -150,4 +157,4 @@ CREATE TABLE IF NOT EXISTS t_slow_moving_inventory (
     PRIMARY KEY (`id`),
     KEY `idx_slow_product` (`product_id`),
     KEY `idx_slow_sku` (`sku`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='滞销库存表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT='滞销库存表';

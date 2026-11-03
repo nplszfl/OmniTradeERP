@@ -66,6 +66,7 @@
             <el-form-item>
               <el-button type="primary" :icon="Search" @click="loadRules">搜索</el-button>
               <el-button type="success" :icon="Plus" @click="handleAddRule">新增规则</el-button>
+              <el-button type="warning" :icon="Refresh" @click="handleScanAlert">扫描库存预警</el-button>
             </el-form-item>
           </el-form>
         </el-card>
@@ -359,10 +360,10 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Plus, Check, Warning, WarningFilled, CircleClose, CircleCheck } from '@element-plus/icons-vue'
+import { Search, Plus, Check, Warning, WarningFilled, CircleClose, CircleCheck, Refresh } from '@element-plus/icons-vue'
 import { inventoryAlertApi, type InventoryAlertRule, type InventoryAlert, type ReplenishmentSuggestion, type AlertStatistics } from '@/api/inventory-alert'
 import dayjs from 'dayjs'
-import { unwrapPage } from '@/utils/response'
+import { unwrap, unwrapPage } from '@/utils/response'
 
 const activeTab = ref('rules')
 const ruleLoading = ref(false)
@@ -425,6 +426,22 @@ const loadStats = async () => {
     Object.assign(stats, res)
   } catch (error) {
     console.error('加载统计失败', error)
+  }
+}
+
+// 手动扫描库存并生成预警
+// 📌 预警引擎现在有定时任务（默认 5 分钟一次），这个按钮是给「想立刻看到结果」用的。
+const handleScanAlert = async () => {
+  try {
+    // 后端返回 Result<Integer>，拦截器已经剥掉 axios 外壳，
+    // 这里还要再剥一层 Result —— unwrap 会自动判断有没有 Result 外壳
+    const created = unwrap<number>(await inventoryAlertApi.scanInventory())
+    ElMessage.success(`扫描完成，新增 ${created ?? 0} 条预警`)
+    loadStats()
+    loadAlerts()
+    loadReplenishments()
+  } catch (error) {
+    console.error('扫描库存预警失败', error)
   }
 }
 

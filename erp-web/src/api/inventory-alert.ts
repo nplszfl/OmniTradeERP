@@ -214,8 +214,11 @@ export const inventoryAlertApi = {
     request.post<any, void>(`/inventory/alert/replenishment/${id}/cancel`, null, { params: { remark } }),
 
   // 库存检查
-  checkInventory: (productId: number, sku: string, warehouseId: string, currentStock: number, productName: string, warehouseName: string) =>
-    request.post<any, void>('/inventory/alert/check', null, { params: { productId, sku, warehouseId, currentStock, productName, warehouseName } })
+  // ⚠️ 旧的 checkInventory(productId, sku, ..., currentStock) 要求前端自己报库存数，
+  //    实际没人调用，而且这套预警引擎长期靠它触发 → 预警记录永远是 0 条。
+  //    现在改成 POST /inventory/alert/check/scan：由后端直接扫活表
+  //    erp_inventory.erp_inventory 判定，前端只负责点一下。
+  scanInventory: () => request.post<any, number>('/inventory/alert/check/scan')
 }
 
 // ========== 物流API ==========

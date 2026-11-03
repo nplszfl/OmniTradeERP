@@ -61,6 +61,16 @@ spring:
           starttls:
             enable: true
 
+# 库存预警扫描（定时任务）
+# 📌 预警引擎必须有一个「自动触发源」。以前只有 POST /inventory/alert/check
+#    这个手动接口（还要调用方自带 currentStock），全仓无调用方 → 预警永不产生。
+#    现在由 AlertScanScheduler 定时扫活表 erp_inventory.erp_inventory。
+erp:
+  alert:
+    scan:
+      enabled: ${ERP_ALERT_SCAN_ENABLED:true}
+      interval-ms: ${ERP_ALERT_SCAN_INTERVAL_MS:300000}
+
 # MyBatis-Plus配置
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml

@@ -8,6 +8,7 @@ import com.crossborder.erp.inventory.alert.entity.InventoryAlert;
 import com.crossborder.erp.inventory.alert.entity.InventoryAlertRule;
 import com.crossborder.erp.inventory.alert.entity.ReplenishmentSuggestion;
 import com.crossborder.erp.inventory.alert.mapper.InventoryAlertRuleMapper;
+import com.crossborder.erp.inventory.alert.mapper.LiveInventoryMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,7 @@ public class InventoryAlertService extends ServiceImpl<InventoryAlertRuleMapper,
     private final AlertNotifyService alertNotifyService;
     private final ReplenishmentSuggestionService replenishmentSuggestionService;
     private final AlertStatisticsService alertStatisticsService;
+    private final LiveInventoryMapper liveInventoryMapper;
 
     /**
      * 创建预警规则
@@ -60,10 +62,12 @@ public class InventoryAlertService extends ServiceImpl<InventoryAlertRuleMapper,
     /**
      * 检查库存并触发预警
      * 当库存低于预警值时返回需要预警的规则
+     *
+     * @return 本次新建的预警条数
      */
     @Transactional(rollbackFor = Exception.class)
-    public void checkAndAlert(Long productId, String sku, String warehouseId, 
-                               Integer currentStock, String productName, String warehouseName) {
+    public int checkAndAlert(Long productId, String sku, String warehouseId, 
+                              Integer currentStock, String productName, String warehouseName) {
         // 查找匹配的预警规则
         LambdaQueryWrapper<InventoryAlertRule> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(InventoryAlertRule::getProductId, productId)
@@ -81,6 +85,7 @@ public class InventoryAlertService extends ServiceImpl<InventoryAlertRuleMapper,
             rules = list(wrapper);
         }
         
+        int created = 0;
         for (InventoryAlertRule rule : rules) {
             boolean shouldAlert = false;
             String alertType = "LOW";
@@ -97,6 +102,15 @@ public class InventoryAlertService extends ServiceImpl<InventoryAlertRuleMapper,
             }
             
             if (shouldAlert) {
+                // ⚠️ 去重：扫描是定时任务（默认 5 分钟一次），
+                //    没有去重的话同一个 SKU 每轮都会插一条 PENDING，
+                //    一天能堆出几百条重复预警，把「待处理」列表彻底冲垮。
+                //    口径：同 (商品, 仓库, 预警类型) 已有 PENDING 就不重复建。
+                if (hasPendingAlert(productId, warehouseId, alertType)) {
+                    log.debug("跳过重复预警: SKU={}, 仓库={}, 类型={}", sku, warehouseId, alertType);
+                    continue;
+                }
+
                 // 创建预警记录
                 InventoryAlert alert = new InventoryAlert();
                 alert.setRuleId(rule.getId());
@@ -127,8 +141,108 @@ public class InventoryAlertService extends ServiceImpl<InventoryAlertRuleMapper,
                 
                 log.warn("🚨 库存预警: SKU={}, 当前库存={}, 预警值={}, 类型={}", 
                         sku, currentStock, rule.getAlertStock(), alertType);
+                created++;
             }
         }
+        return created;
+    }
+
+    /**
+     * 同 (商品, 仓库, 预警类型) 是否已有未处理的预警
+     */
+    private boolean hasPendingAlert(Long productId, String warehouseId, String alertType) {
+        try {
+            long count = alertRecordService.count(new LambdaQueryWrapper<InventoryAlert>()
+                    .eq(InventoryAlert::getProductId, productId)
+                    .eq(InventoryAlert::getWarehouseId, warehouseId)
+                    .eq(InventoryAlert::getAlertType, alertType)
+                    .eq(InventoryAlert::getStatus, "PENDING"));
+            return count > 0;
+        } catch (Exception e) {
+            // 查重失败不能阻断预警创建（宁可多一条也不能少一条）
+            log.warn("查重失败，跳过去重: productId={}, warehouseId={}, error={}",
+                    productId, warehouseId, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 扫描活库存并批量触发预警（预警引擎的真正入口）
+     *
+     * 📌 背景：这套预警引擎以前**从来没有被触发过** ——
+     *    checkAndAlert() 唯一的入口是 HTTP 接口 POST /inventory/alert/check，
+     *    而那个接口要求调用方自己传 currentStock，
+     *    全仓（含前端）**没有任何调用方**；
+     *    本服务也没有任何 Feign / RestTemplate / 定时任务去拉库存。
+     *    结果：t_inventory_alert 永远 0 行，前端「待处理预警」恒空。
+     *
+     * 📌 现在改成：直接从活表 erp_inventory.erp_inventory 读，
+     *    关联 erp_warehouse 拿仓库编码、关联 erp_product 拿商品名，
+     *    再逐条送进 checkAndAlert()。
+     *
+     * @return 本次新建的预警条数
+     */
+    public int scanLiveInventory() {
+        List<Map<String, Object>> rows;
+        try {
+            rows = liveInventoryMapper.selectLiveInventory();
+        } catch (Exception e) {
+            // ⚠️ 跨 schema 查不到活表时不能抛出去 —— 否则一次抖动就把整轮扫描废掉；
+            //    但「静默返回 0」又会让页面显示成「一切正常」（那是最坏情况）。
+            //    所以：记 ERROR 日志 + 返回 0，让日志/监控能看见。
+            log.error("读取活库存失败，本轮扫描跳过: {}", e.getMessage(), e);
+            return 0;
+        }
+        if (rows == null || rows.isEmpty()) {
+            log.info("活库存为空，无需扫描");
+            return 0;
+        }
+
+        int created = 0;
+        int skipped = 0;
+        for (Map<String, Object> row : rows) {
+            Long productId = toLong(row.get("productId"));
+            Integer currentStock = toInt(row.get("currentStock"));
+            String sku = toStr(row.get("sku"));
+            if (productId == null || currentStock == null || sku.isEmpty()) {
+                skipped++;
+                continue;
+            }
+            try {
+                created += checkAndAlert(productId, sku,
+                        toStr(row.get("warehouseCode")), currentStock,
+                        toStr(row.get("productName")), toStr(row.get("warehouseName")));
+            } catch (Exception e) {
+                // 一条脏数据不能打断整轮扫描
+                skipped++;
+                log.warn("处理库存行失败: productId={}, sku={}, error={}", productId, sku, e.getMessage());
+            }
+        }
+        log.info("库存预警扫描完成: 扫描={} 条, 新增预警={} 条, 跳过={} 条", rows.size(), created, skipped);
+        return created;
+    }
+
+    private static Long toLong(Object v) {
+        if (v == null) {
+            return null;
+        }
+        if (v instanceof Number n) {
+            return n.longValue();
+        }
+        try {
+            return Long.parseLong(v.toString().trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static Integer toInt(Object v) {
+        Long l = toLong(v);
+        return l == null ? null : l.intValue();
+    }
+
+    private static String toStr(Object v) {
+        return v == null ? "" : v.toString().trim();
     }
 
     /**
