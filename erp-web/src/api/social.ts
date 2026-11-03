@@ -23,7 +23,7 @@ import request from './index'
 // ==================== 类型 ====================
 
 export interface TikTokShopConfig {
-  id: number
+  id: string
   shopName: string
   shopId: string
   accessToken?: string
@@ -36,7 +36,7 @@ export interface TikTokShopConfig {
 }
 
 export interface DouyinShopConfig {
-  id: number
+  id: string
   shopName: string
   shopId: string
   accessToken?: string
@@ -49,11 +49,11 @@ export interface DouyinShopConfig {
 }
 
 export interface LiveStream {
-  id: number
+  id: string
   streamId: string
   title: string
   platform: string
-  influencerId?: number
+  influencerId?: string
   status: string
   scheduledStartTime?: string
   actualStartTime?: string
@@ -75,7 +75,7 @@ export interface LiveStream {
 }
 
 export interface Influencer {
-  id: number
+  id: string
   name: string
   platformId?: string
   platform: string
@@ -97,8 +97,8 @@ export interface Influencer {
 }
 
 export interface Cooperation {
-  id: number
-  influencerId: number
+  id: string
+  influencerId: string
   productId: string
   productName: string
   type: string
@@ -126,12 +126,12 @@ export interface Cooperation {
 
 export const tiktokShopApi = {
   list:   () => request.get<any, TikTokShopConfig[]>('/social/tiktok-shop'),
-  detail: (id: number) => request.get<any, TikTokShopConfig>(`/social/tiktok-shop/${id}`),
+  detail: (id: string) => request.get<any, TikTokShopConfig>(`/social/tiktok-shop/${id}`),
   byShopId: (shopId: string) => request.get<any, TikTokShopConfig>(`/social/tiktok-shop/shop/${shopId}`),
   create: (data: any) => request.post<any, TikTokShopConfig>('/social/tiktok-shop', data),
-  update: (id: number, data: any) => request.put<any, TikTokShopConfig>(`/social/tiktok-shop/${id}`, data),
-  remove: (id: number) => request.delete<any, void>(`/social/tiktok-shop/${id}`),
-  refreshToken: (id: number) => request.post<any, TikTokShopConfig>(`/social/tiktok-shop/${id}/refresh-token`),
+  update: (id: string, data: any) => request.put<any, TikTokShopConfig>(`/social/tiktok-shop/${id}`, data),
+  remove: (id: string) => request.delete<any, void>(`/social/tiktok-shop/${id}`),
+  refreshToken: (id: string) => request.post<any, TikTokShopConfig>(`/social/tiktok-shop/${id}/refresh-token`),
   sync: () => request.post<any, Record<string, any>>('/social/tiktok-shop/sync'),
 }
 
@@ -139,12 +139,12 @@ export const tiktokShopApi = {
 
 export const douyinShopApi = {
   list:   () => request.get<any, DouyinShopConfig[]>('/social/douyin-shop'),
-  detail: (id: number) => request.get<any, DouyinShopConfig>(`/social/douyin-shop/${id}`),
+  detail: (id: string) => request.get<any, DouyinShopConfig>(`/social/douyin-shop/${id}`),
   byShopId: (shopId: string) => request.get<any, DouyinShopConfig>(`/social/douyin-shop/shop/${shopId}`),
   create: (data: any) => request.post<any, DouyinShopConfig>('/social/douyin-shop', data),
-  update: (id: number, data: any) => request.put<any, DouyinShopConfig>(`/social/douyin-shop/${id}`, data),
-  remove: (id: number) => request.delete<any, void>(`/social/douyin-shop/${id}`),
-  refreshToken: (id: number) => request.post<any, DouyinShopConfig>(`/social/douyin-shop/${id}/refresh-token`),
+  update: (id: string, data: any) => request.put<any, DouyinShopConfig>(`/social/douyin-shop/${id}`, data),
+  remove: (id: string) => request.delete<any, void>(`/social/douyin-shop/${id}`),
+  refreshToken: (id: string) => request.post<any, DouyinShopConfig>(`/social/douyin-shop/${id}/refresh-token`),
   sync: () => request.post<any, Record<string, any>>('/social/douyin-shop/sync'),
 }
 
@@ -152,27 +152,27 @@ export const douyinShopApi = {
 
 export const liveStreamApi = {
   list:   () => request.get<any, LiveStream[]>('/social/live-streams'),
-  detail: (id: number) => request.get<any, LiveStream>(`/social/live-streams/${id}`),
+  detail: (id: string) => request.get<any, LiveStream>(`/social/live-streams/${id}`),
   byStreamId: (streamId: string) => request.get<any, LiveStream>(`/social/live-streams/stream/${streamId}`),
   byPlatform: (platform: string) => request.get<any, LiveStream[]>(`/social/live-streams/platform/${platform}`),
   byStatus: (status: string) => request.get<any, LiveStream[]>(`/social/live-streams/status/${status}`),
-  byInfluencer: (influencerId: number) => request.get<any, LiveStream[]>(`/social/live-streams/influencer/${influencerId}`),
+  byInfluencer: (influencerId: string) => request.get<any, LiveStream[]>(`/social/live-streams/influencer/${influencerId}`),
   byDateRange: (startTime: string, endTime: string) =>
     request.get<any, LiveStream[]>('/social/live-streams/date-range', { params: { startTime, endTime } }),
   currentLive: () => request.get<any, LiveStream[]>('/social/live-streams/current-live'),
   recent:   () => request.get<any, LiveStream[]>('/social/live-streams/recent'),
   create: (data: any) => request.post<any, LiveStream>('/social/live-streams', data),
-  update: (id: number, data: any) => request.put<any, LiveStream>(`/social/live-streams/${id}`, data),
-  start: (id: number) => request.post<any, LiveStream>(`/social/live-streams/${id}/start`),
-  end:   (id: number, data?: any) => request.post<any, LiveStream>(`/social/live-streams/${id}/end`, data),
-  remove: (id: number) => request.delete<any, void>(`/social/live-streams/${id}`),
+  update: (id: string, data: any) => request.put<any, LiveStream>(`/social/live-streams/${id}`, data),
+  start: (id: string) => request.post<any, LiveStream>(`/social/live-streams/${id}/start`),
+  end:   (id: string, data?: any) => request.post<any, LiveStream>(`/social/live-streams/${id}/end`, data),
+  remove: (id: string) => request.delete<any, void>(`/social/live-streams/${id}`),
 }
 
 // ==================== 达人 ====================
 
 export const influencerApi = {
   list:   () => request.get<any, Influencer[]>('/social/influencers'),
-  detail: (id: number) => request.get<any, Influencer>(`/social/influencers/${id}`),
+  detail: (id: string) => request.get<any, Influencer>(`/social/influencers/${id}`),
   byPlatform: (platform: string) => request.get<any, Influencer[]>(`/social/influencers/platform/${platform}`),
   byStatus: (status: string) => request.get<any, Influencer[]>(`/social/influencers/status/${status}`),
   byLevel: (level: string) => request.get<any, Influencer[]>(`/social/influencers/level/${level}`),
@@ -180,16 +180,16 @@ export const influencerApi = {
   top: (minFollowers?: number) => request.get<any, Influencer[]>('/social/influencers/top', { params: { minFollowers } }),
   byCategory: (category: string) => request.get<any, Influencer[]>(`/social/influencers/category`, { params: { category } }),
   create: (data: any) => request.post<any, Influencer>('/social/influencers', data),
-  update: (id: number, data: any) => request.put<any, Influencer>(`/social/influencers/${id}`, data),
-  remove: (id: number) => request.delete<any, void>(`/social/influencers/${id}`),
+  update: (id: string, data: any) => request.put<any, Influencer>(`/social/influencers/${id}`, data),
+  remove: (id: string) => request.delete<any, void>(`/social/influencers/${id}`),
 }
 
 // ==================== 达人合作 ====================
 
 export const cooperationApi = {
   list:   () => request.get<any, Cooperation[]>('/social/cooperations'),
-  detail: (id: number) => request.get<any, Cooperation>(`/social/cooperations/${id}`),
-  byInfluencer: (influencerId: number) => request.get<any, Cooperation[]>(`/social/cooperations/influencer/${influencerId}`),
+  detail: (id: string) => request.get<any, Cooperation>(`/social/cooperations/${id}`),
+  byInfluencer: (influencerId: string) => request.get<any, Cooperation[]>(`/social/cooperations/influencer/${influencerId}`),
   byProduct: (productId: string) => request.get<any, Cooperation[]>(`/social/cooperations/product/${productId}`),
   byType: (type: string) => request.get<any, Cooperation[]>(`/social/cooperations/type/${type}`),
   byStatus: (status: string) => request.get<any, Cooperation[]>(`/social/cooperations/status/${status}`),
@@ -198,12 +198,12 @@ export const cooperationApi = {
   byDateRange: (startDate: string, endDate: string) =>
     request.get<any, Cooperation[]>('/social/cooperations/date-range', { params: { startDate, endDate } }),
   create: (data: any) => request.post<any, Cooperation>('/social/cooperations', data),
-  update: (id: number, data: any) => request.put<any, Cooperation>(`/social/cooperations/${id}`, data),
-  confirm: (id: number) => request.post<any, Cooperation>(`/social/cooperations/${id}/confirm`),
-  start:   (id: number) => request.post<any, Cooperation>(`/social/cooperations/${id}/start`),
-  complete: (id: number, data?: any) => request.post<any, Cooperation>(`/social/cooperations/${id}/complete`, data),
-  cancel:  (id: number) => request.post<any, Cooperation>(`/social/cooperations/${id}/cancel`),
-  remove:  (id: number) => request.delete<any, void>(`/social/cooperations/${id}`),
+  update: (id: string, data: any) => request.put<any, Cooperation>(`/social/cooperations/${id}`, data),
+  confirm: (id: string) => request.post<any, Cooperation>(`/social/cooperations/${id}/confirm`),
+  start:   (id: string) => request.post<any, Cooperation>(`/social/cooperations/${id}/start`),
+  complete: (id: string, data?: any) => request.post<any, Cooperation>(`/social/cooperations/${id}/complete`, data),
+  cancel:  (id: string) => request.post<any, Cooperation>(`/social/cooperations/${id}/cancel`),
+  remove:  (id: string) => request.delete<any, void>(`/social/cooperations/${id}`),
 }
 
 /**

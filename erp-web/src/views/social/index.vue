@@ -506,7 +506,7 @@ const shopDialog = reactive({
 })
 const liveDialog = reactive({
   visible: false, saving: false, row: null as LiveStream | null,
-  form: { streamId: '', title: '', platform: 'TIKTOK', influencerId: undefined as number | undefined, status: 'SCHEDULED', scheduledStartTime: '' },
+  form: { streamId: '', title: '', platform: 'TIKTOK', influencerId: undefined as string | undefined, status: 'SCHEDULED', scheduledStartTime: '' },
 })
 const influencerDialog = reactive({
   visible: false, saving: false, row: null as Influencer | null,
@@ -515,7 +515,7 @@ const influencerDialog = reactive({
 const coopDialog = reactive({
   visible: false, saving: false, row: null as Cooperation | null,
   form: {
-    influencerId: undefined as number | undefined, productId: '', productName: '',
+    influencerId: undefined as string | undefined, productId: '', productName: '',
     type: 'LIVE', status: 'PENDING', agreedPrice: 0, commissionRate: 0,
     plannedStartDate: '', plannedEndDate: '', remark: '',
   },

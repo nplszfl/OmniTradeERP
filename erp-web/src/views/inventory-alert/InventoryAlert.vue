@@ -388,7 +388,7 @@ const rulePagination = reactive({ current: 1, size: 20, total: 0 })
 const ruleFormVisible = ref(false)
 const isEditRule = ref(false)
 const ruleForm = reactive({
-  id: 0, sku: '', productName: '', warehouseId: '', warehouseName: '',
+  id: '',sku: '', productName: '', warehouseId: '', warehouseName: '',
   safeStock: 10, alertStock: 5, minStock: 0, alertType: 'LOW',
   notifyType: 'SYSTEM', notifyTo: '', enabled: true, remark: '',
   notifyTypes: ['SYSTEM'] as string[]
@@ -510,7 +510,7 @@ const loadReplenishments = async () => {
 const handleAddRule = () => {
   isEditRule.value = false
   Object.assign(ruleForm, {
-    id: 0, sku: '', productName: '', warehouseId: '', warehouseName: '',
+    id: '',sku: '', productName: '', warehouseId: '', warehouseName: '',
     safeStock: 10, alertStock: 5, minStock: 0, alertType: 'LOW',
     notifyType: 'SYSTEM', notifyTo: '', enabled: true, remark: '',
     notifyTypes: ['SYSTEM']
@@ -578,7 +578,7 @@ const handleAlert = (alert: InventoryAlert) => {
 const confirmHandleAlert = async () => {
   if (!currentAlert.value) return
   try {
-    const handlerId = 1, handlerName = 'admin'
+    const handlerId = '1', handlerName = 'admin'
     if (handleAlertForm.action === 'handle') {
       await inventoryAlertApi.handleAlert(currentAlert.value.id, handlerId, handlerName, handleAlertForm.remark)
     } else {
@@ -614,7 +614,7 @@ const handleCreateReplenishment = (alert: InventoryAlert) => {
 // 确认补货
 const handleConfirmReplenishment = async (item: ReplenishmentSuggestion) => {
   try {
-    await inventoryAlertApi.confirmReplenishment(item.id, 1, 'admin')
+    await inventoryAlertApi.confirmReplenishment(item.id, '1', 'admin')
     ElMessage.success('确认成功')
     loadReplenishments()
     loadStats()

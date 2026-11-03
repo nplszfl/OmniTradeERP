@@ -200,7 +200,7 @@ const filterForm = reactive({
 
 // 表单数据
 const form = reactive({
-  id: undefined as number | undefined,
+  id: undefined as string | undefined,
   internalSku: '',
   productName: '',
   brand: '',

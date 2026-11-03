@@ -17,9 +17,9 @@ request.interceptors.response.use(
 // ========== 库存预警类型 ==========
 
 export interface InventoryAlertRule {
-  id: number
-  tenantId: number
-  productId: number
+  id: string
+  tenantId: string
+  productId: string
   sku: string
   productName: string
   warehouseId: string
@@ -40,8 +40,8 @@ export interface InventoryAlertRule {
 }
 
 export interface InventoryAlert {
-  id: number
-  productId: number
+  id: string
+  productId: string
   sku: string
   productName: string
   warehouseId: string
@@ -50,7 +50,7 @@ export interface InventoryAlert {
   alertStock: number
   alertType: string
   status: string
-  handlerId: number
+  handlerId: string
   handlerName: string
   handleTime: string
   handleRemark: string
@@ -58,8 +58,8 @@ export interface InventoryAlert {
 }
 
 export interface ReplenishmentSuggestion {
-  id: number
-  productId: number
+  id: string
+  productId: string
   sku: string
   productName: string
   warehouseId: string
@@ -68,7 +68,7 @@ export interface ReplenishmentSuggestion {
   suggestedQuantity: number
   estimatedPrice: number
   status: string
-  confirmUserId: number
+  confirmUserId: string
   confirmUserName: string
   confirmTime: string
   remark: string
@@ -88,7 +88,7 @@ export interface AlertStatistics {
 // ========== 物流类型 ==========
 
 export interface LogisticsRate {
-  id: number
+  id: string
   channelCode: string
   channelName: string
   carrier: string
@@ -162,10 +162,10 @@ export const inventoryAlertApi = {
   getEnabledRules: () =>
     request.get<any, InventoryAlertRule[]>('/inventory/alert/rules/enabled'),
 
-  updateRule: (id: number, data: InventoryAlertRule) =>
+  updateRule: (id: string, data: InventoryAlertRule) =>
     request.put<any, void>(`/inventory/alert/rule/${id}`, data),
 
-  deleteRule: (id: number) =>
+  deleteRule: (id: string) =>
     request.delete<any, void>(`/inventory/alert/rule/${id}`),
 
   // 预警记录
@@ -180,10 +180,10 @@ export const inventoryAlertApi = {
   getPendingAlerts: () =>
     request.get<any, InventoryAlert[]>('/inventory/alert/records/pending'),
 
-  handleAlert: (id: number, handlerId: number, handlerName: string, remark?: string) =>
+  handleAlert: (id: string, handlerId: string, handlerName: string, remark?: string) =>
     request.post<any, void>(`/inventory/alert/record/${id}/handle`, null, { params: { handlerId, handlerName, remark } }),
 
-  ignoreAlert: (id: number, handlerId: number, handlerName: string, remark?: string) =>
+  ignoreAlert: (id: string, handlerId: string, handlerName: string, remark?: string) =>
     request.post<any, void>(`/inventory/alert/record/${id}/ignore`, null, { params: { handlerId, handlerName, remark } }),
 
   // 预警统计
@@ -207,10 +207,10 @@ export const inventoryAlertApi = {
   getPendingReplenishments: () =>
     request.get<any, ReplenishmentSuggestion[]>('/inventory/alert/replenishments/pending'),
 
-  confirmReplenishment: (id: number, userId: number, userName: string, remark?: string) =>
+  confirmReplenishment: (id: string, userId: string, userName: string, remark?: string) =>
     request.post<any, void>(`/inventory/alert/replenishment/${id}/confirm`, null, { params: { userId, userName, remark } }),
 
-  cancelReplenishment: (id: number, remark?: string) =>
+  cancelReplenishment: (id: string, remark?: string) =>
     request.post<any, void>(`/inventory/alert/replenishment/${id}/cancel`, null, { params: { remark } }),
 
   // 库存检查
@@ -248,9 +248,9 @@ export const logisticsApi = {
   createRate: (data: LogisticsRate) =>
     request.post<any, number>('/logistics/rate', data),
 
-  updateRate: (id: number, data: LogisticsRate) =>
+  updateRate: (id: string, data: LogisticsRate) =>
     request.put<any, void>(`/logistics/rate/${id}`, data),
 
-  deleteRate: (id: number) =>
+  deleteRate: (id: string) =>
     request.delete<any, void>(`/logistics/rate/${id}`)
 }

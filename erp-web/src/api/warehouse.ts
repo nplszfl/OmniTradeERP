@@ -15,7 +15,7 @@ request.interceptors.response.use(
 )
 
 export interface Warehouse {
-  id: number
+  id: string
   warehouseCode: string
   warehouseName: string
   warehouseType: string
@@ -33,8 +33,8 @@ export interface Warehouse {
 }
 
 export interface WarehouseLocation {
-  id: number
-  warehouseId: number
+  id: string
+  warehouseId: string
   locationCode: string
   locationType: string
   zone: string
@@ -54,7 +54,7 @@ export const warehouseApi = {
     request.get<any, { current: number; size: number; total: number; records: Warehouse[] }>('/warehouse/list', { params }),
 
   // 获取仓库详情
-  getWarehouse: (id: number) =>
+  getWarehouse: (id: string) =>
     request.get<any, Warehouse>(`/warehouse/${id}`),
 
   // 创建仓库
@@ -66,11 +66,11 @@ export const warehouseApi = {
     request.put<any, Warehouse>('/warehouse', data),
 
   // 删除仓库
-  deleteWarehouse: (id: number) =>
+  deleteWarehouse: (id: string) =>
     request.delete<any, void>(`/warehouse/${id}`),
 
   // 获取库位列表
-  getLocations: (warehouseId: number) =>
+  getLocations: (warehouseId: string) =>
     request.get<any, WarehouseLocation[]>(`/warehouse/${warehouseId}/locations`),
 
   // 创建库位
@@ -82,6 +82,6 @@ export const warehouseApi = {
     request.put<any, WarehouseLocation>('/warehouse/location', data),
 
   // 删除库位
-  deleteLocation: (id: number) =>
+  deleteLocation: (id: string) =>
     request.delete<any, void>(`/warehouse/location/${id}`)
 }

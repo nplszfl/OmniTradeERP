@@ -348,7 +348,7 @@ const pagination = reactive({
 
 // 筛选表单
 const filterForm = reactive({
-  accountId: undefined as number | undefined,
+  accountId: undefined as string | undefined,
   type: '',
   dateRange: [] as string[]
 })
@@ -359,7 +359,7 @@ const accountDialogTitle = ref('添加账户')
 const accountFormRef = ref()
 const accountSubmitLoading = ref(false)
 const accountForm = reactive({
-  id: undefined as number | undefined,
+  id: undefined as string | undefined,
   accountName: '',
   accountNo: '',
   accountType: 'bank',
@@ -381,11 +381,11 @@ const flowDialogTitle = ref('新增流水')
 const flowFormRef = ref()
 const flowSubmitLoading = ref(false)
 const flowForm = reactive({
-  id: undefined as number | undefined,
+  id: undefined as string | undefined,
   type: 'income',
   amount: 0,
-  accountId: undefined as number | undefined,
-  categoryId: undefined as number | undefined,
+  accountId: undefined as string | undefined,
+  categoryId: undefined as string | undefined,
   orderNo: '',
   remark: ''
 })

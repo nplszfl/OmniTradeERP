@@ -331,7 +331,7 @@ const userDialogTitle = ref('添加用户')
 const userFormRef = ref()
 const userSubmitLoading = ref(false)
 const userForm = reactive({
-  id: undefined as number | undefined,
+  id: undefined as string | undefined,
   username: '',
   realName: '',
   email: '',
@@ -354,7 +354,7 @@ const userFormRules = {
 const roleDialogVisible = ref(false)
 const currentUser = ref<SysUser | null>(null)
 const allRoles = ref<Role[]>([])
-const selectedRoleIds = ref<number[]>([])
+const selectedRoleIds = ref<string[]>([])
 const roleSubmitLoading = ref(false)
 
 // ========== 角色管理 ==========
@@ -366,7 +366,7 @@ const roleFormDialogTitle = ref('添加角色')
 const roleFormRef = ref()
 const roleFormSubmitLoading = ref(false)
 const roleForm = reactive({
-  id: undefined as number | undefined,
+  id: undefined as string | undefined,
   roleCode: '',
   roleName: '',
   description: '',
@@ -382,7 +382,7 @@ const roleFormRules = {
 const permDialogVisible = ref(false)
 const currentRole = ref<Role | null>(null)
 const permissionTree = ref<Permission[]>([])
-const checkedPermIds = ref<number[]>([])
+const checkedPermIds = ref<string[]>([])
 const permTreeRef = ref()
 const permSubmitLoading = ref(false)
 
@@ -395,8 +395,8 @@ const deptDialogTitle = ref('添加部门')
 const deptFormRef = ref()
 const deptSubmitLoading = ref(false)
 const deptForm = reactive({
-  id: undefined as number | undefined,
-  parentId: undefined as number | undefined,
+  id: undefined as string | undefined,
+  parentId: undefined as string | undefined,
   parentName: '',
   deptCode: '',
   deptName: '',
@@ -661,7 +661,7 @@ const handlePermSubmit = async () => {
   try {
     const checkedKeys = permTreeRef.value?.getCheckedKeys() || []
     const halfCheckedKeys = permTreeRef.value?.getHalfCheckedKeys() || []
-    const permissionIds = [...checkedKeys, ...halfCheckedKeys] as number[]
+    const permissionIds = [...checkedKeys, ...halfCheckedKeys] as string[]
     
     await roleApi.assignPermissions(currentRole.value.id, permissionIds)
     ElMessage.success('分配成功')

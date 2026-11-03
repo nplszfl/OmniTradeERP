@@ -251,7 +251,7 @@ const filterForm = reactive({
 
 // 表单数据
 const form = reactive({
-  id: undefined as number | undefined,
+  id: undefined as string | undefined,
   warehouseCode: '',
   warehouseName: '',
   warehouseType: 'main',
@@ -286,8 +286,8 @@ const locationFormRef = ref()
 const locationSubmitLoading = ref(false)
 
 const locationForm = reactive({
-  id: undefined as number | undefined,
-  warehouseId: undefined as number | undefined,
+  id: undefined as string | undefined,
+  warehouseId: undefined as string | undefined,
   locationCode: '',
   locationType: 'shelf',
   zone: '',
@@ -417,7 +417,7 @@ const handleLocation = async (row: Warehouse) => {
   await loadLocations(row.id)
 }
 
-const loadLocations = async (warehouseId: number) => {
+const loadLocations = async (warehouseId: string) => {
   locationLoading.value = true
   try {
     const res = await warehouseApi.getLocations(warehouseId)

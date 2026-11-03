@@ -15,7 +15,7 @@ request.interceptors.response.use(
 )
 
 export interface Customer {
-  id: number
+  id: string
   name: string
   email: string
   phone: string
@@ -40,14 +40,14 @@ export interface Customer {
 // ========== 客户跟进记录 ==========
 // 📌 后端 t_customer_follow_record 的实体字段（CustomerFollowRecord）
 export interface CustomerFollowRecord {
-  id: number
-  customerId: number
+  id: string
+  customerId: string
   followType: string          // PHONE/EMAIL/WECHAT/VISIT/OTHER
   content: string
   followTime: string
   nextFollowTime: string
   result: string              // SUCCESS/PENDING/FAILED
-  followUserId: number
+  followUserId: string
   followUserName: string
   followerName: string
   remark: string
@@ -56,7 +56,7 @@ export interface CustomerFollowRecord {
 
 // ========== 客户分组 ==========
 export interface CustomerGroup {
-  id: number
+  id: string
   name: string
   description: string
   memberCount: number
@@ -67,7 +67,7 @@ export interface CustomerGroup {
 
 // ========== 客户标签 ==========
 export interface CustomerTag {
-  id: number
+  id: string
   name: string
   color: string
   description: string
@@ -98,7 +98,7 @@ export const customerApi = {
     request.post<any, number>('/customer/create', data),
 
   // 获取客户详情
-  getById: (id: number) => 
+  getById: (id: string) => 
     request.get<any, Customer>(`/customer/${id}`),
 
   // 分页查询客户
@@ -120,11 +120,11 @@ export const customerApi = {
     request.get<any, Customer[]>('/customer/vip'),
 
   // 更新客户
-  update: (id: number, data: Customer) => 
+  update: (id: string, data: Customer) => 
     request.put<any, void>(`/customer/${id}`, data),
 
   // 删除客户
-  delete: (id: number) => 
+  delete: (id: string) => 
     request.delete<any, void>(`/customer/${id}`)
 }
 
@@ -134,7 +134,7 @@ export const customerApi = {
 //    这里把接口接上，页面见 views/customer/CustomerList.vue 的标签页。
 export const customerFollowApi = {
   // 分页查询跟进记录
-  list: (params: { current: number; size: number; customerId?: number; followType?: string; result?: string }) =>
+  list: (params: { current: number; size: number; customerId?: string; followType?: string; result?: string }) =>
     request.get<any, PageResult<CustomerFollowRecord>>('/customer/follow/list', { params }),
 
   // 今日待跟进
@@ -142,7 +142,7 @@ export const customerFollowApi = {
     request.get<any, CustomerFollowRecord[]>('/customer/follow/pending/today'),
 
   // 某个客户的全部跟进记录
-  byCustomer: (customerId: number) =>
+  byCustomer: (customerId: string) =>
     request.get<any, CustomerFollowRecord[]>(`/customer/follow/customer/${customerId}`),
 
   // 新增跟进记录
@@ -150,11 +150,11 @@ export const customerFollowApi = {
     request.post<any, number>('/customer/follow/create', data),
 
   // 标记跟进完成
-  complete: (id: number, result: string, remark?: string) =>
+  complete: (id: string, result: string, remark?: string) =>
     request.post<any, void>(`/customer/follow/${id}/complete`, null, { params: { result, remark } }),
 
   // 删除跟进记录
-  remove: (id: number) =>
+  remove: (id: string) =>
     request.delete<any, void>(`/customer/follow/${id}`),
 }
 
@@ -166,10 +166,10 @@ export const customerGroupApi = {
   create: (data: Partial<CustomerGroup>) =>
     request.post<any, number>('/customer/group/create', data),
 
-  update: (id: number, data: Partial<CustomerGroup>) =>
+  update: (id: string, data: Partial<CustomerGroup>) =>
     request.put<any, void>(`/customer/group/${id}`, data),
 
-  remove: (id: number) =>
+  remove: (id: string) =>
     request.delete<any, void>(`/customer/group/${id}`),
 }
 
@@ -181,21 +181,21 @@ export const customerTagApi = {
   create: (data: Partial<CustomerTag>) =>
     request.post<any, number>('/customer/tag/create', data),
 
-  update: (id: number, data: Partial<CustomerTag>) =>
+  update: (id: string, data: Partial<CustomerTag>) =>
     request.put<any, void>(`/customer/tag/${id}`, data),
 
-  remove: (id: number) =>
+  remove: (id: string) =>
     request.delete<any, void>(`/customer/tag/${id}`),
 
   // 客户已打的标签
-  byCustomer: (customerId: number) =>
+  byCustomer: (customerId: string) =>
     request.get<any, CustomerTag[]>(`/customer/tag/customer/${customerId}`),
 
   // 给客户加标签
-  addToCustomer: (customerId: number, tagId: number) =>
+  addToCustomer: (customerId: string, tagId: string) =>
     request.post<any, void>(`/customer/tag/customer/${customerId}/add`, null, { params: { tagId } }),
 
   // 移除客户的标签
-  removeFromCustomer: (customerId: number, tagId: number) =>
+  removeFromCustomer: (customerId: string, tagId: string) =>
     request.delete<any, void>(`/customer/tag/customer/${customerId}/tag/${tagId}`),
 }

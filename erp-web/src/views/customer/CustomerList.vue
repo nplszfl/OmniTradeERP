@@ -507,7 +507,7 @@ const pagination = reactive({
 
 // 表单
 const form = reactive<Customer>({
-  id: 0,
+  id: '',
   name: '',
   email: '',
   phone: '',
@@ -646,7 +646,7 @@ const handleSubmit = async () => {
 // 重置表单
 const resetForm = () => {
   Object.assign(form, {
-    id: 0,
+    id: '',
     name: '',
     email: '',
     phone: '',
@@ -754,7 +754,7 @@ const followPagination = reactive({ current: 1, size: 10, total: 0 })
 const followFormVisible = ref(false)
 const followFormRef = ref<FormInstance>()
 const followForm = reactive({
-  customerId: undefined as number | undefined,
+  customerId: undefined as string | undefined,
   followType: 'PHONE',
   content: '',
   followTime: '',
@@ -865,7 +865,7 @@ const groupLoading = ref(false)
 const groupList = ref<CustomerGroup[]>([])
 const groupKeyword = ref('')
 const groupFormVisible = ref(false)
-const groupEditId = ref<number | null>(null)
+const groupEditId = ref<string | null>(null)
 const groupForm = reactive({ name: '', description: '', sortOrder: 0, status: 'ACTIVE' })
 
 const loadGroupList = async () => {
@@ -934,7 +934,7 @@ const tagLoading = ref(false)
 const tagList = ref<CustomerTag[]>([])
 const tagKeyword = ref('')
 const tagFormVisible = ref(false)
-const tagEditId = ref<number | null>(null)
+const tagEditId = ref<string | null>(null)
 const tagForm = reactive({ name: '', color: '#409EFF', description: '', sortOrder: 0, status: 'ACTIVE' })
 
 const loadTagList = async () => {

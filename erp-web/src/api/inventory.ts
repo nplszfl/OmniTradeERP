@@ -15,12 +15,12 @@ request.interceptors.response.use(
 )
 
 export interface Inventory {
-  id: number
+  id: string
   skuCode: string
   productName: string
-  warehouseId: number
+  warehouseId: string
   warehouseName: string
-  locationId: number
+  locationId: string
   locationCode: string
   availableQty: number
   lockedQty: number
@@ -40,7 +40,7 @@ export interface InventoryStats {
 }
 
 export interface StockFlow {
-  id: number
+  id: string
   flowTime: string
   flowType: string
   quantity: number
@@ -51,7 +51,7 @@ export interface StockFlow {
 export interface InventoryQuery {
   current: number
   size: number
-  warehouseId?: number
+  warehouseId?: string
   skuCode?: string
   status?: string
 }
@@ -64,7 +64,7 @@ export interface PageResult<T> {
 }
 
 export interface StockAdjustRequest {
-  inventoryId: number
+  inventoryId: string
   type: 'increase' | 'decrease' | 'set'
   quantity: number
   reason: string
@@ -72,9 +72,9 @@ export interface StockAdjustRequest {
 }
 
 export interface StockTransferRequest {
-  fromInventoryId: number
-  toWarehouseId: number
-  toLocationId: number
+  fromInventoryId: string
+  toWarehouseId: string
+  toLocationId: string
   quantity: number
   remark?: string
 }
@@ -89,11 +89,11 @@ export const inventoryApi = {
     request.get<any, PageResult<Inventory>>('/inventory/list', { params }),
 
   // 获取库存详情
-  getInventoryDetail: (id: number) =>
+  getInventoryDetail: (id: string) =>
     request.get<any, Inventory>(`/inventory/${id}`),
 
   // 获取库存流水
-  getStockFlows: (inventoryId: number, page?: number, size?: number) =>
+  getStockFlows: (inventoryId: string, page?: number, size?: number) =>
     request.get<any, PageResult<StockFlow>>(`/inventory/${inventoryId}/flows`, {
       params: { current: page || 1, size: size || 20 }
     }),

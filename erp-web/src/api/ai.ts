@@ -2,7 +2,7 @@ import request from './index'
 
 /** AI 智能中心：异常检测、选品推荐、智能定价、商品描述生成、库存预测 */
 export interface AnomalyOrder {
-  id: number
+  id: string
   orderNo: string
   platform: string
   amount: number
@@ -65,8 +65,8 @@ export interface InventoryPrediction {
 
 export const anomalyApi = {
   list: (params: any) => request.get<any, AnomalyOrder[]>('/v1/anomaly/orders', { params }),
-  detect: (orderId: number) => request.post<any, any>(`/v1/anomaly/detect/${orderId}`),
-  confirm: (id: number, status: string) => request.post<any, any>(`/v1/anomaly/${id}/confirm`, { status }),
+  detect: (orderId: string) => request.post<any, any>(`/v1/anomaly/detect/${orderId}`),
+  confirm: (id: string, status: string) => request.post<any, any>(`/v1/anomaly/${id}/confirm`, { status }),
   stats: () => request.get<any, AnomalyStats>('/v1/anomaly/stats'),
 }
 
@@ -109,7 +109,7 @@ export const inventoryPredictApi = {
 
 /** 知识库条目（问答对，对应后端表 knowledge_base） */
 export interface KnowledgeBaseItem {
-  id: number
+  id: string
   category: string
   question: string
   answer: string
@@ -129,7 +129,7 @@ export const aiAssistantApi = {
     // ⚠️ 后端 /api/ai/knowledge/search 的 q 是**必填**参数，不传会 400
     list:   (params: { q: string; topK?: number }) => request.get<any, any[]>('/ai/assistant/knowledge', { params }),
     add:    (data: any)   => request.post<any, any>('/ai/assistant/knowledge', data),
-    remove: (id: number)  => request.delete<any, any>(`/ai/assistant/knowledge/${id}`),
+    remove: (id: string)  => request.delete<any, any>(`/ai/assistant/knowledge/${id}`),
   },
 }
 
@@ -147,5 +147,5 @@ export const knowledgeBaseApi = {
   // 新增走 /ai/assistant/knowledge（网关会改写到 /api/v1/ai-assistant/knowledge）
   add: (data: { category: string; question: string; answer: string; tags?: string[]; priority?: number }) =>
     request.post<any, any>('/ai/assistant/knowledge', data),
-  remove: (id: number) => request.delete<any, boolean>(`/ai/knowledge/base/${id}`),
+  remove: (id: string) => request.delete<any, boolean>(`/ai/knowledge/base/${id}`),
 }

@@ -602,7 +602,7 @@ const pagination = reactive({
 
 // 供应商表单
 const supplierForm = reactive<Supplier>({
-  id: 0,
+  id: '',
   name: '',
   contactPerson: '',
   phone: '',
@@ -632,7 +632,7 @@ const supplierFormRules = {
 // 采购订单
 const purchaseOrderList = ref<PurchaseOrder[]>([])
 const purchaseSearchForm = reactive({
-  supplierId: undefined as number | undefined,
+  supplierId: undefined as string | undefined,
   status: '',
   paymentStatus: ''
 })
@@ -643,14 +643,14 @@ const purchasePagination = reactive({
 })
 const showPurchaseDialog = ref(false)
 const purchaseForm = reactive({
-  supplierId: 0,
+  supplierId: '',
   expectedArrivalAt: '',
   paymentMethod: 'TT',
   remark: ''
 })
 
 // 绩效评估
-const evalSupplierId = ref<number | null>(null)
+const evalSupplierId = ref<string | null>(null)
 const evalConclusion = ref<string>('')
 const evaluationList = ref<SupplierEvaluation[]>([])
 const latestEvaluation = ref<SupplierEvaluation | null>(null)
@@ -660,8 +660,8 @@ const evalLoading = ref(false)
 const evalDialogVisible = ref(false)
 const evalDialogSaving = ref(false)
 const evalForm = reactive({
-  id: 0,
-  supplierId: 0,
+  id: '',
+  supplierId: '',
   qualityScore: 5,
   deliveryScore: 5,
   priceScore: 5,
@@ -686,7 +686,7 @@ const purchaseOrderItems = ref<PurchaseOrderItem[]>([])
 
 // 采购单下拉用的供应商选项（后端 /purchase/suppliers 返回**全部**供应商，
 // 而 supplierList 只是当前分页的数据 —— 用它做下拉会漏掉其它页的供应商）
-const purchaseSupplierOptions = ref<Array<{ id: number; name: string; code: string }>>([])
+const purchaseSupplierOptions = ref<Array<{ id: string; name: string; code: string }>>([])
 
 const loadPurchaseSupplierOptions = async () => {
   purchaseSupplierOptions.value = (await supplierApi.getPurchaseSupplierOptions()) || []
@@ -701,7 +701,7 @@ const loadEvaluations = async () => {
   }
   evalLoading.value = true
   try {
-    const params: { supplierId?: number; conclusion?: string } = { supplierId: evalSupplierId.value }
+    const params: { supplierId?: string; conclusion?: string } = { supplierId: evalSupplierId.value }
     if (evalConclusion.value) params.conclusion = evalConclusion.value
     evaluationList.value = (await supplierApi.getEvaluationList(params)) || []
 
@@ -722,7 +722,7 @@ const openEvalDialog = () => {
     ElMessage.warning('请先选择供应商')
     return
   }
-  evalForm.id = 0
+  evalForm.id = ''
   evalForm.supplierId = evalSupplierId.value
   evalForm.qualityScore = 5
   evalForm.deliveryScore = 5
@@ -947,7 +947,7 @@ const handleSubmitSupplier = async () => {
 // 重置供应商表单
 const resetSupplierForm = () => {
   Object.assign(supplierForm, {
-    id: 0,
+    id: '',
     name: '',
     contactPerson: '',
     phone: '',
@@ -1003,7 +1003,7 @@ const handleCreatePurchaseOrder = async () => {
   }
   try {
     await supplierApi.createPurchaseOrder({
-      id: 0,
+      id: '',
       orderNo: '',
       supplierId: purchaseForm.supplierId,
       supplierName: supplierList.value.find(s => s.id === purchaseForm.supplierId)?.name || '',
@@ -1015,7 +1015,7 @@ const handleCreatePurchaseOrder = async () => {
       actualArrivalAt: '',
       paymentMethod: purchaseForm.paymentMethod,
       paymentStatus: 'UNPAID',
-      purchaserId: 1,
+      purchaserId: '1',
       purchaserName: '',
       remark: purchaseForm.remark,
       createTime: ''

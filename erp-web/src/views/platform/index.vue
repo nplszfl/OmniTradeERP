@@ -126,7 +126,7 @@ const syncInfo = reactive({
 })
 
 const form = reactive({
-  id: undefined as number | undefined,
+  id: undefined as string | undefined,
   platform: '',
   shopId: '',
   shopName: '',

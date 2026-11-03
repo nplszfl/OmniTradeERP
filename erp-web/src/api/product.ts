@@ -15,7 +15,7 @@ request.interceptors.response.use(
 )
 
 export interface Product {
-  id: number
+  id: string
   internalSku: string
   productName: string
   brand: string
@@ -55,7 +55,7 @@ export const productApi = {
     request.get<any, PageResult<Product>>('/product/list', { params }),
 
   // 获取商品详情
-  getProduct: (id: number) =>
+  getProduct: (id: string) =>
     request.get<any, Product>(`/product/${id}`),
 
   // 创建商品
@@ -67,7 +67,7 @@ export const productApi = {
     request.put<any, Product>('/product', data),
 
   // 删除商品
-  deleteProduct: (id: number) =>
+  deleteProduct: (id: string) =>
     request.delete<any, void>(`/product/${id}`),
 
   // 批量上架

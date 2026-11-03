@@ -27,7 +27,7 @@ request.interceptors.response.use(
 // ==================== 用户相关 ====================
 
 export interface SysUser {
-  id: number
+  id: string
   username: string
   password?: string
   realName: string
@@ -48,8 +48,8 @@ export interface UserQuery {
   size: number
   keyword?: string
   status?: number
-  roleId?: number
-  departmentId?: number
+  roleId?: string
+  departmentId?: string
 }
 
 export interface PageResult<T> {
@@ -65,7 +65,7 @@ export const userApi = {
     request.get<any, PageResult<SysUser>>('/user/list', { params }),
 
   // 获取用户详情
-  getUser: (id: number) =>
+  getUser: (id: string) =>
     request.get<any, SysUser>(`/user/${id}`),
 
   // 创建用户
@@ -77,11 +77,11 @@ export const userApi = {
     request.put<any, SysUser>('/user', data),
 
   // 删除用户
-  deleteUser: (id: number) =>
+  deleteUser: (id: string) =>
     request.delete<any, void>(`/user/${id}`),
 
   // 重置密码
-  resetPassword: (id: number) =>
+  resetPassword: (id: string) =>
     request.post<any, void>(`/user/${id}/reset-password`),
 
   // 修改密码
@@ -89,18 +89,18 @@ export const userApi = {
     request.post<any, void>('/user/change-password', { oldPassword, newPassword }),
 
   // 修改状态
-  updateStatus: (id: number, status: number) =>
+  updateStatus: (id: string, status: number) =>
     request.put<any, void>(`/user/${id}/status`, { status }),
 
   // 分配角色
-  assignRoles: (userId: number, roleIds: number[]) =>
+  assignRoles: (userId: string, roleIds: string[]) =>
     request.post<any, void>(`/user/${userId}/roles`, { roleIds })
 }
 
 // ==================== 角色相关 ====================
 
 export interface Role {
-  id: number
+  id: string
   roleCode: string
   roleName: string
   description: string
@@ -111,11 +111,11 @@ export interface Role {
 }
 
 export interface Permission {
-  id: number
+  id: string
   permissionCode: string
   permissionName: string
   permissionType: string
-  parentId: number
+  parentId: string
   path: string
   component: string
   icon: string
@@ -133,7 +133,7 @@ export const roleApi = {
     request.get<any, PageResult<Role>>('/role/list', { params }),
 
   // 获取角色详情
-  getRole: (id: number) =>
+  getRole: (id: string) =>
     request.get<any, Role>(`/role/${id}`),
 
   // 创建角色
@@ -145,11 +145,11 @@ export const roleApi = {
     request.put<any, Role>('/role', data),
 
   // 删除角色
-  deleteRole: (id: number) =>
+  deleteRole: (id: string) =>
     request.delete<any, void>(`/role/${id}`),
 
   // 分配权限
-  assignPermissions: (roleId: number, permissionIds: number[]) =>
+  assignPermissions: (roleId: string, permissionIds: string[]) =>
     request.post<any, void>(`/role/${roleId}/permissions`, { permissionIds }),
 
   // 获取所有权限树
@@ -160,10 +160,10 @@ export const roleApi = {
 // ==================== 部门相关 ====================
 
 export interface Department {
-  id: number
+  id: string
   deptName: string
   deptCode: string
-  parentId: number
+  parentId: string
   parentName: string
   leader: string
   phone: string
@@ -180,7 +180,7 @@ export const departmentApi = {
     request.get<any, Department[]>('/department/tree'),
 
   // 获取部门列表
-  getDepartments: (params?: { parentId?: number }) =>
+  getDepartments: (params?: { parentId?: string }) =>
     request.get<any, Department[]>('/department/list', { params }),
 
   // 创建部门
@@ -192,6 +192,6 @@ export const departmentApi = {
     request.put<any, Department>('/department', data),
 
   // 删除部门
-  deleteDepartment: (id: number) =>
+  deleteDepartment: (id: string) =>
     request.delete<any, void>(`/department/${id}`)
 }

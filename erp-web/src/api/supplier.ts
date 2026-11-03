@@ -15,7 +15,7 @@ request.interceptors.response.use(
 )
 
 export interface Supplier {
-  id: number
+  id: string
   name: string
   contactPerson: string
   phone: string
@@ -37,9 +37,9 @@ export interface Supplier {
 }
 
 export interface PurchaseOrder {
-  id: number
+  id: string
   orderNo: string
-  supplierId: number
+  supplierId: string
   supplierName: string
   status: string
   totalAmount: number
@@ -49,7 +49,7 @@ export interface PurchaseOrder {
   actualArrivalAt: string
   paymentMethod: string
   paymentStatus: string
-  purchaserId: number
+  purchaserId: string
   purchaserName: string
   remark: string
   createTime: string
@@ -57,8 +57,8 @@ export interface PurchaseOrder {
 }
 
 export interface PurchaseOrderItem {
-  id: number
-  orderId: number
+  id: string
+  orderId: string
   productName: string
   sku: string
   category?: string
@@ -81,8 +81,8 @@ export interface PurchaseOrderItem {
  *    之前前端类型写错了 → 绩效评分卡永远显示 0.0。
  */
 export interface SupplierEvaluation {
-  id: number
-  supplierId: number
+  id: string
+  supplierId: string
   qualityScore: number
   deliveryScore: number
   priceScore: number
@@ -97,7 +97,7 @@ export interface SupplierEvaluation {
   /** 改进建议 */
   improvements?: string
   remark?: string
-  evaluatorId?: number
+  evaluatorId?: string
   /** 评估人（后端字段是 evaluatorName，不是 evaluateBy） */
   evaluatorName?: string
   evaluateAt?: string
@@ -137,7 +137,7 @@ export const supplierApi = {
     request.post<any, number>('/supplier/create', data),
 
   // 获取供应商详情
-  getSupplierById: (id: number) => 
+  getSupplierById: (id: string) => 
     request.get<any, Supplier>(`/supplier/${id}`),
 
   // 分页查询供应商
@@ -156,11 +156,11 @@ export const supplierApi = {
     request.get<any, SupplierStats>('/supplier/stats'),
 
   // 更新供应商
-  updateSupplier: (id: number, data: Supplier) => 
+  updateSupplier: (id: string, data: Supplier) => 
     request.put<any, void>(`/supplier/${id}`, data),
 
   // 删除供应商
-  deleteSupplier: (id: number) => 
+  deleteSupplier: (id: string) => 
     request.delete<any, void>(`/supplier/${id}`),
 
   // ========== 采购订单管理 ==========
@@ -170,41 +170,41 @@ export const supplierApi = {
     request.post<any, number>('/supplier/purchase/create', data),
 
   // 获取采购订单详情
-  getPurchaseOrderById: (id: number) => 
+  getPurchaseOrderById: (id: string) => 
     request.get<any, PurchaseOrder>(`/supplier/purchase/${id}`),
 
   // 分页查询采购订单
   getPurchaseOrderList: (params: {
     current: number
     size: number
-    supplierId?: number
+    supplierId?: string
     status?: string
     paymentStatus?: string
   }) => request.get<any, PageResult<PurchaseOrder>>('/supplier/purchase/list', { params }),
 
   // 更新采购订单状态
-  updatePurchaseOrderStatus: (id: number, status: string) => 
+  updatePurchaseOrderStatus: (id: string, status: string) => 
     request.put<any, void>(`/supplier/purchase/${id}/status`, null, { params: { status } }),
 
   // 删除采购订单
-  deletePurchaseOrder: (id: number) => 
+  deletePurchaseOrder: (id: string) => 
     request.delete<any, void>(`/supplier/purchase/${id}`),
 
   // 采购单明细
-  getPurchaseOrderItems: (id: number) =>
+  getPurchaseOrderItems: (id: string) =>
     request.get<any, PurchaseOrderItem[]>(`/supplier/purchase/${id}/items`),
 
   // ========== 采购单状态机 ==========
   // PENDING → APPROVED → PURCHASING → RECEIVED，任意未终态可 CANCELLED
-  approvePurchaseOrder: (id: number) =>
+  approvePurchaseOrder: (id: string) =>
     request.post<any, void>(`/supplier/purchase/${id}/approve`),
-  markPurchaseOrderPurchasing: (id: number) =>
+  markPurchaseOrderPurchasing: (id: string) =>
     request.post<any, void>(`/supplier/purchase/${id}/purchasing`),
-  markPurchaseOrderReceived: (id: number) =>
+  markPurchaseOrderReceived: (id: string) =>
     request.post<any, void>(`/supplier/purchase/${id}/received`),
-  cancelPurchaseOrder: (id: number, reason?: string) =>
+  cancelPurchaseOrder: (id: string, reason?: string) =>
     request.post<any, void>(`/supplier/purchase/${id}/cancel`, null, { params: { reason } }),
-  payPurchaseOrder: (id: number, amount: number) =>
+  payPurchaseOrder: (id: string, amount: number) =>
     request.post<any, void>(`/supplier/purchase/${id}/payment`, null, { params: { amount } }),
 
   // ========== 供应商绩效评估 ==========
@@ -215,20 +215,20 @@ export const supplierApi = {
    * 📌 后端 `/supplier/evaluation/list` 支持 supplierId / conclusion 两个可选过滤，
    *    返回**裸数组**（不是分页对象）。
    */
-  getEvaluationList: (params?: { supplierId?: number; conclusion?: string }) =>
+  getEvaluationList: (params?: { supplierId?: string; conclusion?: string }) =>
     request.get<any, SupplierEvaluation[]>('/supplier/evaluation/list', { params }),
 
   // 获取单条评估详情
-  getEvaluationDetail: (id: number) =>
+  getEvaluationDetail: (id: string) =>
     request.get<any, SupplierEvaluation>(`/supplier/evaluation/${id}`),
 
   // 获取某个供应商的全部评估记录
-  getEvaluationsBySupplier: (supplierId: number) =>
+  getEvaluationsBySupplier: (supplierId: string) =>
     request.get<any, SupplierEvaluation[]>(`/supplier/evaluation/supplier/${supplierId}`),
 
   // 获取某个供应商的**最近一次**评估
   // ⚠️ 后端返回的是**一条评价记录**，不是聚合的评分统计对象。
-  getLatestEvaluation: (supplierId: number) =>
+  getLatestEvaluation: (supplierId: string) =>
     request.get<any, SupplierEvaluation>(`/supplier/evaluation/supplier/${supplierId}/latest`),
 
   // 创建供应商评估
@@ -236,7 +236,7 @@ export const supplierApi = {
     request.post<any, number>('/supplier/evaluation/create', data),
 
   // 删除评估记录
-  deleteEvaluation: (id: number) =>
+  deleteEvaluation: (id: string) =>
     request.delete<any, void>(`/supplier/evaluation/${id}`),
 
   // ========== 采购统计 / 在途 ==========
@@ -255,5 +255,5 @@ export const supplierApi = {
 
   /** 采购单下拉用的精简供应商列表（返回 [{id, name, code}]） */
   getPurchaseSupplierOptions: () =>
-    request.get<any, Array<{ id: number; name: string; code: string }>>('/purchase/suppliers'),
+    request.get<any, Array<{ id: string; name: string; code: string }>>('/purchase/suppliers'),
 }

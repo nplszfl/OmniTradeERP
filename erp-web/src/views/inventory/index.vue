@@ -300,13 +300,13 @@ let warehouseChart: echarts.ECharts | null = null
 const pagination = reactive({ current: 1, size: 20, total: 0 })
 
 // 筛选
-const filterForm = reactive({ warehouseId: null as number | null, skuCode: '', status: '' })
+const filterForm = reactive({ warehouseId: null as string | null, skuCode: '', status: '' })
 
 // 调整对话框
 const adjustDialogVisible = ref(false)
 const adjustFormRef = ref()
 const adjustForm = reactive({
-  id: undefined as number | undefined,
+  id: undefined as string | undefined,
   skuCode: '',
   warehouseName: '',
   currentQty: 0,
@@ -325,12 +325,12 @@ const adjustRules = {
 const transferDialogVisible = ref(false)
 const transferFormRef = ref()
 const transferForm = reactive({
-  fromInventoryId: null as number | null,
+  fromInventoryId: null as string | null,
   skuCode: '',
   fromWarehouseName: '',
   availableQty: 0,
-  toWarehouseId: null as number | null,
-  toLocationId: null as number | null,
+  toWarehouseId: null as string | null,
+  toLocationId: null as string | null,
   quantity: 1,
   remark: ''
 })
@@ -518,7 +518,7 @@ const handleTransfer = (row: Inventory) => {
   transferDialogVisible.value = true
 }
 
-const handleToWarehouseChange = async (warehouseId: number) => {
+const handleToWarehouseChange = async (warehouseId: string) => {
   try {
     const res = await warehouseApi.getLocations(warehouseId)
     toLocations.value = res?.filter((l: WarehouseLocation) => l.status === 1) || []

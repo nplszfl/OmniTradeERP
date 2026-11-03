@@ -15,7 +15,7 @@ request.interceptors.response.use(
 )
 
 export interface PlatformConfig {
-  id: number
+  id: string
   platform: string
   shopId: string
   shopName: string
@@ -46,10 +46,10 @@ export const platformApi = {
     request.post('/platform/config', config),
 
   // 删除平台配置
-  deleteConfig: (id: number) => request.delete(`/platform/config/${id}`),
+  deleteConfig: (id: string) => request.delete(`/platform/config/${id}`),
 
   // 测试连接
-  testConnection: (id: number) => request.post(`/platform/config/${id}/test`),
+  testConnection: (id: string) => request.post(`/platform/config/${id}/test`),
 
   // 同步订单
   syncOrders: (platform: string, shopId: string) =>

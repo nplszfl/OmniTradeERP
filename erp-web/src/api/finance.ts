@@ -17,7 +17,7 @@ request.interceptors.response.use(
 // ==================== 账户相关 ====================
 
 export interface FinanceAccount {
-  id: number
+  id: string
   accountNo: string
   accountName: string
   accountType: string
@@ -43,24 +43,24 @@ export const financeAccountApi = {
     request.put<any, FinanceAccount>('/finance/account', data),
 
   // 删除账户
-  deleteAccount: (id: number) =>
+  deleteAccount: (id: string) =>
     request.delete<any, void>(`/finance/account/${id}`),
 
   // 设置默认账户
-  setDefault: (id: number) =>
+  setDefault: (id: string) =>
     request.post<any, void>(`/finance/account/${id}/default`)
 }
 
 // ==================== 收支记录相关 ====================
 
 export interface FinanceFlow {
-  id: number
+  id: string
   recordNo: string
   type: string
   amount: number
-  accountId: number
+  accountId: string
   accountName: string
-  categoryId: number
+  categoryId: string
   categoryName: string
   orderNo: string
   remark: string
@@ -71,9 +71,9 @@ export interface FinanceFlow {
 export interface FinanceFlowQuery {
   current: number
   size: number
-  accountId?: number
+  accountId?: string
   type?: string
-  categoryId?: number
+  categoryId?: string
   startDate?: string
   endDate?: string
   keyword?: string
@@ -108,7 +108,7 @@ export const financeFlowApi = {
     request.get<any, { current: number; size: number; total: number; records: FinanceFlow[] }>('/finance/flow/list', { params }),
 
   // 获取流水详情
-  getFlowDetail: (id: number) =>
+  getFlowDetail: (id: string) =>
     request.get<any, FinanceFlow>(`/finance/flow/${id}`),
 
   // 创建流水
@@ -120,7 +120,7 @@ export const financeFlowApi = {
     request.put<any, FinanceFlow>('/finance/flow', data),
 
   // 删除流水
-  deleteFlow: (id: number) =>
+  deleteFlow: (id: string) =>
     request.delete<any, void>(`/finance/flow/${id}`),
 
   // 获取趋势数据
@@ -135,10 +135,10 @@ export const financeFlowApi = {
 // ==================== 分类相关 ====================
 
 export interface FinanceCategory {
-  id: number
+  id: string
   name: string
   type: string
-  parentId: number
+  parentId: string
   sort: number
   status: number
 }
@@ -157,6 +157,6 @@ export const financeCategoryApi = {
     request.put<any, FinanceCategory>('/finance/category', data),
 
   // 删除分类
-  deleteCategory: (id: number) =>
+  deleteCategory: (id: string) =>
     request.delete<any, void>(`/finance/category/${id}`)
 }

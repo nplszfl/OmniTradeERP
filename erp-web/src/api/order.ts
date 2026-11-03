@@ -16,7 +16,7 @@ request.interceptors.response.use(
 )
 
 export interface Order {
-  id: number
+  id: string
   platform: string
   platformOrderNo: string
   internalOrderNo: string
@@ -52,8 +52,8 @@ export interface Order {
 }
 
 export interface OrderItem {
-  id: number
-  orderId: number
+  id: string
+  orderId: string
   platformProductId: string
   internalProductId: string
   platformSku: string
@@ -96,7 +96,7 @@ export interface OrderQueryRequest {
 
 // 批量操作请求
 export interface OrderBatchRequest {
-  orderIds: number[]
+  orderIds: string[]
   operation?: string
   targetStatus?: string
   trackingNumber?: string
@@ -162,14 +162,14 @@ export const orderApi = {
     request.post<any, PageResult<Order>>('/order/advanced/list', data),
 
   // 获取订单详情
-  getOrder: (orderId: number) => request.get<any, Order>(`/order/${orderId}`),
+  getOrder: (orderId: string) => request.get<any, Order>(`/order/${orderId}`),
 
   // 更新订单状态
-  updateStatus: (orderId: number, status: string) =>
+  updateStatus: (orderId: string, status: string) =>
     request.put(`/order/${orderId}/status`, null, { params: { status } }),
 
   // 更新物流信息
-  updateShipping: (orderId: number, trackingNumber: string, logisticsCompany: string) =>
+  updateShipping: (orderId: string, trackingNumber: string, logisticsCompany: string) =>
     request.put(`/order/${orderId}/shipping`, null, {
       params: { trackingNumber, logisticsCompany }
     }),
@@ -242,6 +242,6 @@ export const orderApi = {
     request.post<any, Record<string, number>>('/order/statistics/by-platform', data),
 
   // 获取订单商品明细
-  getOrderItems: (orderId: number) => 
+  getOrderItems: (orderId: string) => 
     request.get<any, OrderItem[]>(`/order/${orderId}/items`)
 }

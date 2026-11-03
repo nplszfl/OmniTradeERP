@@ -3,3 +3,4 @@ com.crossborder.erp.common.config.CommonWebAutoConfiguration
 com.crossborder.erp.common.config.CommonFeignAutoConfiguration
 com.crossborder.erp.common.config.CommonRedisAutoConfiguration
 com.crossborder.erp.common.config.CommonMetricsAutoConfiguration
+com.crossborder.erp.common.config.CommonJacksonAutoConfiguration

@@ -1,9 +1,9 @@
 import request from './index'
 
 export interface PurchaseOrder {
-  id: number
+  id: string
   poNo: string
-  supplierId: number
+  supplierId: string
   supplierName: string
   totalAmount: number
   currencyCode: string
@@ -15,10 +15,10 @@ export interface PurchaseOrder {
 
 export const purchaseApi = {
   list:    (params: any) => request.get<any, PurchaseOrder[]>('/purchase/orders', { params }),
-  detail:  (id: number)  => request.get<any, PurchaseOrder>(`/purchase/orders/${id}`),
+  detail:  (id: string)  => request.get<any, PurchaseOrder>(`/purchase/orders/${id}`),
   create:  (data: any)   => request.post<any, any>('/purchase/orders', data),
-  approve: (id: number)  => request.post<any, any>(`/purchase/orders/${id}/approve`),
-  cancel:  (id: number, reason: string) => request.post<any, any>(`/purchase/orders/${id}/cancel`, { reason }),
-  receive: (id: number)  => request.post<any, any>(`/purchase/orders/${id}/receive`),
+  approve: (id: string)  => request.post<any, any>(`/purchase/orders/${id}/approve`),
+  cancel:  (id: string, reason: string) => request.post<any, any>(`/purchase/orders/${id}/cancel`, { reason }),
+  receive: (id: string)  => request.post<any, any>(`/purchase/orders/${id}/receive`),
   suppliers: () => request.get<any, any[]>('/purchase/suppliers'),
 }
