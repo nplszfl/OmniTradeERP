@@ -96,32 +96,89 @@ def collect_uses(data):
 
 
 def gh_api(path):
-    """用 gh CLI 调 GitHub API（已登录，无需手写 token）。"""
-    r = subprocess.run(
-        ["gh", "api", path],
-        capture_output=True, text=True, timeout=60)
-    if r.returncode != 0:
-        return None
+    """调 GitHub API。
+
+    📌 **认证方式按优先级回退**：
+    1. `GH_TOKEN` / `GITHUB_TOKEN` 环境变量（**CI 里就是 `GITHUB_TOKEN`**）
+    2. 已登录的 `gh` CLI（本地开发）
+    3. 匿名请求（只能查公开仓库，且**限流很严** —— 60 次/小时）
+
+    📌 **实测踩坑（2026-11-04 CI）**：
+    脚本原本只用 `gh` CLI → CI runner 上 gh **没登录** → 请求全部失败 →
+    → 每个 action 都被判成「查不到这个 repo」→ `--strict` 直接失败。
+    📌 而这**不是**仓库不存在，是**认证缺失** → 两件事不能混为一谈。
+    """
+    env = dict(os.environ)
+    token = env.get("GH_TOKEN") or env.get("GITHUB_TOKEN")
+
+    # 1) 带 token 的原生 HTTPS 请求（最可靠，CI 里一定可用）
+    if token:
+        try:
+            req = urllib.request.Request(
+                f"https://api.github.com{path}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": "omni-erp-ci-gate",
+                })
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            pass
+
+    # 2) 已登录的 gh CLI（本地开发）
+    #    📌 注意：CI runner 上**可能压根没装 gh**，且没登录 ——
+    #    `subprocess.run` 找不到可执行文件会抛 FileNotFoundError，
+    #    **必须捕获**，否则整个脚本崩掉（而不是降级到匿名请求）。
     try:
-        return json.loads(r.stdout)
+        r = subprocess.run(
+            ["gh", "api", path],
+            capture_output=True, text=True, timeout=60, env=env)
+        if r.returncode == 0:
+            try:
+                return json.loads(r.stdout)
+            except Exception:
+                return None
+    except (FileNotFoundError, OSError):
+        pass
+
+    # 3) 匿名请求（公开仓库仍可查）
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com{path}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "omni-erp-ci-gate",
+            })
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8"))
     except Exception:
         return None
 
 
 def get_refs(repo):
-    """返回 (tags集合, branches集合)"""
+    """返回 (tags集合, branches集合, repo是否存在)"""
     tags = set()
     branches = set()
+    exists = None
 
     t = gh_api(f"repos/{repo}/tags?per_page=100")
     if isinstance(t, list):
         tags |= {x["name"] for x in t if "name" in x}
+        exists = True
 
     b = gh_api(f"repos/{repo}/branches?per_page=100")
     if isinstance(b, list):
         branches |= {x["name"] for x in b if "name" in x}
+        exists = True
 
-    return tags, branches
+    # 📌 直接查 repo 本身：**存在但没 tag/branch** 也是合法情况，
+    #    与「查不到这个 repo」是两回事（后者 = 拼错或没权限）。
+    meta = gh_api(f"repos/{repo}")
+    if isinstance(meta, dict) and meta.get("full_name"):
+        exists = True
+
+    return tags, branches, exists
 
 
 def get_action_yaml(repo, ref):
@@ -211,19 +268,23 @@ def main():
 
             if repo not in refs:
                 refs[repo] = get_refs(repo)
-            tags, branches = refs[repo]
-            if not tags and not branches:
-                # 📌 查不到这个 repo（不存在 / 私有 / 限流）
-                #    ⚠️ **不能直接放过** —— 「静默跳过 = 假装检查过了」
-                #    （本项目已反复吃亏这个病）
-                #    --strict 下**直接判失败**，否则至少要显眼地报出来。
+            tags, branches, exists = refs[repo]
+            if exists is None:
+                # 📌 **API 查不动**（限流 / 没认证 / 网络不通）
+                #    ⚠️ 这和「repo 不存在」是**两回事** —— 混为一谈就会误报。
+                #    📌 实测踩坑（2026-11-04 CI）：CI 上没有认证 → 每个 action 都被
+                #       误判成「不存在」→ --strict 直接失败 → 而它们全都在。
+                #    ✅ 修法：优先用 GITHUB_TOKEN（CI 里一定有）。
+                #    ✅ 仍然查不到时：**不判失败**，但要显眼地报出来
+                #       （「静默跳过 = 假装检查过了」—— 本项目反复吃亏这个病）。
                 unknown.append((fn, repo, ref))
-                if strict:
-                    errors.append(
-                        f"[{fn}] `{repo}@{ref}` —— **GitHub 上查不到这个 repo**\n"
-                        f"      → 要么 repo 不存在（拼错），要么 API 限流/无权限\n"
-                        f"      → GitHub 会报 Unable to resolve action，**整个 job 一个 step 都不跑**"
-                    )
+                continue
+            if not exists:
+                errors.append(
+                    f"[{fn}] `{repo}@{ref}` —— **GitHub 上没有这个 repo**\n"
+                    f"      → repo 名拼错了\n"
+                    f"      → GitHub 会报 Unable to resolve action，**整个 job 一个 step 都不跑**"
+                )
                 continue
 
             checked += 1
@@ -264,8 +325,8 @@ def main():
                     continue
                 if nrepo not in refs:
                     refs[nrepo] = get_refs(nrepo)
-                ntags, nbranches = refs[nrepo]
-                if not ntags and not nbranches:
+                ntags, nbranches, nexists = refs[nrepo]
+                if nexists is None:
                     unknown.append((f"{fn} → {repo}@{ref}", nrepo, nref))
                     continue
                 nested_checked += 1
@@ -291,6 +352,20 @@ def main():
         print()
         print("📌 **这类错误本地永远看不出来** —— YAML 合法，但 GitHub 拉不到 action")
         print("   → 挂的是 \"Set up job\" 阶段 → **一个 step 都没跑** → 整个 job 死")
+        return 1
+
+    if strict and unknown:
+        # 📌 **strict 模式下「查不到」必须算失败** ——
+        #    「没能核对」和「核对过没问题」是**两回事**。
+        #    📌 本项目反复吃亏同一个病：**静默跳过 = 假装检查过了** ——
+        #       闸门在 CI 里跑，API 限流了 → 一片 action 没查 → 闸门报绿
+        #       → 真正的坏引用从旁边溜过去（本轮就差点这样：
+        #          上一版脚本把「API 限流」和「repo 不存在」混为一谈 → 误报）。
+        #    ✅ 正确做法：**传 GITHUB_TOKEN**（5000 次/小时，不容易被限流）
+        #       + strict 下查不到就红 → 既不误报，也不放过盲区。
+        print("🔴 strict 模式下有未能核对的引用 —— **本轮巡检存在盲区**，判失败\n")
+        print("   → 多数情况是 API 限流或没配 GITHUB_TOKEN")
+        print("   → 修法：给这个 step 传 `env: GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}`")
         return 1
 
     if offline:

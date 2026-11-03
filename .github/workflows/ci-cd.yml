@@ -159,6 +159,15 @@ jobs:
     #    → **整个 job 一个 step 都没跑**
     #    📌 本项目实测：code-quality.yml 的 Security Scan job 连续几个月都是这么挂的。
     - name: Action 版本存在性（联网核对真实 tag/branch）
+      # 📌 **必须显式传 GITHUB_TOKEN** ——
+      #    匿名请求 GitHub API 只有 **60 次/小时**，而 GitHub Actions runner
+      #    的出口 IP 是**大量 workflow 共享**的 → 几乎必然被限流
+      #    → API 查不到 → 闸门把每个 action 都判成「不存在」→ **误报**
+      #    （实测：CI 上这个闸门把 azure/setup-kubectl 和 trivy-action 全判成不存在，
+      #      而它们都在 —— 真去 GitHub 上看是有 tag 的）
+      #    → 带 token 是 5000 次/小时，且能查私有仓库。
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         python3 scripts/check-action-versions.py --deep --strict
         python3 scripts/gen-dockerfiles.py --check

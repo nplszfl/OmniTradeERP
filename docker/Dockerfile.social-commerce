@@ -22,8 +22,24 @@ COPY . .
 # 📌 BuildKit cache mount：~/.m2 跨构建复用，依赖不用重复下载
 #    （原来靠「先铺 pom 再 go-offline」分层，但那个 trick 在本项目必然失败）
 # 📌 只构建目标模块及其依赖，不做全 reactor 构建
+#
+# 📌 **重试 3 次** —— 镜像源会偶发 502 / 超时，那是**基础设施抖动**，不是代码问题：
+#      Could not transfer artifact com.alibaba.csp:sentinel-transport-common:jar:1.8.6
+#        from/to aliyun (https://maven.aliyun.com/repository/central):
+#        status code: 502, reason phrase: Bad Gateway (502)
+#    📌 实测：CI 上整个 Build Docker Images job 因此挂掉，
+#       而那个 artifact 几分钟后就能正常下载（HTTP 200）——
+#       **一次抖动就把整轮镜像构建废了**。
+#    ✅ 重试 + 退避，且**最后一次失败仍然让构建失败**（不能把失败吞掉）。
 RUN --mount=type=cache,target=/root/.m2/repository \
-    mvn -B clean package -DskipTests -pl erp-social-commerce-service -am
+    set -e; \
+    for i in 1 2 3; do \
+      if mvn -B clean package -DskipTests -pl erp-social-commerce-service -am; then exit 0; fi; \
+      echo "::warning::Maven 构建第 $i 次失败（镜像源抖动？），30s 后重试"; \
+      sleep 30; \
+    done; \
+    echo "::error::Maven 构建重试 3 次仍失败"; \
+    exit 1
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app

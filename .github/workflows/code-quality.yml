@@ -62,6 +62,13 @@ jobs:
     # 📌 后续补的巡检也要进来 —— **闸门不跑 = 不存在**，
     #    之前只跑前 6 个，后 10 个的盲区就是这么活下来的。
     - name: 结构/可启动性巡检
+      # 📌 **必须显式传 GITHUB_TOKEN** ——
+      #    匿名请求 GitHub API 只有 **60 次/小时**，而 GitHub Actions runner
+      #    的出口 IP 是**大量 workflow 共享**的 → 几乎必然被限流
+      #    → API 查不到 → 闸门把每个 action 都判成「不存在」→ **误报**
+      #    → 带 token 是 5000 次/小时，且能查私有仓库。
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         python3 scripts/check-boot-main-class.py
         python3 scripts/check-dead-endpoints.py
