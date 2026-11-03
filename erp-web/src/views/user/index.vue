@@ -316,6 +316,7 @@ import {
   userApi, roleApi, departmentApi, 
   type SysUser, type Role, type Department, type Permission 
 } from '@/api/user'
+import { unwrapPage } from '@/utils/response'
 
 const activeTab = ref('user')
 
@@ -330,7 +331,7 @@ const userDialogTitle = ref('添加用户')
 const userFormRef = ref()
 const userSubmitLoading = ref(false)
 const userForm = reactive({
-  id: null as number | null,
+  id: undefined as number | undefined,
   username: '',
   realName: '',
   email: '',
@@ -365,7 +366,7 @@ const roleFormDialogTitle = ref('添加角色')
 const roleFormRef = ref()
 const roleFormSubmitLoading = ref(false)
 const roleForm = reactive({
-  id: null as number | null,
+  id: undefined as number | undefined,
   roleCode: '',
   roleName: '',
   description: '',
@@ -394,8 +395,8 @@ const deptDialogTitle = ref('添加部门')
 const deptFormRef = ref()
 const deptSubmitLoading = ref(false)
 const deptForm = reactive({
-  id: null as number | null,
-  parentId: null as number | null,
+  id: undefined as number | undefined,
+  parentId: undefined as number | undefined,
   parentName: '',
   deptCode: '',
   deptName: '',
@@ -420,7 +421,7 @@ const loadUsers = async () => {
       ...userFilterForm
     }
     const res = await userApi.getUsers(params)
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     userList.value = pageData.records || []
     userPagination.total = pageData.total || 0
   } catch (error) {
@@ -445,7 +446,7 @@ const loadRoles = async () => {
   roleLoading.value = true
   try {
     const res = await roleApi.getRoleList({ current: 1, size: 100 })
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     roleList.value = pageData.records || []
   } catch (error) {
     console.error('加载角色列表失败:', error)
@@ -494,7 +495,7 @@ const handleUserReset = () => {
 
 const handleAddUser = () => {
   userDialogTitle.value = '添加用户'
-  userForm.id = null
+  userForm.id = undefined
   userForm.username = ''
   userForm.realName = ''
   userForm.email = ''
@@ -580,7 +581,7 @@ const handleRoleSubmit = async () => {
 // ========== 角色操作 ==========
 const handleAddRole = () => {
   roleFormDialogTitle.value = '添加角色'
-  roleForm.id = null
+  roleForm.id = undefined
   roleForm.roleCode = ''
   roleForm.roleName = ''
   roleForm.description = ''
@@ -675,8 +676,8 @@ const handlePermSubmit = async () => {
 // ========== 部门操作 ==========
 const handleAddDept = () => {
   deptDialogTitle.value = '添加部门'
-  deptForm.id = null
-  deptForm.parentId = null
+  deptForm.id = undefined
+  deptForm.parentId = undefined
   deptForm.parentName = ''
   deptForm.deptCode = ''
   deptForm.deptName = ''

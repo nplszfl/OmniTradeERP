@@ -154,6 +154,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, RefreshLeft } from '@element-plus/icons-vue'
 import { orderApi, type Order } from '@/api/order'
 import dayjs from 'dayjs'
+import { unwrapPage } from '@/utils/response'
 
 const loading = ref(false)
 const orderList = ref<Order[]>([])
@@ -188,7 +189,7 @@ const loadOrders = async () => {
       platform: searchForm.platform || undefined,
       status: searchForm.status || undefined
     })
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     orderList.value = pageData.records || []
     pagination.total = pageData.total || 0
   } catch (error) {

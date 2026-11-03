@@ -354,6 +354,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, RefreshLeft, ArrowDown } from '@element-plus/icons-vue'
 import { orderApi, type Order, type OrderItem, type OrderQueryRequest, type OrderExportResponse } from '@/api/order'
 import dayjs from 'dayjs'
+import { unwrapPage } from '@/utils/response'
 
 const loading = ref(false)
 const itemsLoading = ref(false)
@@ -440,7 +441,7 @@ const loadOrders = async () => {
     searchForm.size = pagination.size
     
     const res = await orderApi.advancedQuery(searchForm)
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     orderList.value = pageData.records || []
     pagination.total = pageData.total || 0
   } catch (error) {

@@ -362,6 +362,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus, Check, Warning, WarningFilled, CircleClose, CircleCheck } from '@element-plus/icons-vue'
 import { inventoryAlertApi, type InventoryAlertRule, type InventoryAlert, type ReplenishmentSuggestion, type AlertStatistics } from '@/api/inventory-alert'
 import dayjs from 'dayjs'
+import { unwrapPage } from '@/utils/response'
 
 const activeTab = ref('rules')
 const ruleLoading = ref(false)
@@ -437,7 +438,7 @@ const loadRules = async () => {
       warehouseId: ruleSearchForm.warehouseId || undefined,
       enabled: ruleSearchForm.enabled
     })
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     ruleList.value = pageData.records || []
     rulePagination.total = pageData.total || 0
   } catch (error) {
@@ -458,7 +459,7 @@ const loadAlerts = async () => {
       alertType: alertSearchForm.alertType || undefined,
       status: alertSearchForm.status || undefined
     })
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     alertList.value = pageData.records || []
     alertPagination.total = pageData.total || 0
   } catch (error) {
@@ -478,7 +479,7 @@ const loadReplenishments = async () => {
       warehouseId: replenishSearchForm.warehouseId || undefined,
       status: replenishSearchForm.status || undefined
     })
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     replenishmentList.value = pageData.records || []
     replenishPagination.total = pageData.total || 0
   } catch (error) {

@@ -59,6 +59,7 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
+import { unwrap } from '@/utils/response'
 
 const router = useRouter()
 const formRef = ref()
@@ -80,7 +81,9 @@ const handleLogin = async () => {
     loading.value = true
 
     const res = await axios.post('/api/auth/login', loginForm)
-    const { token, userInfo } = res.data.data
+    // 这里用的是裸 axios（没走拦截器），所以 res.data 才是响应体；
+    // unwrap 负责剥掉 Result 外壳（/auth/login 返回 Result<LoginResponse>）。
+    const { token, userInfo } = unwrap<{ token: string; userInfo: any }>(res.data)
 
     localStorage.setItem('token', token)
     localStorage.setItem('userInfo', JSON.stringify(userInfo))

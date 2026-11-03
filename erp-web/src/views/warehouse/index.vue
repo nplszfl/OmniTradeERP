@@ -228,6 +228,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, Refresh } from '@element-plus/icons-vue'
 import { warehouseApi, type Warehouse, type WarehouseLocation } from '@/api/warehouse'
+import { unwrapPage } from '@/utils/response'
 
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -250,7 +251,7 @@ const filterForm = reactive({
 
 // 表单数据
 const form = reactive({
-  id: null as number | null,
+  id: undefined as number | undefined,
   warehouseCode: '',
   warehouseName: '',
   warehouseType: 'main',
@@ -285,8 +286,8 @@ const locationFormRef = ref()
 const locationSubmitLoading = ref(false)
 
 const locationForm = reactive({
-  id: null as number | null,
-  warehouseId: null as number | null,
+  id: undefined as number | undefined,
+  warehouseId: undefined as number | undefined,
   locationCode: '',
   locationType: 'shelf',
   zone: '',
@@ -311,7 +312,7 @@ const loadWarehouses = async () => {
       keyword: filterForm.keyword
     }
     const res = await warehouseApi.getWarehouseList(params)
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     warehouseList.value = pageData.records || []
     pagination.total = pageData.total || 0
   } catch (error) {
@@ -336,7 +337,7 @@ const handleReset = () => {
 // 添加仓库
 const handleAdd = () => {
   dialogTitle.value = '添加仓库'
-  form.id = null
+  form.id = undefined
   form.warehouseCode = ''
   form.warehouseName = ''
   form.warehouseType = 'main'
@@ -430,8 +431,8 @@ const loadLocations = async (warehouseId: number) => {
 
 const handleAddLocation = () => {
   locationFormTitle.value = '添加库位'
-  locationForm.id = null
-  locationForm.warehouseId = currentWarehouse.value?.id || null
+  locationForm.id = undefined
+  locationForm.warehouseId = currentWarehouse.value?.id ?? undefined
   locationForm.locationCode = ''
   locationForm.locationType = 'shelf'
   locationForm.zone = ''

@@ -396,6 +396,7 @@ import { ElMessage } from 'element-plus'
 import { Search, Refresh, Plus, OfficeBuilding, CircleCheck, Star, Money } from '@element-plus/icons-vue'
 import { supplierApi, type Supplier, type PurchaseOrder, type SupplierStats } from '@/api/supplier'
 import dayjs from 'dayjs'
+import { unwrapPage } from '@/utils/response'
 
 const activeTab = ref('supplier')
 const loading = ref(false)
@@ -502,7 +503,7 @@ const loadSuppliers = async () => {
       level: searchForm.level || undefined,
       country: searchForm.country || undefined
     })
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     supplierList.value = pageData.records || []
     pagination.total = pageData.total || 0
   } catch (error) {
@@ -649,7 +650,7 @@ const loadPurchaseOrders = async () => {
       status: purchaseSearchForm.status || undefined,
       paymentStatus: purchaseSearchForm.paymentStatus || undefined
     })
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     purchaseOrderList.value = pageData.records || []
     purchasePagination.total = pageData.total || 0
   } catch (error) {

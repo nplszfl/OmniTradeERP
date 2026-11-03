@@ -72,6 +72,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { tenantApi } from '@/api/tenant'
+import { unwrap } from '@/utils/response'
 
 const tab = ref('list')
 const list = ref<any[]>([])
@@ -101,9 +102,11 @@ onMounted(load)
 async function load() {
   loading.value = true
   try {
-    // 后端返回裸数组（erp-tenant-service 的列表接口不包 Result）
+    // 后端返回裸数组（erp-tenant-service 的列表接口不包 Result）；
+    // 用 unwrap 兼容「裸数组」与「Result 包装」两种约定，后端将来统一包装也不会炸。
     const rows = await tenantApi.list()
-    list.value = Array.isArray(rows) ? rows : (rows?.data ?? [])
+    const payload = unwrap<any[]>(rows)
+    list.value = Array.isArray(payload) ? payload : []
   } catch (e) {
     // ⚠️ 不要再用 mock 数据兜底 —— 接口真的调不通时，页面看着“有数据”实则是假数据。
     //    这里直接暴露错误，让用户知道这个页面是没数据的。

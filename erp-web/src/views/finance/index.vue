@@ -315,6 +315,7 @@ import {
   type FinanceAccount, type FinanceFlow, type FinanceCategory,
   type FinanceStatistics 
 } from '@/api/finance'
+import { unwrapPage } from '@/utils/response'
 
 const loading = ref(false)
 const flowList = ref<FinanceFlow[]>([])
@@ -347,7 +348,7 @@ const pagination = reactive({
 
 // 筛选表单
 const filterForm = reactive({
-  accountId: null as number | null,
+  accountId: undefined as number | undefined,
   type: '',
   dateRange: [] as string[]
 })
@@ -358,7 +359,7 @@ const accountDialogTitle = ref('添加账户')
 const accountFormRef = ref()
 const accountSubmitLoading = ref(false)
 const accountForm = reactive({
-  id: null as number | null,
+  id: undefined as number | undefined,
   accountName: '',
   accountNo: '',
   accountType: 'bank',
@@ -380,11 +381,11 @@ const flowDialogTitle = ref('新增流水')
 const flowFormRef = ref()
 const flowSubmitLoading = ref(false)
 const flowForm = reactive({
-  id: null as number | null,
+  id: undefined as number | undefined,
   type: 'income',
   amount: 0,
-  accountId: null as number | null,
-  categoryId: null as number | null,
+  accountId: undefined as number | undefined,
+  categoryId: undefined as number | undefined,
   orderNo: '',
   remark: ''
 })
@@ -443,7 +444,7 @@ const loadFlows = async () => {
       endDate: filterForm.dateRange?.[1]
     }
     const res = await financeFlowApi.getFlows(params)
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     flowList.value = pageData.records || []
     pagination.total = pageData.total || 0
   } catch (error) {
@@ -542,7 +543,7 @@ const handleSearch = () => {
 
 // 重置
 const handleReset = () => {
-  filterForm.accountId = null
+  filterForm.accountId = undefined
   filterForm.type = ''
   filterForm.dateRange = []
   handleSearch()
@@ -551,7 +552,7 @@ const handleReset = () => {
 // 账户操作
 const handleAddAccount = () => {
   accountDialogTitle.value = '添加账户'
-  accountForm.id = null
+  accountForm.id = undefined
   accountForm.accountName = ''
   accountForm.accountNo = ''
   accountForm.accountType = 'bank'
@@ -616,11 +617,11 @@ const handleDeleteAccount = (row: FinanceAccount) => {
 // 流水操作
 const handleAddFlow = () => {
   flowDialogTitle.value = '新增流水'
-  flowForm.id = null
+  flowForm.id = undefined
   flowForm.type = 'income'
   flowForm.amount = 0
-  flowForm.accountId = null
-  flowForm.categoryId = null
+  flowForm.accountId = undefined
+  flowForm.categoryId = undefined
   flowForm.orderNo = ''
   flowForm.remark = ''
   flowDialogVisible.value = true

@@ -19,17 +19,24 @@ import request from './index'
  * 未实现的接口不要留在这里 —— 留着就是「看着配了、调用就 404」的假配置。
  * 登录也不走这里：前端 Login.vue 用的是 /api/auth/login（erp-user-service）。
  */
+/** `Result<T>` 的最小形状（报表生成接口要读它的 message） */
+export interface ResultLike {
+  code?: number
+  message?: string
+  data?: any
+}
+
 export const tenantApi = {
   /** 租户列表（裸数组，不包 Result） */
-  list:        () => request.get('/tenant/list'),
+  list:        () => request.get<any, any[]>('/tenant/list'),
   /** 租户看板：/tenant/dashboard/trend */
-  dashboard:   () => request.get('/tenant/dashboard/trend'),
+  dashboard:   () => request.get<any, any>('/tenant/dashboard/trend'),
   /** 账单：/tenant/billing/bills */
-  billing:     () => request.get('/tenant/billing/bills'),
+  billing:     () => request.get<any, any>('/tenant/billing/bills'),
   /** 用量：/tenant/usage/current */
-  usage:       () => request.get('/tenant/usage/current'),
+  usage:       () => request.get<any, any>('/tenant/usage/current'),
   /** 套餐与功能开关：/tenant/config/plan */
-  config:      () => request.get('/tenant/config/plan'),
+  config:      () => request.get<any, any>('/tenant/config/plan'),
 }
 
 /**
@@ -41,11 +48,11 @@ export const tenantApi = {
  */
 export const reportApi = {
   /** 报表台账（后端包 Result，取 res.data） */
-  list:    (params: any) => request.get('/report/list', { params }),
+  list:    (params: any) => request.get<any, any[]>('/report/list', { params }),
   /** 生成报表 */
-  generate: (data: any) => request.post('/report/generate', data),
+  generate: (data: any) => request.post<any, ResultLike>('/report/generate', data),
   /** 可用报表模板 */
-  templates: () => request.get('/report/templates'),
+  templates: () => request.get<any, any[]>('/report/templates'),
   /**
    * 导出 Excel
    *

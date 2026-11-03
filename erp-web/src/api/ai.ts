@@ -31,6 +31,21 @@ export interface PriceSuggest {
   strategy: string
 }
 
+export interface AnomalyStats {
+  total: number
+  normal: number
+  anomaly: number
+  rate: number
+}
+
+/** 库存预测明细（后端 PredictionResponse） */
+export interface PredictionDetail {
+  sku?: string
+  productName?: string
+  dailyPredictions?: { date?: string; predictedSales?: number }[]
+  [key: string]: any
+}
+
 export interface DescriptionRequest {
   sku: string
   language: 'zh' | 'en' | 'ja' | 'es'
@@ -49,23 +64,23 @@ export interface InventoryPrediction {
 }
 
 export const anomalyApi = {
-  list: (params: any) => request.get('/v1/anomaly/orders', { params }),
-  detect: (orderId: number) => request.post(`/v1/anomaly/detect/${orderId}`),
-  confirm: (id: number, status: string) => request.post(`/v1/anomaly/${id}/confirm`, { status }),
-  stats: () => request.get('/v1/anomaly/stats'),
+  list: (params: any) => request.get<any, AnomalyOrder[]>('/v1/anomaly/orders', { params }),
+  detect: (orderId: number) => request.post<any, any>(`/v1/anomaly/detect/${orderId}`),
+  confirm: (id: number, status: string) => request.post<any, any>(`/v1/anomaly/${id}/confirm`, { status }),
+  stats: () => request.get<any, AnomalyStats>('/v1/anomaly/stats'),
 }
 
 export const recommendApi = {
-  list: (params: any) => request.get('/v1/recommend', { params }),
-  detail: (sku: string) => request.get(`/v1/recommend/${sku}`),
-  refresh: () => request.post('/v1/recommend/refresh'),
+  list: (params: any) => request.get<any, ProductRecommend[]>('/v1/recommend', { params }),
+  detail: (sku: string) => request.get<any, ProductRecommend>(`/v1/recommend/${sku}`),
+  refresh: () => request.post<any, any>('/v1/recommend/refresh'),
 }
 
 export const pricingApi = {
   suggest: (sku: string) => request.get<any, PriceSuggest>(`/pricing/suggest/${sku}`),
-  history: (sku: string, days = 30) => request.get(`/pricing/history/${sku}`, { params: { days } }),
+  history: (sku: string, days = 30) => request.get<any, any[]>(`/pricing/history/${sku}`, { params: { days } }),
   apply: (sku: string, price: number) => request.post(`/pricing/apply/${sku}`, { price }),
-  listTasks: (params: any) => request.get('/pricing/tasks', { params }),
+  listTasks: (params: any) => request.get<any, any[]>('/pricing/tasks', { params }),
 }
 
 export interface DescriptionResult {
@@ -81,23 +96,23 @@ export interface DescriptionResult {
 
 export const descriptionApi = {
   generate: (data: DescriptionRequest) => request.post<any, DescriptionResult>('/description/generate', data),
-  templates: () => request.get('/description/templates'),
-  history: (params: any) => request.get('/description/history', { params }),
+  templates: () => request.get<any, any[]>('/description/templates'),
+  history: (params: any) => request.get<any, any[]>('/description/history', { params }),
 }
 
 export const inventoryPredictApi = {
-  predict: (sku: string, days = 30) => request.get(`/inventory-prediction/predict/${sku}`, { params: { days } }),
-  listSuggestions: (params: any) => request.get('/inventory-prediction/suggestions', { params }),
-  turnover: (params: any) => request.get('/inventory-prediction/turnover', { params }),
-  tasks: (params: any) => request.get('/inventory-prediction/tasks', { params }),
+  predict: (sku: string, days = 30) => request.get<any, PredictionDetail>(`/inventory-prediction/predict/${sku}`, { params: { days } }),
+  listSuggestions: (params: any) => request.get<any, any[]>('/inventory-prediction/suggestions', { params }),
+  turnover: (params: any) => request.get<any, any>('/inventory-prediction/turnover', { params }),
+  tasks: (params: any) => request.get<any, any[]>('/inventory-prediction/tasks', { params }),
 }
 
 export const aiAssistantApi = {
   chat: (data: { sessionId?: string; message: string }) => request.post<any, { reply: string; sessionId: string }>('/ai/assistant/chat', data),
-  history: (sessionId: string) => request.get(`/ai/assistant/history/${sessionId}`),
+  history: (sessionId: string) => request.get<any, any[]>(`/ai/assistant/history/${sessionId}`),
   knowledge: {
-    list:   (params: any) => request.get('/ai/assistant/knowledge', { params }),
-    add:    (data: any)   => request.post('/ai/assistant/knowledge', data),
-    remove: (id: number)  => request.delete(`/ai/assistant/knowledge/${id}`),
+    list:   (params: any) => request.get<any, any[]>('/ai/assistant/knowledge', { params }),
+    add:    (data: any)   => request.post<any, any>('/ai/assistant/knowledge', data),
+    remove: (id: number)  => request.delete<any, any>(`/ai/assistant/knowledge/${id}`),
   },
 }

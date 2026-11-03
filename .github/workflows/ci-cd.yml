@@ -82,6 +82,9 @@ jobs:
     - name: API 契约（前端 ↔ 网关 ↔ 后端）
       run: python3 scripts/check-api-contract.py --strict
 
+    - name: 响应形状契约（前端解包方式 ↔ 后端返回类型）
+      run: python3 scripts/check-response-shape.py --strict
+
     - name: 网关路径改写 ↔ 后端 controller 根路径
       run: python3 scripts/check-gateway-strip.py
 
@@ -112,6 +115,14 @@ jobs:
     - name: Run tests
       working-directory: ./erp-web
       run: npm run test --if-present
+
+    # ⚠️ vite build **只转译不查类型** —— 之前前端能过 build 但类型一片稀烂，
+    #    「后端返回裸 IPage、前端多剥一层 .data」就是这么混进去的
+    #    （客户/供应商列表页恒为空）。
+    #    现在类型检查是**阻塞项**：新增类型错误直接让 CI 变红。
+    - name: Type check (vue-tsc)
+      working-directory: ./erp-web
+      run: npm run typecheck
 
     - name: Build
       working-directory: ./erp-web

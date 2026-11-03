@@ -278,6 +278,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import { inventoryApi, type Inventory, type StockFlow, type StockAdjustRequest, type StockTransferRequest } from '@/api/inventory'
 import { warehouseApi, type Warehouse, type WarehouseLocation } from '@/api/warehouse'
+import { unwrapPage } from '@/utils/response'
 
 const loading = ref(false)
 const adjustLoading = ref(false)
@@ -305,7 +306,7 @@ const filterForm = reactive({ warehouseId: null as number | null, skuCode: '', s
 const adjustDialogVisible = ref(false)
 const adjustFormRef = ref()
 const adjustForm = reactive({
-  id: null as number | null,
+  id: undefined as number | undefined,
   skuCode: '',
   warehouseName: '',
   currentQty: 0,
@@ -376,7 +377,7 @@ const loadInventory = async () => {
       status: filterForm.status || undefined
     }
     const res = await inventoryApi.getInventoryList(params)
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     inventoryList.value = pageData.records || []
     pagination.total = pageData.total || 0
   } catch (error) {
@@ -555,7 +556,7 @@ const handleDetail = async (row: Inventory) => {
   Object.assign(currentDetail, row)
   try {
     const res = await inventoryApi.getStockFlows(row.id)
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     stockFlows.value = pageData.records || []
   } catch (error) {
     console.error('加载流水失败:', error)

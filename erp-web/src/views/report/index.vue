@@ -49,6 +49,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { reportApi } from '@/api/tenant'
+import { unwrap } from '@/utils/response'
 
 const type = ref('sales')
 const list = ref<any[]>([])
@@ -63,7 +64,8 @@ async function loadList() {
   try {
     // erp-reporting-service 的接口统一包 Result（{code, message, data}）
     const res = await reportApi.list({})
-    list.value = res?.data ?? (Array.isArray(res) ? res : [])
+    const payload = unwrap<any[]>(res)
+    list.value = Array.isArray(payload) ? payload : []
   } catch (e) {
     // ⚠️ 原来这里用 mock 数据兜底，接口 404 时页面看着有数据，其实是前端写死的假数据。
     console.error('报表列表加载失败', e)

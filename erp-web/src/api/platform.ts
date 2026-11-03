@@ -23,6 +23,18 @@ export interface PlatformConfig {
   callbackUrl: string
   status: number
   createTime: string
+  /**
+   * ⚠️ 密钥类字段后端实体（platform/entity/PlatformConfig.java）里**本来就有**，
+   *    前端接口漏声明 → 视图里 `data.apiKey` 报 TS2339。
+   *    这里按后端实体补齐；后端返回 null 时统一用 undefined。
+   */
+  apiKey?: string
+  apiSecret?: string
+  accessToken?: string
+  refreshToken?: string
+  tokenExpireTime?: string
+  remark?: string
+  updateTime?: string
 }
 
 export const platformApi = {

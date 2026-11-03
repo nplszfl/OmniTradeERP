@@ -103,7 +103,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import { platformApi, type PlatformConfig } from '@/api/platform'
@@ -194,7 +194,9 @@ const handleSave = async () => {
     submitLoading.value = true
     
     // 过滤掉空密码
-    const data = { ...form }
+    // ⚠️ delete 的操作数必须是可选属性 —— PlatformConfig 里这几个字段是必填，
+    //    所以先转成 Partial 再 delete（原来直接 delete data.apiKey 是 TS 编译错误）。
+    const data: Partial<PlatformConfig> = { ...form }
     if (!data.apiKey) delete data.apiKey
     if (!data.apiSecret) delete data.apiSecret
     if (!data.accessToken) delete data.accessToken
@@ -227,7 +229,7 @@ const handleDelete = (row: PlatformConfig) => {
 
 // 测试连接
 const handleTest = async (row: PlatformConfig) => {
-  const loading = ElMessage.loading({ message: '正在测试连接...', duration: 0 })
+  const loading = ElLoading.service({ text: '正在测试连接...' })
   try {
     await platformApi.testConnection(row.id)
     ElMessage.success('连接测试成功！')
@@ -276,7 +278,7 @@ const handleSyncProduct = async (row: PlatformConfig) => {
   ElMessageBox.confirm(`确定同步 ${row.shopName} 的商品吗？`, '提示', {
     type: 'info'
   }).then(async () => {
-    const loading = ElMessage.loading({ message: '正在同步商品...', duration: 0 })
+    const loading = ElLoading.service({ text: '正在同步商品...' })
     try {
       // 模拟商品同步API调用
       await new Promise(resolve => setTimeout(resolve, 1000))

@@ -30,6 +30,25 @@ export interface Order {
   recipientName: string
   recipientCountry: string
   createTime: string
+  /**
+   * ⚠️ 下面这些字段后端实体（erp-order-service 的 Order）里**本来就有**，
+   *    但前端接口一直漏声明 → 视图里访问 `order.logisticsCompany` 这类字段时
+   *    vue-tsc 报 TS2339「Property does not exist」。
+   *    这里按后端实体（entity/Order.java）补齐，缺失时统一用 undefined。
+   */
+  buyerCountry?: string
+  buyerPhone?: string
+  paymentMethod?: string
+  paymentTime?: string
+  shippingMethod?: string
+  logisticsCompany?: string
+  shippingTime?: string
+  recipientState?: string
+  recipientCity?: string
+  recipientAddress?: string
+  recipientPostalCode?: string
+  recipientPhone?: string
+  remark?: string
 }
 
 export interface OrderItem {

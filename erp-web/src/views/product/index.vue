@@ -173,6 +173,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, Refresh } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import { productApi, type Product } from '@/api/product'
+import { unwrapPage } from '@/utils/response'
 
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -199,7 +200,7 @@ const filterForm = reactive({
 
 // 表单数据
 const form = reactive({
-  id: null as number | null,
+  id: undefined as number | undefined,
   internalSku: '',
   productName: '',
   brand: '',
@@ -234,7 +235,7 @@ const loadProducts = async () => {
     }
     const res = await productApi.getProducts(params)
     // 映射后端字段 → 前端字段
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     productList.value = (pageData.records || []).map((item: any) => ({
       id: item.id,
       internalSku: item.sku || '',
@@ -278,7 +279,7 @@ const handleReset = () => {
 // 添加商品
 const handleAdd = () => {
   dialogTitle.value = '添加商品'
-  form.id = null
+  form.id = undefined
   form.internalSku = ''
   form.productName = ''
   form.brand = ''

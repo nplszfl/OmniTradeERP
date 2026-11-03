@@ -233,6 +233,7 @@ import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { Search, Refresh, Plus, User, Star, CircleCheck, Money } from '@element-plus/icons-vue'
 import { customerApi, type Customer, type CustomerStats } from '@/api/customer'
 import dayjs from 'dayjs'
+import { unwrapPage } from '@/utils/response'
 
 const loading = ref(false)
 const customerList = ref<Customer[]>([])
@@ -309,7 +310,7 @@ const loadCustomers = async () => {
       level: searchForm.level || undefined,
       country: searchForm.country || undefined
     })
-    const pageData = res.data || {}
+    const pageData = unwrapPage(res)
     customerList.value = pageData.records || []
     pagination.total = pageData.total || 0
   } catch (error) {

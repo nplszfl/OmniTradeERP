@@ -46,6 +46,7 @@ jobs:
         python3 scripts/check-port-consistency.py
         python3 scripts/check-sql-schema.py --strict
         python3 scripts/check-api-contract.py --strict
+        python3 scripts/check-response-shape.py --strict
         python3 scripts/check-gateway-strip.py
 
   # 前端代码检查
@@ -78,15 +79,20 @@ jobs:
     #    tsc 找不到编译目标，打印帮助后 exit 1 → 这一步必然失败。
     #    而且项目是 Vue，普通 tsc 读不了 .vue 单文件组件，必须用 vue-tsc。
     #
-    # 📌 当前基线：61 个类型错误（根因是 src/api/*.ts 的返回类型没有体现后端
-    #    的 Result 包装，加上 19 个视图文件的类型标注问题）。
-    #    这里先用 continue-on-error 引入这道闸门 —— **存量错误不阻塞 CI，
-    #    但新增错误会立刻变红**（棘轮式收紧），比「等修完再上」更有价值。
-    #    TODO: 把 src/api/*.ts 的返回类型统一成 Result<T>，再逐步清零。
+    # 📌 这道闸门是**棘轮式收紧**的：
+    #    - 引入时基线是 61 个类型错误（根因是 src/api/*.ts 的返回类型没体现后端
+    #      的 Result 包装，加上 19 个视图文件的类型标注问题）→ 一度 continue-on-error
+    #    - 2026-11-03 已把基线清零（vue-tsc --noEmit 0 错误）→ **去掉 continue-on-error**，
+    #      从现在起类型错误会**直接阻塞 CI**。
+    #
+    #    清零过程中顺带修掉的真 bug（都是 vite build 发现不了的，因为 vite 只转译不查类型）：
+    #    - 视图层对「裸 IPage」接口多剥一层 .data → 客户/供应商列表页恒为空
+    #    - `ElMessage.loading` 在 element-plus 里根本不存在 → 平台配置页
+    #      「测试连接 / 同步商品」按钮一点就 TypeError
+    #    - src/api/*.ts 大量 request.get 没写返回类型 → 类型系统完全失效
     - name: Run TypeScript type check (vue-tsc)
       working-directory: ./erp-web
-      continue-on-error: true
-      run: npx vue-tsc --noEmit
+      run: npm run typecheck
 
   # 安全扫描
   security-scan:
