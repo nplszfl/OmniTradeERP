@@ -206,26 +206,91 @@ def parse_controllers():
 # ---------------------------------------------------------------- 前端调用点
 
 
+LEAF_RE = re.compile(
+    r"(?P<key>[A-Za-z_]\w*)\s*:\s*"
+    r"\((?:[^()]|\([^()]*\))*\)\s*(?:=>|:\s*async\s*\([^()]*\)\s*=>)\s*(?:await\s+)?"
+    r"request\.(?P<method>get|post|put|delete|patch)"
+    r"(?:<(?:[^<>]|<[^<>]*>)*>)?\(\s*"
+    r"(?P<q>[`'\"])(?P<url>[^`'\"]+)(?P=q)",
+    re.S,
+)
+OBJ_RE = re.compile(r"(?:export\s+)?const\s+([A-Za-z_]\w*)\s*=\s*\{")
+
+
+def _match_brace(text, open_idx):
+    """返回与 text[open_idx] 这个 '{' 配对的 '}' 的下标（跳过字符串和注释）"""
+    depth = 0
+    i = open_idx
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c in "'\"`":
+            quote = c
+            i += 1
+            while i < n:
+                if text[i] == "\\":
+                    i += 2
+                    continue
+                if text[i] == quote:
+                    break
+                i += 1
+        elif c == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        elif c == "/" and i + 1 < n and text[i + 1] == "*":
+            j = text.find("*/", i + 2)
+            i = n if j == -1 else j + 2
+            continue
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return n - 1
+
+
+def _blank(text, start, end):
+    """把 [start, end) 区间替换成空格（保留长度和偏移）"""
+    return text[:start] + " " * (end - start) + text[end:]
+
+
 def parse_api_functions():
-    """返回 {函数全名: [(METHOD, url), ...]}，函数全名形如 `customerApi.getList`"""
+    """返回 {函数全名: [(METHOD, url), ...]}
+
+    📌 **必须处理嵌套对象**：
+       `socialApi.liveStream.list` 和 `socialApi.tiktokShop.list` 的叶子 key 都叫 `list`，
+       只按「最近的 export const」取名字会把它们全压成 `socialApi.list`，
+       URL 归属全错 → 死接口清单整片误判。
+    """
     funcs = {}
-    arrow = re.compile(
-        r"(?P<key>[A-Za-z_]\w*)\s*:\s*"
-        r"\((?:[^()]|\([^()]*\))*\)\s*(?:=>|:\s*async\s*\([^()]*\)\s*=>)\s*(?:await\s+)?"
-        r"request\.(?P<method>get|post|put|delete|patch)"
-        r"(?:<(?:[^<>]|<[^<>]*>)*>)?\(\s*"
-        r"(?P<q>[`'\"])(?P<url>[^`'\"]+)(?P=q)",
-        re.S,
-    )
-    obj_re = re.compile(r"(?:export\s+)?const\s+([A-Za-z_]\w*)\s*=\s*\{")
+
+    def walk(body, stack):
+        # 先找嵌套对象：key: { ... }
+        nested = []
+        for m in re.finditer(r"(?<![\w$])([A-Za-z_]\w*)\s*:\s*\{", body):
+            open_idx = m.end() - 1
+            close_idx = _match_brace(body, open_idx)
+            nested.append((m.group(1), open_idx, close_idx))
+        # 叶子函数要在**去掉嵌套对象体**之后才找，避免把嵌套里的函数算到外层
+        outside = body
+        for _key, open_idx, close_idx in reversed(nested):
+            outside = _blank(outside, open_idx, close_idx + 1)
+        for m in LEAF_RE.finditer(outside):
+            name = ".".join(stack + [m.group("key")])
+            funcs.setdefault(name, []).append((m.group("method").upper(), m.group("url")))
+        # 递归进嵌套对象
+        for key, open_idx, close_idx in nested:
+            walk(body[open_idx + 1:close_idx], stack + [key])
+
     for ts in sorted(WEB_API.glob("*.ts")):
         text = ts.read_text(encoding="utf-8")
-        for m in arrow.finditer(text):
-            objs = list(obj_re.finditer(text[: m.start()]))
-            if not objs:
-                continue
-            name = f"{objs[-1].group(1)}.{m.group('key')}"
-            funcs.setdefault(name, []).append((m.group("method").upper(), m.group("url")))
+        for m in OBJ_RE.finditer(text):
+            open_idx = m.end() - 1
+            close_idx = _match_brace(text, open_idx)
+            walk(text[open_idx + 1:close_idx], [m.group(1)])
     return funcs
 
 
