@@ -3,6 +3,7 @@ package com.crossborder.erp.warehouse.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.crossborder.erp.common.result.Result;
 import com.crossborder.erp.warehouse.entity.InventoryBatch;
+import com.crossborder.erp.warehouse.entity.InventoryCheck;
 import com.crossborder.erp.warehouse.entity.InventoryCheckResult;
 import com.crossborder.erp.warehouse.service.WarehouseService;
 import lombok.Data;
@@ -171,15 +172,48 @@ public class InventoryController {
 
     /**
      * 创建盘点单
+     *
+     * <p>🔴 修复前：方法体只有一行 log.info（空壳），却返回「成功」，
+     * 而且返回类型是 {@code Result<Void>} → 前端拿不到 checkId，
+     * 根本没法调 confirm。现在真正落库并把 checkId 返回给前端。</p>
      */
     @PostMapping("/checks")
-    public Result<Void> createInventoryCheck(@RequestBody InventoryCheckRequest request) {
+    public Result<Long> createInventoryCheck(@RequestBody InventoryCheckRequest request) {
         List<Long> locationIds = request.getLocationIds() == null ? List.of() : request.getLocationIds();
         log.info("创建盘点单: 仓库={}, 类型={}, 库位数={}", request.getWarehouseId(), request.getCheckType(),
                 locationIds.size());
-        warehouseService.createInventoryCheck(request.getWarehouseId(), locationIds,
+        Long checkId = warehouseService.createInventoryCheck(request.getWarehouseId(), locationIds,
                 request.getCheckType(), request.getRemark());
-        return Result.success();
+        return Result.success(checkId);
+    }
+
+    /**
+     * 查询盘点单列表
+     *
+     * <p>📌 以前**没有任何查询盘点单的接口** —— 就算能创建也看不到。</p>
+     */
+    @GetMapping("/checks")
+    public Result<List<InventoryCheck>> listInventoryChecks(
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) String checkStatus) {
+        log.info("查询盘点单列表: 仓库={}, 状态={}", warehouseId, checkStatus);
+        return Result.success(warehouseService.listInventoryChecks(warehouseId, checkStatus));
+    }
+
+    /**
+     * 查询盘点单详情（含待盘/已盘明细）
+     */
+    @GetMapping("/checks/{checkId}")
+    public Result<InventoryCheck> getInventoryCheck(@PathVariable Long checkId) {
+        return Result.success(warehouseService.getInventoryCheck(checkId));
+    }
+
+    /**
+     * 查询盘点单明细
+     */
+    @GetMapping("/checks/{checkId}/results")
+    public Result<List<InventoryCheckResult>> getInventoryCheckResults(@PathVariable Long checkId) {
+        return Result.success(warehouseService.getInventoryCheckResults(checkId));
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.crossborder.erp.warehouse.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.crossborder.erp.common.exception.BusinessException;
 import com.crossborder.erp.warehouse.dto.*;
@@ -55,6 +56,10 @@ public class WarehouseServiceImpl implements WarehouseService {
     private final StockTransferMapper transferMapper;
     private final WavePickingMapper waveMapper;
     private final WavePickingDetailMapper waveDetailMapper;
+    // 📌 盘点流程以前是空壳（createInventoryCheck 只打日志），
+    //    这两个 Mapper 是补齐盘点单主表 + 盘点明细的读写。
+    private final InventoryCheckMapper inventoryCheckMapper;
+    private final InventoryCheckResultMapper inventoryCheckResultMapper;
 
     // ==================== 仓库管理 ====================
 
@@ -242,8 +247,8 @@ public class WarehouseServiceImpl implements WarehouseService {
             wrapper.eq(WarehouseLocation::getIsStorable, query.getIsStorable());
         }
         
-        wrapper.orderByAsc(WarehouseLocation::getZone, WarehouseLocation::getRow, 
-                WarehouseLocation::getColumn, WarehouseLocation::getLevel);
+        wrapper.orderByAsc(WarehouseLocation::getZone, WarehouseLocation::getRowNo,
+                WarehouseLocation::getColumnNo, WarehouseLocation::getLevelNo);
         
         return locationMapper.selectPage(page, wrapper);
     }
@@ -295,9 +300,9 @@ public class WarehouseServiceImpl implements WarehouseService {
                     location.setLocationName(String.format("%s区%d排%d列%d层", zone, r, c, l));
                     location.setLocationType("STANDARD");
                     location.setZone(zone);
-                    location.setRow(String.format("%02d", r));
-                    location.setColumn(String.format("%02d", c));
-                    location.setLevel(String.format("%02d", l));
+                    location.setRowNo(String.format("%02d", r));
+                    location.setColumnNo(String.format("%02d", c));
+                    location.setLevelNo(String.format("%02d", l));
                     location.setMaxCapacity(100);
                     location.setStockQuantity(0);
                     location.setLockedQuantity(0);
@@ -1175,30 +1180,196 @@ public class WarehouseServiceImpl implements WarehouseService {
     }
 
     @Override
-    public void createInventoryCheck(Long warehouseId, List<Long> locationIds, String checkType, String remark) {
-        // 创建盘点单
-        log.info("创建盘点单: 仓库{}, 类型{}", warehouseId, checkType);
+    @Transactional(rollbackFor = Exception.class)
+    public Long createInventoryCheck(Long warehouseId, List<Long> locationIds, String checkType, String remark) {
+        // 🔴 修复前：整个方法只有一行 log.info，什么都不做，却返回「成功」。
+        //    现在：真正落库 —— 建盘点单主表 + 按库位里的库存生成待盘明细行。
+
+        if (warehouseId == null) {
+            throw new BusinessException("仓库不能为空");
+        }
+        // 仓库必须存在，否则会生成一堆指向不存在仓库的盘点单
+        if (warehouseMapper.selectById(warehouseId) == null) {
+            throw new BusinessException("仓库不存在: " + warehouseId);
+        }
+
+        // locationIds 为空 = 全仓盘点；否则只盘指定库位
+        // 📌 库位 status 是 **VARCHAR**（AVAILABLE/OCCUPIED/disabled），
+        //    不是数字！写成 eq(status, 1) 会一行都匹配不到 → 「全仓盘点」变成空盘点。
+        // 📌 先查仓库下的库位，再在内存里按 locationIds 筛选：
+        //    这样一个查询就能同时处理「全仓」和「指定库位」两种情况，
+        //    而且「库位不属于该仓库」的校验更直接。
+        List<WarehouseLocation> all = locationMapper.selectList(new LambdaQueryWrapper<WarehouseLocation>()
+                .eq(WarehouseLocation::getWarehouseId, warehouseId)
+                .ne(WarehouseLocation::getStatus, "disabled"));
+
+        List<WarehouseLocation> locations = all;
+        if (locationIds != null && !locationIds.isEmpty()) {
+            locations = all.stream()
+                    .filter(l -> locationIds.contains(l.getId()))
+                    .collect(Collectors.toList());
+            // 库位可能不属于该仓库（或不存在）→ 不能默默只盘一部分
+            if (locations.size() != locationIds.size()) {
+                throw new BusinessException("部分库位不属于该仓库或不存在");
+            }
+        }
+
+        if (locations.isEmpty()) {
+            throw new BusinessException("该仓库没有可盘点的库位");
+        }
+
+        String type = (checkType == null || checkType.isBlank()) ? "FULL" : checkType;
+        LocalDateTime now = LocalDateTime.now();
+
+        InventoryCheck check = InventoryCheck.builder()
+                .checkNo("IC-" + now.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                        + "-" + (warehouseId % 1000))
+                .warehouseId(warehouseId)
+                .checkType(type)
+                .checkStatus("CREATED")
+                .locationCount(locations.size())
+                .skuCount(locations.size())
+                .totalQuantity(0)
+                .differenceCount(0)
+                .profitQuantity(0)
+                .lossQuantity(0)
+                .startTime(now)
+                .remark(remark)
+                .createTime(now)
+                .updateTime(now)
+                .build();
+        inventoryCheckMapper.insert(check);
+
+        // 按库位当前库存生成待盘明细行（账面数量 = 当前库存）
+        List<InventoryCheckResult> results = new ArrayList<>();
+        for (WarehouseLocation loc : locations) {
+            Integer bookQty = loc.getStockQuantity() == null ? 0 : loc.getStockQuantity();
+            results.add(InventoryCheckResult.builder()
+                    .id(IdWorker.getId())
+                    .checkId(check.getId())
+                    .warehouseId(warehouseId)
+                    .locationId(loc.getId())
+                    .locationCode(loc.getLocationCode())
+                    .productId(loc.getProductId())
+                    .skuCode(null)
+                    .productName(null)
+                    .bookQuantity(bookQty)
+                    .actualQuantity(bookQty)   // 实盘数先置成账面数，等人工改
+                    .diffQty(0)
+                    .status("PENDING")
+                    .remark("自动生成的待盘行")
+                    .createTime(now)
+                    .updateTime(now)
+                    .build());
+        }
+        // 📌 BaseMapper 没有 insertBatch（那是 IService 的方法）→ 逐条插
+        for (InventoryCheckResult r : results) {
+            inventoryCheckResultMapper.insert(r);
+        }
+        check.setTotalQuantity(results.size());
+        inventoryCheckMapper.updateById(check);
+
+        log.info("创建盘点单: id={}, 单号={}, 仓库={}, 类型={}, 库位={}, 明细行={}",
+                check.getId(), check.getCheckNo(), warehouseId, type, locations.size(), results.size());
+        return check.getId();
+    }
+
+    /**
+     * 查询盘点单列表
+     */
+    @Override
+    public List<InventoryCheck> listInventoryChecks(Long warehouseId, String checkStatus) {
+        LambdaQueryWrapper<InventoryCheck> wrapper = new LambdaQueryWrapper<>();
+        if (warehouseId != null) {
+            wrapper.eq(InventoryCheck::getWarehouseId, warehouseId);
+        }
+        if (checkStatus != null && !checkStatus.trim().isEmpty()) {
+            wrapper.eq(InventoryCheck::getCheckStatus, checkStatus);
+        }
+        wrapper.orderByDesc(InventoryCheck::getCreateTime);
+        return inventoryCheckMapper.selectList(wrapper);
+    }
+
+    /**
+     * 查询盘点单详情
+     */
+    @Override
+    public InventoryCheck getInventoryCheck(Long checkId) {
+        InventoryCheck check = inventoryCheckMapper.selectById(checkId);
+        if (check == null) {
+            throw new BusinessException("盘点单不存在: " + checkId);
+        }
+        return check;
+    }
+
+    /**
+     * 查询盘点单明细
+     */
+    @Override
+    public List<InventoryCheckResult> getInventoryCheckResults(Long checkId) {
+        return inventoryCheckResultMapper.selectList(new LambdaQueryWrapper<InventoryCheckResult>()
+                .eq(InventoryCheckResult::getCheckId, checkId)
+                .orderByAsc(InventoryCheckResult::getLocationCode));
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void confirmInventoryCheck(Long checkId, List<InventoryCheckResult> results) {
-        // 根据盘点结果调整库存
-        for (InventoryCheckResult result : results) {
-            if (result.getDiffQty() != 0) {
-                if (result.getDiffQty() > 0) {
-                    // 盘盈
-                    updateLocationStock(result.getWarehouseId(), result.getProductId(),
-                            result.getDiffQty(), result.getLocationCode());
-                } else {
-                    // 盘亏
-                    reduceLocationStock(result.getWarehouseId(), result.getProductId(),
-                            Math.abs(result.getDiffQty()), result.getLocationCode());
-                }
-            }
+        // 🔴 修复前：checkId **完全不校验**（传 0 也能「确认」），
+        //    而且不落库任何东西 → 盘点做完，数据就没了。
+        //    现在：校验盘点单存在 + 状态合法，回写明细，并把差异汇总回盘点单。
+
+        InventoryCheck check = inventoryCheckMapper.selectById(checkId);
+        if (check == null) {
+            throw new BusinessException("盘点单不存在: " + checkId);
         }
-        
-        log.info("确认盘点结果: 盘点单ID{}", checkId);
+        if ("CONFIRMED".equals(check.getCheckStatus())) {
+            throw new BusinessException("盘点单已确认，不能重复确认");
+        }
+        if ("CANCELLED".equals(check.getCheckStatus())) {
+            throw new BusinessException("盘点单已取消，不能确认");
+        }
+
+        List<InventoryCheckResult> checkResults = results == null ? List.of() : results;
+
+        int profitCount = 0, lossCount = 0, profitQty = 0, lossQty = 0;
+
+        // 根据盘点结果调整库存
+        for (InventoryCheckResult result : checkResults) {
+            if (result.getDiffQty() == null || result.getDiffQty() == 0) {
+                continue;
+            }
+            if (result.getDiffQty() > 0) {
+                // 盘盈
+                updateLocationStock(result.getWarehouseId(), result.getProductId(),
+                        result.getDiffQty(), result.getLocationCode());
+                profitCount++;
+                profitQty += result.getDiffQty();
+            } else {
+                // 盘亏
+                reduceLocationStock(result.getWarehouseId(), result.getProductId(),
+                        Math.abs(result.getDiffQty()), result.getLocationCode());
+                lossCount++;
+                lossQty += Math.abs(result.getDiffQty());
+            }
+            // 回写明细状态
+            result.setStatus("CONFIRMED");
+            result.setUpdateTime(LocalDateTime.now());
+            inventoryCheckResultMapper.updateById(result);
+        }
+
+        // 汇总回盘点单
+        check.setCheckStatus("CONFIRMED");
+        check.setDifferenceCount(profitCount + lossCount);
+        check.setProfitQuantity(profitQty);
+        check.setLossQuantity(lossQty);
+        check.setTotalQuantity(checkResults.size());
+        check.setEndTime(LocalDateTime.now());
+        check.setUpdateTime(LocalDateTime.now());
+        inventoryCheckMapper.updateById(check);
+
+        log.info("确认盘点结果: 盘点单ID={}, 明细={} 行, 盘盈={} 行/{} 件, 盘亏={} 行/{} 件",
+                checkId, checkResults.size(), profitCount, profitQty, lossCount, lossQty);
     }
 
     // ==================== 私有方法 ====================

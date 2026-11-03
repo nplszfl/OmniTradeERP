@@ -269,9 +269,9 @@ public class WarehouseController {
         vo.setLocationName(location.getLocationName());
         vo.setLocationType(location.getLocationType());
         vo.setZone(location.getZone());
-        vo.setRow(location.getRow());
-        vo.setColumn(location.getColumn());
-        vo.setLevel(location.getLevel());
+        vo.setRow(location.getRowNo());
+        vo.setColumn(location.getColumnNo());
+        vo.setLevel(location.getLevelNo());
         vo.setStockQuantity(location.getStockQuantity());
         vo.setMaxCapacity(location.getMaxCapacity());
         vo.setCurrentCapacity(location.getCurrentCapacity());

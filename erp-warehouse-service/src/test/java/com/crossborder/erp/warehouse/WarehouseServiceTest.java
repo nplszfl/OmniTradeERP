@@ -25,6 +25,8 @@ import com.crossborder.erp.warehouse.enums.WaveStatus;
 import com.crossborder.erp.warehouse.mapper.InboundDetailMapper;
 import com.crossborder.erp.warehouse.mapper.InboundOrderMapper;
 import com.crossborder.erp.warehouse.mapper.InventoryBatchMapper;
+import com.crossborder.erp.warehouse.mapper.InventoryCheckMapper;
+import com.crossborder.erp.warehouse.mapper.InventoryCheckResultMapper;
 import com.crossborder.erp.warehouse.mapper.OutboundDetailMapper;
 import com.crossborder.erp.warehouse.mapper.OutboundOrderMapper;
 import com.crossborder.erp.warehouse.mapper.PackingMaterialMapper;
@@ -81,6 +83,8 @@ public class WarehouseServiceTest {
     private StockTransferMapper transferMapper;
     private WavePickingMapper waveMapper;
     private WavePickingDetailMapper waveDetailMapper;
+    private InventoryCheckMapper inventoryCheckMapper;
+    private InventoryCheckResultMapper inventoryCheckResultMapper;
 
     private WarehouseServiceImpl warehouseService;
 
@@ -137,11 +141,14 @@ public class WarehouseServiceTest {
         transferMapper = mock(StockTransferMapper.class);
         waveMapper = mock(WavePickingMapper.class);
         waveDetailMapper = mock(WavePickingDetailMapper.class);
+        // 📌 盘点流程以前是空壳，补齐后需要这两个 Mapper
+        inventoryCheckMapper = mock(InventoryCheckMapper.class);
+        inventoryCheckResultMapper = mock(InventoryCheckResultMapper.class);
 
         warehouseService = new WarehouseServiceImpl(
                 warehouseMapper, locationMapper, batchMapper, packingMaterialMapper,
                 inboundOrderMapper, inboundDetailMapper, outboundOrderMapper, outboundDetailMapper, transferMapper,
-                waveMapper, waveDetailMapper);
+                waveMapper, waveDetailMapper, inventoryCheckMapper, inventoryCheckResultMapper);
 
         // 仓库：insert 生成主键，selectById / selectList / selectPage 走内存态
         doAnswer(invocation -> {

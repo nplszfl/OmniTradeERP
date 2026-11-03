@@ -12,7 +12,7 @@ spring:
   cloud:
     nacos:
       discovery:
-        server-addr: ${NACOS_HOST:mse-d5a70466-nacos-ans.mse.aliyuncs.com}:${NACOS_PORT:-8848}
+        server-addr: ${NACOS_HOST:mse-d5a70466-nacos-ans.mse.aliyuncs.com}:${NACOS_PORT:8848}
   # ⚠️ 必须显式配 datasource：
   # 本模块用 JPA（@Entity KnowledgeDocument + JpaRepository），
   # 统一继承根 pom 后 erp-common 的 DataSource 自动配置被激活，

@@ -54,6 +54,10 @@ services:
       #    一条语句报错 → 从出错行起该文件剩余语句全部不执行，退出码可能仍是 0。
       #    拆开 = 故障隔离。zz- 前缀保证排在 tenant-service.sql 建表之后。
       - ./database/seed-tenant.sql:/docker-entrypoint-initdb.d/zz-seed-tenant.sql:ro
+      # ⚠️ 仓库 WMS 作业流种子（入库/出库/调拨/波次拣货/盘点/批次/包装物料）
+      #    这 11 张活表此前**从来没有种子数据** → 七个页面全是空白。
+      #    同样用 zz- 前缀 + 独立文件（故障隔离 + 排在 warehouse-service.sql 建表之后）。
+      - ./database/seed-warehouse.sql:/docker-entrypoint-initdb.d/zz-seed-warehouse.sql:ro
     networks:
       - erp-network
     healthcheck:

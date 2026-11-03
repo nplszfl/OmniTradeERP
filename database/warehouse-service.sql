@@ -333,6 +333,35 @@ CREATE TABLE wms_stock_transfer_detail (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存调拨明细';
 
 -- ---------------- 库存盘点 ----------------
+-- 🔴 盘点单主表以前**不存在** —— 盘点只有结果明细表 wms_inventory_check_result，
+--    没有承载「这是一次盘点」的主表，后果是：
+--      1. createInventoryCheck 只打一行 log.info，**什么都没做**却返回「成功」
+--      2. confirmInventoryCheck 的 checkId 完全不校验（传 0 也能「确认」）
+--      3. 没有任何查询盘点单的接口 → 就算能建也看不到
+DROP TABLE IF EXISTS wms_inventory_check;
+CREATE TABLE wms_inventory_check (
+    id BIGINT NOT NULL PRIMARY KEY COMMENT '雪花ID',
+    check_no VARCHAR(50) NOT NULL COMMENT '盘点单号',
+    warehouse_id BIGINT NOT NULL COMMENT '仓库ID',
+    check_type VARCHAR(30) DEFAULT 'FULL' COMMENT '盘点类型 FULL-全盘/CYCLE-循环盘点/SPOT-抽盘',
+    check_status VARCHAR(20) DEFAULT 'CREATED' COMMENT '盘点状态 CREATED/IN_PROGRESS/CONFIRMED/CANCELLED',
+    location_count INT DEFAULT 0 COMMENT '库位数',
+    sku_count INT DEFAULT 0 COMMENT 'SKU数',
+    total_quantity INT DEFAULT 0 COMMENT '盘点明细行数',
+    difference_count INT DEFAULT 0 COMMENT '差异行数(盘盈+盘亏)',
+    profit_quantity INT DEFAULT 0 COMMENT '盘盈数量合计',
+    loss_quantity INT DEFAULT 0 COMMENT '盘亏数量合计',
+    start_time DATETIME COMMENT '开始时间',
+    end_time DATETIME COMMENT '结束时间',
+    checker VARCHAR(50) COMMENT '盘点人',
+    remark VARCHAR(500) COMMENT '备注',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    UNIQUE KEY uk_check_no (check_no),
+    KEY idx_check_warehouse (warehouse_id, check_status),
+    KEY idx_check_status (check_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存盘点单';
+
 DROP TABLE IF EXISTS wms_inventory_check_result;
 CREATE TABLE wms_inventory_check_result (
     id BIGINT NOT NULL PRIMARY KEY COMMENT '雪花ID',

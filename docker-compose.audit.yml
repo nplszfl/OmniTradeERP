@@ -1,0 +1,36 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: erp-audit-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: erp
+      TZ: Asia/Shanghai
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+    ports:
+      - "3410:3306"
+    volumes:
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./database/customer-service.sql:/docker-entrypoint-initdb.d/customer-service.sql:ro
+      - ./database/supplier-service.sql:/docker-entrypoint-initdb.d/supplier-service.sql:ro
+      - ./database/ai-assistant-service.sql:/docker-entrypoint-initdb.d/ai-assistant-service.sql:ro
+      - ./database/anomaly-detection-service.sql:/docker-entrypoint-initdb.d/anomaly-detection-service.sql:ro
+      - ./database/finance-service.sql:/docker-entrypoint-initdb.d/finance-service.sql:ro
+      - ./database/inventory-prediction-service.sql:/docker-entrypoint-initdb.d/inventory-prediction-service.sql:ro
+      - ./database/inventory-service.sql:/docker-entrypoint-initdb.d/inventory-service.sql:ro
+      - ./database/inventory-alert-service.sql:/docker-entrypoint-initdb.d/inventory-alert-service.sql:ro
+      - ./database/logistics-service.sql:/docker-entrypoint-initdb.d/logistics-service.sql:ro
+      - ./database/pricing-service.sql:/docker-entrypoint-initdb.d/pricing-service.sql:ro
+      - ./database/product-description-service.sql:/docker-entrypoint-initdb.d/product-description-service.sql:ro
+      - ./database/product-recommendation-service.sql:/docker-entrypoint-initdb.d/product-recommendation-service.sql:ro
+      - ./database/purchase-service.sql:/docker-entrypoint-initdb.d/purchase-service.sql:ro
+      - ./database/reporting-service.sql:/docker-entrypoint-initdb.d/reporting-service.sql:ro
+      - ./database/social-commerce-service.sql:/docker-entrypoint-initdb.d/social-commerce-service.sql:ro
+      - ./database/tenant-service.sql:/docker-entrypoint-initdb.d/tenant-service.sql:ro
+      - ./database/seed-data.sql:/docker-entrypoint-initdb.d/seed-data.sql:ro
+      - ./database/user-service.sql:/docker-entrypoint-initdb.d/user-service.sql:ro
+      - ./database/warehouse-service.sql:/docker-entrypoint-initdb.d/warehouse-service.sql:ro
+      - ./database/seed-live-data.sql:/docker-entrypoint-initdb.d/zz-seed-live-data.sql:ro
+      - ./database/seed-tenant.sql:/docker-entrypoint-initdb.d/zz-seed-tenant.sql:ro
+      - ./database/seed-warehouse.sql:/docker-entrypoint-initdb.d/zz-seed-warehouse.sql:ro

@@ -340,9 +340,33 @@ public interface WarehouseService {
     void reportDamage(Long warehouseId, Long productId, Integer quantity, String reason);
 
     /**
-     * 库存盘 点
+     * 库存盘点
+     *
+     * <p>🔴 <b>修复前这是一个空壳</b>：方法体只有一行 {@code log.info}，
+     * 却返回「成功」→ 前端点「创建盘点单」，接口 200，
+     * 但库里**一行盘点数据都没有**，「确认盘点」也没有任何东西可确认。</p>
+     *
+     * @return 新建盘点单的 ID（前端拿它调 confirm）
      */
-    void createInventoryCheck(Long warehouseId, List<Long> locationIds, String checkType, String remark);
+    Long createInventoryCheck(Long warehouseId, List<Long> locationIds, String checkType, String remark);
+
+    /**
+     * 查询盘点单列表
+     *
+     * @param warehouseId 仓库 ID（可空 = 全部）
+     * @param checkStatus 盘点状态（可空 = 全部）
+     */
+    List<InventoryCheck> listInventoryChecks(Long warehouseId, String checkStatus);
+
+    /**
+     * 查询盘点单详情
+     */
+    InventoryCheck getInventoryCheck(Long checkId);
+
+    /**
+     * 查询盘点单明细
+     */
+    List<InventoryCheckResult> getInventoryCheckResults(Long checkId);
 
     /**
      * 确认盘点结果
