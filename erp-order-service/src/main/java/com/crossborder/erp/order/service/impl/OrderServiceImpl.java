@@ -71,9 +71,40 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             throw new BizException("订单明细不能为空");
         }
 
+        // 🔴 明细必填校验：`t_order_item.unit_price` / `quantity` 都是 NOT NULL
+        //    且**无默认值**，而 MyBatis-Plus 的 insert 默认 FieldStrategy.NOT_NULL
+        //    会**跳过 null 字段** → INSERT 里根本没有这些列
+        //    → MySQL 报 "Field 'unit_price' doesn't have a default value" → 订单存不进去。
+        //    📌 这两个字段**无法推导**（单价和数量是调用方的业务数据），
+        //    所以只能显式校验并给出中文提示，而不是兜底成 0
+        //    （兜底成 0 会静默算错金额，比报错更危险）。
+        for (int i = 0; i < orderItems.size(); i++) {
+            OrderItem item = orderItems.get(i);
+            if (item == null) {
+                throw new BizException("订单明细不能为空（第 " + (i + 1) + " 行）");
+            }
+            if (item.getUnitPrice() == null) {
+                throw new BizException("商品单价不能为空（第 " + (i + 1) + " 行）");
+            }
+            if (item.getQuantity() == null) {
+                throw new BizException("商品数量不能为空（第 " + (i + 1) + " 行）");
+            }
+        }
+
         // 生成内部订单号
         String internalOrderNo = generateInternalOrderNo(order.getPlatform());
         order.setInternalOrderNo(internalOrderNo);
+
+        // 🔴 状态兜底：`t_order.status` 是 NOT NULL 且**无默认值**，
+        //    MyBatis-Plus 的 insert 会**跳过 null 字段** → INSERT 里没有这一列
+        //    → MySQL 报 "Field 'status' doesn't have a default value" → 订单存不进去。
+        //    📌 新建订单的初始状态就是「待处理」→ 兜底成 PENDING 是**语义正确**的，
+        //       不需要调用方传。用 warn 而不是静默兜底 —— 缺失是要被看见的。
+        if (isBlank(order.getStatus())) {
+            log.warn("订单状态缺失，已兜底为 {}（平台={}, 订单号={}）",
+                    DEFAULT_ORDER_STATUS, order.getPlatform(), order.getPlatformOrderNo());
+            order.setStatus(DEFAULT_ORDER_STATUS);
+        }
 
         // 🔴 币种兜底：t_order.currency_code / t_order_item.currency_code
         //    都是 NOT NULL 且**无默认值**，而 MyBatis-Plus 的 insert 默认
@@ -86,6 +117,37 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             log.warn("订单币种缺失，已兜底为 USD（平台={}, 订单号={}）",
                     order.getPlatform(), order.getPlatformOrderNo());
             order.setCurrencyCode(DEFAULT_CURRENCY);
+        }
+
+        // 🔴 `t_order_item.total_amount` 是 NOT NULL 且**无默认值**，
+        //    MyBatis-Plus 的 insert 默认 FieldStrategy.NOT_NULL 会**跳过 null 字段**
+        //    → INSERT 里根本没有这一列
+        //    → MySQL: Field 'total_amount' doesn't have a default value → 整个订单插入失败。
+        //    📌 调用方（前端 / 第三方）漏传就是 500，而且**原始 SQL 栈直接泄露给前端**。
+        //    📌 金额本身就是「单价 × 数量」可推导的 → 直接算出来，不该让调用方负责。
+        //    📌 **在保存订单之前就算好** —— 下面算订单总金额时要用它，
+        //       同一份金额算两遍就可能算出两个值（口径不一致）。
+        for (OrderItem item : orderItems) {
+            if (item.getTotalAmount() == null) {
+                item.setTotalAmount(item.getUnitPrice()
+                        .multiply(BigDecimal.valueOf(item.getQuantity())));
+            }
+        }
+
+        // 🔴 金额兜底：`t_order.order_amount` 是 NOT NULL 且**无默认值**，
+        //    MyBatis-Plus 的 insert 会**跳过 null 字段** → INSERT 里没有这一列
+        //    → MySQL 报 "Field 'order_amount' doesn't have a default value" → 订单存不进去。
+        //    📌 订单金额 = 明细金额之和，**可以推导** → 直接算出来，
+        //       不该让调用方负责（调用方少算 / 算错都会让财务对不上账）。
+        //    📌 调用方传了就用调用方的（可能含运费、税费等额外项）。
+        if (order.getOrderAmount() == null) {
+            BigDecimal derived = BigDecimal.ZERO;
+            for (OrderItem item : orderItems) {
+                derived = derived.add(item.getTotalAmount());
+            }
+            log.warn("订单金额缺失，已按明细汇总为 {}（平台={}, 订单号={}）",
+                    derived, order.getPlatform(), order.getPlatformOrderNo());
+            order.setOrderAmount(derived);
         }
 
         // 保存订单
@@ -103,11 +165,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             //    → MySQL: Field 'total_amount' doesn't have a default value → 整个订单插入失败。
             //    📌 调用方（前端 / 第三方）漏传就是 500，而且**原始 SQL 栈直接泄露给前端**。
             //    📌 金额本身就是「单价 × 数量」可推导的 → 直接算出来，不该让调用方负责。
-            if (item.getTotalAmount() == null && item.getUnitPrice() != null
-                    && item.getQuantity() != null) {
-                item.setTotalAmount(item.getUnitPrice()
-                        .multiply(BigDecimal.valueOf(item.getQuantity())));
-            }
+            // 📌 total_amount 已在**保存订单之前**算好（订单总金额要用它），
+            //    这里不再重复计算。
             orderItemMapper.insert(item);
         }
 
@@ -117,6 +176,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     /** 币种兜底值（跨境场景绝大多数是 USD） */
     private static final String DEFAULT_CURRENCY = "USD";
+
+    /** 订单状态兜底值（新建订单的初始状态 = 待处理） */
+    private static final String DEFAULT_ORDER_STATUS = "PENDING";
 
     private static boolean isBlank(String s) {
         return s == null || s.trim().isEmpty();

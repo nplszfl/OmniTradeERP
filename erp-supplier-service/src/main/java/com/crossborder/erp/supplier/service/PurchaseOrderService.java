@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.supplier.entity.PurchaseOrder;
 import com.crossborder.erp.supplier.entity.PurchaseOrderItem;
 import com.crossborder.erp.supplier.entity.Supplier;
@@ -241,10 +242,42 @@ public class PurchaseOrderService extends ServiceImpl<PurchaseOrderMapper, Purch
 
     /**
      * 添加订单明细
+     *
+     * 🔴 `t_purchase_order_item.sku` / `quantity` 是 NOT NULL 且**无默认值**，
+     *    MyBatis-Plus 的 insert 默认 FieldStrategy.NOT_NULL 会**跳过 null 字段**
+     *    → INSERT 里根本没有这两列
+     *    → MySQL: Field 'sku' doesn't have a default value → 明细插入失败(500)，
+     *       原始 SQL 栈还会泄露给前端。
+     *
+     * 📌 **守卫放在服务层而不是 Controller**：
+     *    `POST /purchase/orders/{id}/item` 是**直接把实体当 @RequestBody 绑定的**
+     *    （Jackson 直接写字段，连 setter 都不走）→ Controller 层根本没法逐字段校验。
+     *    放服务层 → **所有调用方**（Controller / Feign / 定时任务）都被盖住。
+     *
+     * 📌 这两个字段**无法推导**（SKU 和数量是调用方的业务数据），
+     *    所以只能显式校验并给中文提示，而不是兜底成 0 / 空串
+     *    （兜底成 0 会静默算错金额，比报错危险得多）。
      */
     public void addOrderItem(PurchaseOrderItem item) {
+        if (item == null) {
+            throw new BizException("采购明细不能为空");
+        }
+        if (item.getSku() == null || item.getSku().isBlank()) {
+            throw new BizException("SKU 不能为空");
+        }
+        if (item.getQuantity() == null) {
+            throw new BizException("采购数量不能为空");
+        }
+        if (item.getQuantity() <= 0) {
+            throw new BizException("采购数量必须大于 0");
+        }
+        // 📌 小计由后端算，不信前端传值
+        if (item.getSubtotal() == null) {
+            BigDecimal price = item.getUnitPrice() == null ? BigDecimal.ZERO : item.getUnitPrice();
+            item.setSubtotal(price.multiply(BigDecimal.valueOf(item.getQuantity())));
+        }
         purchaseOrderItemMapper.insert(item);
-        
+
         // 重新计算订单总金额
         recalculateOrderTotal(item.getOrderId());
     }

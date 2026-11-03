@@ -1,5 +1,6 @@
 package com.crossborder.erp.order.service.impl;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
 import com.crossborder.erp.order.mapper.OrderItemMapper;
@@ -17,6 +18,9 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -115,16 +119,37 @@ class OrderItemTotalAmountDefaultTest {
     }
 
     @Test
-    @DisplayName("✅ 单价或数量缺失 → 不乱算，保持 null（宁可让上层报错也不要算错钱）")
-    void noDerivationWhenInputsMissing() {
+    @DisplayName("🔴 单价缺失 → 提前抛中文业务异常（而不是让 INSERT 被 MySQL 拒绝）")
+    void missingUnitPrice_throwsBusinessException() {
         Order order = newOrder();
         OrderItem item = newItem();
         item.setUnitPrice(null);
 
-        orderService.createOrder(order, List.of(item));
+        // 📌 **设计变更（2026-11-03）**：
+        //    旧行为 = 不推导、保持 null → 一直走到 INSERT → MySQL 报
+        //    "Field 'total_amount' doesn't have a default value" → 500 + 原始 SQL 栈泄露。
+        //    新行为 = **在服务层就拦住** → 中文提示 + 不碰数据库。
+        //    📌 同样地，「不能推导」的字段不应该篗成 0（那会静默算错钱），
+        //       所以直接报错才是对的。
+        assertThatThrownBy(() -> orderService.createOrder(order, List.of(item)))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("单价");
 
-        ArgumentCaptor<OrderItem> captor = ArgumentCaptor.forClass(OrderItem.class);
-        verify(orderItemMapper).insert(captor.capture());
-        assertThat(captor.getValue().getTotalAmount()).isNull();
+        // 📌 关键：数据库**根本没被碰过** → 不可能有半个事务写进去
+        verify(orderItemMapper, never()).insert(any(OrderItem.class));
+    }
+
+    @Test
+    @DisplayName("🔴 数量缺失 → 提前抛中文业务异常")
+    void missingQuantity_throwsBusinessException() {
+        Order order = newOrder();
+        OrderItem item = newItem();
+        item.setQuantity(null);
+
+        assertThatThrownBy(() -> orderService.createOrder(order, List.of(item)))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("数量");
+
+        verify(orderItemMapper, never()).insert(any(OrderItem.class));
     }
 }

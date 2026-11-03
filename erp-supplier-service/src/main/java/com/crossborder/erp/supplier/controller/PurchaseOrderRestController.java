@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -100,7 +101,30 @@ public class PurchaseOrderRestController {
         order.setPaymentMethod(request.getPaymentMethod());
         order.setRemark(request.getRemark());
 
-        List<PurchaseOrderItem> items = request.getItems().stream().map(item -> {
+        // 🔴 `t_purchase_order_item.sku` / `quantity` 是 NOT NULL 且**无默认值**，
+        //    MyBatis-Plus 的 insert 默认 FieldStrategy.NOT_NULL 会**跳过 null 字段**
+        //    → INSERT 里根本没有这两列
+        //    → MySQL: Field 'sku' doesn't have a default value → 采购单插入失败(500)。
+        //    📌 这两个字段**无法推导**（SKU 和数量是调用方的业务数据），
+        //    所以只能显式校验并给中文提示，而不是兜底成 0 / 空串
+        //    （兜底成 0 会静默算错金额，比报错危险得多）。
+        List<PurchaseOrderItem> items = new ArrayList<>();
+        List<ItemRequest> reqItems = request.getItems();
+        for (int i = 0; i < reqItems.size(); i++) {
+            ItemRequest item = reqItems.get(i);
+            if (item == null) {
+                throw new BizException("采购明细不能为空（第 " + (i + 1) + " 行）");
+            }
+            if (item.getSku() == null || item.getSku().isBlank()) {
+                throw new BizException("SKU 不能为空（第 " + (i + 1) + " 行）");
+            }
+            if (item.getQuantity() == null) {
+                throw new BizException("采购数量不能为空（第 " + (i + 1) + " 行）");
+            }
+            if (item.getQuantity() <= 0) {
+                throw new BizException("采购数量必须大于 0（第 " + (i + 1) + " 行）");
+            }
+
             PurchaseOrderItem po = new PurchaseOrderItem();
             po.setSku(item.getSku());
             po.setProductName(item.getProductName());
@@ -110,10 +134,9 @@ public class PurchaseOrderRestController {
             po.setRemark(item.getRemark());
             // 小计由后端算，不信前端传值
             BigDecimal price = item.getUnitPrice() == null ? BigDecimal.ZERO : item.getUnitPrice();
-            int qty = item.getQuantity() == null ? 0 : item.getQuantity();
-            po.setSubtotal(price.multiply(BigDecimal.valueOf(qty)));
-            return po;
-        }).toList();
+            po.setSubtotal(price.multiply(BigDecimal.valueOf(item.getQuantity())));
+            items.add(po);
+        }
 
         Long orderId = purchaseOrderService.createOrder(order, items);
         return Result.successId(orderId);

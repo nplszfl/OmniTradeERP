@@ -62,6 +62,8 @@ DB_ALIAS = {
 CONTAINER = os.environ.get("MYSQL_CONTAINER", "erp-fresh-mysql")
 PASSWORD = os.environ.get("MYSQL_PASSWORD", "root")
 
+_ENTITY_CLASSES = None
+
 FRAMEWORK_COLUMNS = {
     "id", "create_time", "update_time", "create_by", "update_by",
     "deleted", "version", "tenant_id",
@@ -132,6 +134,14 @@ def entity_field_map():
     return out
 
 
+def module_of(path):
+    """文件所属的模块名（erp-xxx-service）"""
+    try:
+        return path.relative_to(ROOT).parts[0]
+    except (ValueError, IndexError):
+        return ""
+
+
 def java_files():
     for svc_dir in sorted(ROOT.glob("erp-*-service")):
         for p in svc_dir.glob("src/main/java/**/*.java"):
@@ -139,27 +149,175 @@ def java_files():
 
 
 def json_bound_entities():
-    """返回 @RequestBody 直接绑定的实体类名集合。
+    """返回 {实体类名: 所属模块} —— @RequestBody **可达**的实体。
 
     📌 **关键**：@RequestBody 绑定的实体，Jackson 会在反序列化时
     **直接写字段**（不走 setter）→ 所以**根本不存在 setXxx() 调用**。
     对这类实体用「有没有 setter 调用」判定会**误报**。
 
     📌 判定方式：扫 Controller 里形参类型是实体类、且带 @RequestBody 的方法。
+
+    📌 **嵌套实体（踩了 1 次才补上）**：
+    订单接口的形参不是实体本身，而是**包装 DTO**：
+        `@RequestBody CreateOrderRequest request`
+        → CreateOrderRequest { Order order; List<OrderItem> orderItems; }
+    → 真正的实体 `Order` / `OrderItem` **藏在 DTO 里面**，
+      直接扫 @RequestBody 形参**扫不到它们** → 漏判（我实测 4 个真缺陷被漏掉）。
+    → 所以要**顺着 DTO 的字段再往下找一层**，把嵌套实体也纳入。
+
+    📌 **返回模块名**：因为 setter 统计必须**限定在拥有该写路径的模块内**
+       （见 count_write_setters 的 module_scope 参数）——
+       否则别的模块（platform 同步适配器）的赋值会把本模块的漏洞掩盖掉。
     """
-    bound = set()
+    # 实体类名 → 所属模块（用于判断「嵌套实体是不是实体」）
+    entity_classes = set()
+    for svc_dir in sorted(ROOT.glob("erp-*-service")):
+        for p in svc_dir.glob("src/main/java/**/entity/*.java"):
+            cm = re.search(r'\bclass\s+(\w+)',
+                           p.read_text(encoding="utf-8", errors="ignore"))
+            if cm:
+                entity_classes.add(cm.group(1))
+
+    bound = {}
     for p in java_files():
         if "/controller/" not in str(p):
             continue
+        module = p.parts[len(ROOT.parts)] if ROOT in p.parents else ""
         text = p.read_text(encoding="utf-8", errors="ignore")
-        # @RequestBody XxxEntity xxx
         for fm in re.finditer(
                 r'@RequestBody\s+(?:@\w+\s+)*([A-Z]\w*)\s+\w+', text):
-            bound.add(fm.group(1))
+            dto = fm.group(1)
+            bound.setdefault(dto, module)
+            # 📌 顺着 DTO 的字段找**嵌套实体**
+            for nested in nested_entities_of(dto, entity_classes):
+                bound.setdefault(nested, module)
     return bound
 
 
-def count_null_guards(field, entity_cls=None, entity_fqn=None):
+def nested_entities_of(dto_cls, entity_classes):
+    """找出 DTO 里嵌套的实体类（字段类型是实体，或 List<实体>）。
+
+    📌 **为什么需要**：包装 DTO 里的实体同样是 Jackson 直接写字段，
+       一样没有 setter 调用 → 一样需要服务层兜底。
+    """
+    out = set()
+    for p in java_files():
+        cm = re.search(rf'\bclass\s+{re.escape(dto_cls)}\b', p.read_text(
+            encoding="utf-8", errors="ignore"))
+        if not cm:
+            continue
+        text = p.read_text(encoding="utf-8", errors="ignore")
+        # `private Order order;` / `private List<OrderItem> orderItems;`
+        for fm in re.finditer(
+                r'private\s+(?:List<\s*)?([A-Z]\w*)(?:>)?\s+\w+\s*;', text):
+            typ = fm.group(1)
+            if typ in entity_classes:
+                out.add(typ)
+        break
+    return out
+
+
+
+def java_methods(text):
+    """把一个 Java 文件切成 [(方法名, 方法体文本)]。
+
+    📌 **为什么要按方法切**：只认 setter 调用会**跨路径串味** ——
+    `t_order.status` 的 setter 在 `updateOrderStatus()` 里（**更新路径**），
+    但 insert 路径没设 → 脚本以为「有兜底」→ 漏报（我实测发现的）。
+    → 判定必须落在「**真正执行 insert 的那个方法**」上。
+    """
+    out = []
+    lines = text.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        # 方法签名：修饰符 + 返回类型 + 名字 + ( ... ) {
+        if re.match(r"\s*(?:public|protected|private|static|final|synchronized|\s)+"
+                    r"[\w<>,\.\[\]?\s]+\s+(\w+)\s*\([^;]*\)\s*(?:throws[\w,\s.]+)?\{",
+                    line):
+            name = re.search(r"([\w]+)\s*\([^;]*\)\s*(?:throws[\w,\s.]+)?\{",
+                             line).group(1)
+            depth = line.count("{") - line.count("}")
+            body = [line]
+            j = i + 1
+            while j < len(lines) and depth > 0:
+                body.append(lines[j])
+                depth += lines[j].count("{") - lines[j].count("}")
+                j += 1
+            out.append((name, "\n".join(body)))
+            i = j
+            continue
+        i += 1
+    return out
+
+
+def write_scope_texts(entity_cls, module, entity_fqn):
+    """返回该模块内**真正执行 insert 的方法**的文本（含它调用的私有辅助方法）。
+
+    📌 **判据**：方法体里出现 `save(` / `insert(` / `saveOrUpdate(`，
+       且该文件 import 了目标实体 → 这个方法就是写路径。
+    📌 **加上它调用的私有辅助方法**：
+       有些代码把字段准备拆到 `prepareOrder(order)` 里，
+       只看 insert 方法体会误报 → 把同文件里被它调用到的私有方法也纳入。
+    """
+    scopes = []
+    insert_re = re.compile(r"(?:\w+Mapper|baseMapper)\.insert\s*\(|"
+                           r"(?:^|[^.\w])save(?:OrUpdate|Batch)?\s*\(")
+    insert_names = set()
+    per_file = []
+    for p in java_files():
+        if module_of(p) != module:
+            continue
+        text = p.read_text(encoding="utf-8", errors="ignore")
+        if entity_fqn and not imports_entity(text, entity_fqn):
+            continue
+        methods = java_methods(text)
+        per_file.append((p, methods))
+        for name, body in methods:
+            if insert_re.search(body):
+                insert_names.add(name)
+
+    for p, methods in per_file:
+        for name, body in methods:
+            if name not in insert_names:
+                continue
+            scope = body
+            # 把同文件里被调用到的私有辅助方法也纳入
+            for hname, hbody in methods:
+                if hname == name or hbody is body:
+                    continue
+                if re.search(rf"\b{re.escape(hname)}\s*\(", body):
+                    scope += "\n" + hbody
+            scopes.append(scope)
+
+    # 📌 **还要纳入「调用 insert 方法的上游方法」**（踩了 1 次才补上）
+    #
+    #    📌 **为什么**：项目里很常见「**Controller 装配实体 → Service 负责 insert**」：
+    #        Controller: `order.setSupplierId(request.getSupplierId());`
+    #                     `if (request.getSupplierId() == null) throw ...`
+    #        Service:    `purchaseOrderService.createOrder(order, items);` → insert
+    #    → 守卫和赋值都在 **Controller**，insert 在 **Service**
+    #    → 只看 insert 方法体 → 看不到守卫 → **误报**（supplier_id 就是这么被误报的）。
+    #    📌 写路径 = insert 方法 **+ 调用它的方法**（上游 2 层，够用了）。
+    for p, methods in per_file:
+        for name, body in methods:
+            if name in insert_names:
+                continue
+            if not any(re.search(rf"\b{re.escape(n)}\s*\(", body)
+                       for n in insert_names):
+                continue
+            scope = body
+            for hname, hbody in methods:
+                if hname == name or hbody is body:
+                    continue
+                if re.search(rf"\b{re.escape(hname)}\s*\(", body):
+                    scope += "\n" + hbody
+            scopes.append(scope)
+    return scopes
+
+
+def count_null_guards(field, entity_cls=None, entity_fqn=None, module_scope=None,
+                      scope_texts=None):
     """统计 field 的**空值守卫**次数（`if (x.getYyy() == null) throw ...`）。
 
     📌 **为什么需要它**：NOT NULL 且无默认值的列，有两种安全的补法：
@@ -173,17 +331,86 @@ def count_null_guards(field, entity_cls=None, entity_fqn=None):
     """
     getter = "get" + field[0].upper() + field[1:]
     total = 0
+    if scope_texts is not None:
+        # 📌 **写入路径作用域**：只看真正执行 insert 的方法体
+        for text in scope_texts:
+            total += _guards_in_text(text, field, getter)
+        return total
     for p in java_files():
+        # 📌 **只在本模块内找守卫**（见 count_write_setters 的 module_scope 说明）
+        if module_scope and module_of(p) != module_scope:
+            continue
         text = p.read_text(encoding="utf-8", errors="ignore")
         if entity_fqn and not imports_entity(text, entity_fqn):
             continue
+        total += _guards_in_text(text, field, getter)
+    return total
+
+
+def _guards_via_source(text, field, getter):
+    """「实体字段的值来自 DTO 字段，且该 DTO 字段有空值守卫」→ 算覆盖。
+
+    📌 **为什么需要（踩了 1 次才补上）**：
+    Controller 里的常见写法是**从 DTO 装配实体**：
+        `order.setSupplierId(request.getSupplierId());`
+    而守卫写在 **DTO 那一侧**：
+        `if (request.getSupplierId() == null) throw new BizException("供应商不能为空");`
+    → 守卫**确实保护了 insert**（DTO 为 null 时根本走不到 setSupplierId）
+    → 但脚本只认「对实体字段本身守卫」→ **误报** supplier_id。
+
+    📌 判据：写路径里存在 `实体.setField(dto.getField())`，
+       且 `dto.getField()` 在同一段代码里有 null 守卫。
+    """
+    setter = "set" + field[0].upper() + field[1:]
+    src_vars = set()
+    for m in re.finditer(
+            rf"\b(\w+)\s*\.\s*{setter}\s*\(\s*(\w+)\s*\.\s*{getter}\s*\(\s*\)\s*\)",
+            text):
+        src_vars.add(m.group(2))
+    if not src_vars:
+        return 0
+    total = 0
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        for v in src_vars:
+            if f"{v}.{getter}()" not in line:
+                continue
+            if not re.search(
+                    rf"{re.escape(v)}\.{getter}\(\s*\)\s*(==|!=)\s*null"
+                    rf"|null\s*(==|!=)\s*{re.escape(v)}\.{getter}\(\s*\)", line):
+                continue
+            for j in range(i, min(len(lines), i + 6)):
+                if "throw " in lines[j]:
+                    total += 1
+                    break
+    return total
+
+
+def _guards_in_text(text, field, getter):
+    """在一段文本里数该字段的空值守卫次数。"""
+    total = _guards_via_source(text, field, getter)
+    if True:
         lines = text.split("\n")
         for i, line in enumerate(lines):
             if f".{getter}()" not in line:
                 continue
-            if not re.search(
-                    rf"\.{getter}\(\s*\)\s*(==|!=)\s*null"
-                    rf"|null\s*(==|!=)\s*\.{getter}\(\s*\)", line):
+            # 📌 **判定要按语义，不要按固定形态**（踩了 1 次才补上）
+            #
+            #    空值守卫有两种写法：
+            #      ① 直接比较：`if (order.getShopId() == null) throw ...`
+            #      ② **包在辅助方法里**：`if (isBlank(order.getPlatform())) throw ...`
+            #         / `if (StringUtils.hasText(x.getY())) throw ...`
+            #    📌 只认 ① 会把 ② 误判成「没守卫」→ 误报
+            #       （我加完校验后脚本仍然误报 platform / platform_order_no）。
+            #    📌 辅助方法名的判据：名字里带 blank / empty / null / text
+            #       —— 项目里实际用的是 isEmpty(144) / hasText(68) / isBlank(67)。
+            direct_null = re.search(
+                rf"\.{getter}\(\s*\)\s*(==|!=)\s*null"
+                rf"|null\s*(==|!=)\s*\.{getter}\(\s*\)", line)
+            helper_null = re.search(
+                rf"\b(?:is|has)[A-Za-z]*(?:Blank|Empty|Null|Text)\s*\("
+                rf"[^;]*{getter}\(\s*\)", line)
+            if not (direct_null or helper_null):
                 continue
             # 往后看几行：有没有 throw
             for j in range(i, min(len(lines), i + 6)):
@@ -193,7 +420,8 @@ def count_null_guards(field, entity_cls=None, entity_fqn=None):
     return total
 
 
-def count_write_setters(field, entity_cls=None, entity_fqn=None):
+def count_write_setters(field, entity_cls=None, entity_fqn=None, module_scope=None,
+                        scope_texts=None):
     """统计 field 在**写路径**上的赋值次数（排除纯搬运和 VO/DTO 装配）。
 
     📌 **必须按「实体类型」而不是「模块」限定**：
@@ -207,7 +435,26 @@ def count_write_setters(field, entity_cls=None, entity_fqn=None):
     """
     setter = "set" + field[0].upper() + field[1:]
     total = 0
+    if scope_texts is not None:
+        # 📌 **写入路径作用域**：只认「真正执行 insert 的那个方法」里的赋值
+        for text in scope_texts:
+            total += _setters_in_text(text, field, setter, entity_cls)
+        return total
     for p in java_files():
+        # 📌 **module_scope：只统计拥有该写路径的模块内的赋值**（踩了 1 次才补上）
+        #
+        #    📌 **为什么必须限定**：实测 4 个真缺陷被漏掉 ——
+        #       `t_order.order_amount` / `status` / `t_order_item.unit_price` / `quantity`
+        #       在 **erp-platform-service** 的同步适配器（AmazonOrderSync）里**都有赋值**，
+        #       但 **erp-order-service**（真正接收 @RequestBody 的模块）里**没有**。
+        #       → 「全模块统计」会把 platform 的赋值算成 order 的兜底
+        #       → REST 接口漏传字段照样 500（我真起服务实测出来的）。
+        #
+        #    📌 注意：**不加 module_scope 反而更准**的场景是
+        #       「跨模块同步」—— 但那类写路径是 Feign 调用同一个 service 方法，
+        #       最终还是落到拥有写路径的模块里 → 所以限定模块是对的。
+        if module_scope and module_of(p) != module_scope:
+            continue
         text = p.read_text(encoding="utf-8", errors="ignore")
         # 📌 只有 import 了该实体（或用通配符 import 了它所在的包）的文件，
         #    才算在给这个实体赋值
@@ -225,72 +472,242 @@ def count_write_setters(field, entity_cls=None, entity_fqn=None):
         builder_call = f".{field}("
         builder_re = (re.compile(rf'\b{entity_cls}\s*\.\s*builder\s*\(')
                       if entity_cls else None)
-        for i, line in enumerate(lines):
-            is_setter = f".{setter}(" in line
-            is_builder = False
-            if builder_call in line and builder_re:
-                # 往前回溯几行，看 builder() 链是否在这一行附近
-                for j in range(max(0, i - 12), i + 1):
-                    if builder_re.search(lines[j]):
-                        is_builder = True
-                        break
-            if not (is_setter or is_builder):
-                continue
-            # 排除「纯搬运」：`data.setCurrencyCode(order.getCurrencyCode())`
-            # 📌 这是**把实体的值复制到 DTO**（导出操作），
-            #    **不是给实体赋值** → 不能算作写路径的赋值。
-            #    📌 关键判据：**目标变量名**（data/vo/dto/resp/result/map/…）
-            #    和**来源变量名**（order/entity/obj/…）不同，
-            #    且来源是某个 .getXxx() → 这是「A 复制到 B」，不是赋值给实体。
-            #    📌 反过来 `entity.setXxx(vo.getXxx())`（VO → 实体）**是真实写入**，
-            #       所以不能一刀切排除所有 .get 来源。
-            # 📌 正则要抓的是**接收者**和**来源**：
-            #    `data.setCurrencyCode(order.getCurrencyCode())`
-            #    → 接收者 = data（setter 前面那个），来源 = order
-            #    📌 之前写成 `\.{setter}\(...\.get...` 会把 group(1) 抓成**参数里的变量**
-            #       （=order），于是「目标=order」→ 判定成「同名读自己」→ 被排除
-            #       → 结果真正的赋值点也被误杀了（我踩了 3 次才定位到）。
-            m = re.search(rf"\b(\w+)\s*\.{setter}\(\s*(\w+)\.get(\w+)\(\s*\)", line)
-            if m:
-                target = m.group(1)
-                src_host = m.group(2)
-                src = m.group(3)
-                # 📌 **「同名读自己」不等于「纯搬运」**！
-                #    `item.setTotalAmount(item.getUnitPrice().multiply(...))`
-                #    接收者和来源是同一个变量，但这是**真·写入**（拿单价算总价），
-                #    不是把值原样搬回去。
-                #    真正的搬运是「搬的是**同一个字段**」：
-                #    `data.setCurrencyCode(order.getCurrencyCode())` → 搬 currencyCode。
-                #    📌 之前写成「target == src_host 就排除」→
-                #    把 `item.setTotalAmount(item.getUnitPrice()...)` 这种**真写入**误杀了，
-                #    导致修复后脚本仍然误报（我踩了 1 次）。
-                same_field = src.lower() == field.lower()
-                if target.lower() == src_host.lower() and same_field:
-                    # 同名 + 同字段 → 纯搬运
-                    continue
-                # 📌 **只排除「同字段名的搬运」**：`data.setCurrencyCode(order.getCurrencyCode())`
-                #    —— 搬的是**同一个字段**，目标是 DTO/VO → 是导出，不是写实体。
-                # 📌 **不能按「目标变量名」一刀切排除**！
-                #    之前把 "detail" / "item" / "row" 加进前缀黑名单 →
-                #    `detail.setInboundOrderId(order.getId())` 这种**真正的写入**
-                #    被误杀 → 4 个真·高危列被判成「从没赋值」（我踩了 1 次）。
-                #    判据应该是「搬的字段名 == 目标字段名」，而不是「目标长得像不像 DTO」。
-                if same_field and target.lower().startswith(
-                        ("data", "dto", "vo", "resp", "response", "result",
-                         "map", "bean", "view", "export")):
-                    continue
-                # 📌 目标是「实体/订单/明细」这类业务对象名 → 算真实写入
-                #    （entity.setXxx(vo.getXxx()) / item.setXxx(...)）
-            # 排除在 VO/DTO/Response/Export 类里的赋值
-            # 往上找最近的 class 声明
-            cls = ""
-            for j in range(i, -1, -1):
-                cm = re.search(r"\bclass\s+(\w+)", lines[j])
-                if cm:
-                    cls = cm.group(1)
-                    break
-            if any(h in cls for h in READONLY_CLASS_HINT):
-                continue
+        total += _setters_in_text(text, field, setter, entity_cls)
+    return total
+
+
+
+def _guard_line_matches(line, getter):
+    """这行是不是「对该字段的空值/空白检查」？
+
+    📌 两种形态：
+      ① 直接比较：`if (order.getStatus() == null)`
+      ② 包在辅助方法里：`if (isBlank(order.getStatus()))`
+         / `if (StringUtils.hasText(x.getY()))`
+    """
+    if re.search(rf"\.{re.escape(getter)}\(\s*\)\s*(==|!=)\s*null"
+                 rf"|null\s*(==|!=)\s*\.{re.escape(getter)}\(\s*\)", line):
+        return True
+    if re.search(rf"\b(?:is|has)[A-Za-z]*(?:Blank|Empty|Null|Text)\s*\("
+                 rf"[^;]*\.{re.escape(getter)}\(\s*\)", line):
+        return True
+    return False
+
+
+def _guard_block(lines, i):
+    """返回第 i 行守卫所覆盖的代码块（含守卫行），以及块的结束行号。
+
+    📌 两种形态：
+      ① 带花括号的多行块：`if (x.getF() == null) { ... }`
+      ② 单语句（无花括号）：`if (x.getF() == null) entity.setF(default);`
+    """
+    line = lines[i]
+    if "{" in line:
+        depth = line.count("{") - line.count("}")
+        block = [line]
+        j = i + 1
+        while j < len(lines) and depth > 0:
+            block.append(lines[j])
+            depth += lines[j].count("{") - lines[j].count("}")
+            j += 1
+        return "\n".join(block), j
+    # 无花括号 → 取到第一个分号为止
+    block = [line]
+    j = i + 1
+    while j < len(lines) and j < i + 5 and ";" not in lines[j - 1]:
+        block.append(lines[j])
+        j += 1
+    return "\n".join(block), j
+
+
+def _guard_then_default_count(text, field, setter, getter):
+    """数「**守卫 → 兜底赋值**」的次数。
+
+    📌 **这是唯一能真正保护 NOT NULL 列的 setter 形态**：
+        `if (order.getStatus() == null) { order.setStatus("PENDING"); }`
+       —— 走到 insert 时该字段**一定非 null**。
+
+    📌 **为什么不能「有 setter 调用就算覆盖」（踩了 1 次才补上）**：
+        `po.setSku(item.getSku())` —— 这是把 **DTO 的可能为 null 的值原样搬过来**，
+        DTO 没传就是 null → insert 照样失败。
+        → 「调用了 setter」≠「列非 null」，必须有**守卫**才算覆盖。
+       （实测：supplier 的 t_purchase_order_item.sku / quantity 就是这么漏掉的。）
+
+    📌 另外覆盖一种内联兜底：`setF(a == null ? b : a)`（三元）
+    """
+    lines = text.split("\n")
+    total = 0
+    i = 0
+    while i < len(lines):
+        if not _guard_line_matches(lines[i], getter):
+            i += 1
+            continue
+        block, end = _guard_block(lines, i)
+        if re.search(rf"\.{setter}\s*\(", block):
+            total += 1
+        i = max(end, i + 1)
+    # 内联三元兜底：`x.setF(a == null ? b : a)`
+    total += len(re.findall(
+        rf"\.{setter}\s*\([^;)]*==\s*null\s*\?", text))
+    return total
+
+
+
+def _dto_vars(text):
+    """找出这个方法里「**来源可能是 null 的 DTO 变量**」。
+
+    📌 **判据**：
+      ① `@RequestBody XxxRequest request` → `request` 本身
+      ② 遍历 DTO 集合的 lambda 参数：`request.getItems().stream().map(item -> ...)`
+         → `item` 也算（它是 DTO 元素）
+      ③ for-each 的元素变量
+
+    📌 **为什么要区分 DTO 变量和其他变量**：
+        `order.setSupplierId(request.getSupplierId())` → 来源是 DTO → **可能为 null**
+        `item.setOrderId(order.getId())`            → 来源是实体 → **主键，必非 null**
+       把两者一视同仁就会误报（我改严语义后第一版就是这样，全是误报）。
+
+    📌 **DTO 变量的赋值若没有守卫** → 该列仍可能为 null → insert 仍会失败。
+    """
+    out = set()
+    for m in re.finditer(
+            r"@RequestBody\s+(?:@\w+\s+)*[A-Z]\w*\s+(\w+)", text):
+        out.add(m.group(1))
+    if not out:
+        return out
+    # 集合遍历出的元素变量
+    for m in re.finditer(r"\.map\(\s*(\w+)\s*->", text):
+        out.add(m.group(1))
+    # 📌 **for-each 的元素变量**：`for (ItemRequest item : reqItems)`
+    #    📌 **踩了 1 次才补上**：我原来写的是「取整条 for 语句的最后��个单词」
+    #       → 抓到的是 `reqItems`（集合名）而不是 `item`（元素变量）
+    #       → 元素变量没被认成 DTO 变量 → `po.setSku(item.getSku())` 被判成安全
+    #       → **漏报**（实测把供应商的 sku/quantity 守卫删掉，脚本没报）。
+    #       → 正确判据：**冒号前面**的那个标识符才是元素变量。
+    for m in re.finditer(
+            r"for\s*\(\s*(?:final\s+)?[\w<>,\.\[\]\s]+?\s+(\w+)\s*:", text):
+        out.add(m.group(1))
+
+    # 📌 **局部变量声明**：`ItemRequest item = reqItems.get(i);`
+    #    📌 **踩了 1 次才补上**：我原来只处理 for-each，
+    #       但项目里更多用的是**下标循环**：
+    #         for (int i = 0; i < reqItems.size(); i++) {
+    #             ItemRequest item = reqItems.get(i);
+    #             po.setSku(item.getSku());
+    #         }
+    #       → `item` 是**局部变量声明** → 没被认成 DTO 变量 → 漏报。
+    #
+    #    📌 **判据**：声明的类型**不是实体类** → 就是「DTO 侧的数据」。
+    #       `ItemRequest item` → DTO（可能为 null）
+    #       `PurchaseOrderItem po` → 实体（主键/已算好的值 → 安全）
+    #       `String s` / `Integer q` → JDK 类型 → 忽略
+    ents = entity_class_names()
+    jdk_types = {"String", "Integer", "Long", "Double", "Boolean", "BigDecimal",
+                 "BigInteger", "Object", "LocalDateTime", "LocalDate", "Date",
+                 "List", "Map", "Set", "Optional", "Result", "Page", "IPage"}
+    for m in re.finditer(
+            r"^\s*(?:final\s+)?([A-Z]\w*)\s+(\w+)\s*=", text, re.M):
+        typ, var = m.group(1), m.group(2)
+        if typ in jdk_types or typ in ents:
+            continue
+        out.add(var)
+    return out
+
+
+def entity_class_names():
+    """全项目实体类名集合（用来区分「实体变量」和「DTO 变量」）。"""
+    global _ENTITY_CLASSES
+    if _ENTITY_CLASSES is not None:
+        return _ENTITY_CLASSES
+    names = set()
+    for svc_dir in sorted(ROOT.glob("erp-*-service")):
+        for p in svc_dir.glob("src/main/java/**/entity/*.java"):
+            cm = re.search(r"\bclass\s+(\w+)",
+                           p.read_text(encoding="utf-8", errors="ignore"))
+            if cm:
+                names.add(cm.group(1))
+    _ENTITY_CLASSES = names
+    return names
+
+
+def _setter_calls(text, field, setter):
+    """列出所有 `x.setField(来源)` 形式的调用：(行号, 来源变量名 或 None)。
+
+    📌 来源为 None 表示「参数不是简单的 `var.getXxx()`」
+       （常量、计算表达式、方法调用结果）→ 视为**安全**（值不由 DTO 直接决定）。
+    """
+    lines = text.split("\n")
+    out = []
+    for i, line in enumerate(lines):
+        for m in re.finditer(rf"\b(\w+)\s*\.\s*{re.escape(setter)}\s*\(", line):
+            rest = line[m.end():]
+            src = re.match(r"\s*(\w+)\s*\.\s*get\w*\s*\(", rest)
+            out.append((i, src.group(1) if src else None))
+    return out
+
+
+def _setters_in_text(text, field, setter, entity_cls):
+    """数「真正保护 NOT NULL 列的赋值」次数。
+
+    📌 **三种安全形态**：
+      ① 守卫 → 兜底赋值：`if (x.getF() == null) { x.setF(default); }`
+      ② 内联三元兜底：`x.setF(a == null ? b : a)`
+      ③ 赋值来源**不是可空的 DTO 字段**：
+           `item.setOrderId(order.getId())`   ← 来源是实体主键，必非 null
+           `order.setTotalAmount(计算式)`      ← 来源是计算结果
+         → 这两种都算覆盖。
+
+    📌 **不安全的形态**（正是要抓的）：
+           `po.setSku(item.getSku())`  ← item 是 DTO 元素，DTO 没传就是 null
+       → 只有当**该 DTO 字段本身有守卫**时才算覆盖。
+
+    📌 **语义修正史**：
+       - v1「有任何 setter 调用就算覆盖」→ **漏报**（DTO 漏传照样 insert 失败）
+       - v2「只认守卫 → 兜底赋值」→ **误报**（实体主键、计算结果全被误判）
+       - v3（本版）「来源是否可空」→ 两者都对
+    """
+    getter = "get" + field[0].upper() + field[1:]
+    total = _guard_then_default_count(text, field, setter, getter)
+    dto_vars = _dto_vars(text)
+
+    # 📌 **Builder 形态**：`InventoryCheck.builder().checkNo("IC-" + ...)....build()`
+    #
+    #    📌 **踩了 1 次才补上**：上一版只认「Builder 参数里带三元兜底」，
+    #       结果 wms_inventory_check.check_no / wms_inventory_check_result.check_id
+    #       全被误报 —— 但它们**明明有值**：
+    #         `.checkNo("IC-" + now.format(...) + "-" + (warehouseId % 1000))`
+    #         `.checkId(check.getId())`
+    #       → **Builder 的参数只要不是「可空的 DTO 字段」就是安全的**。
+    #       → 判据和 setter 一致：来源是不是可空的 DTO 变量。
+    if entity_cls:
+        for chain in re.finditer(
+                rf'\b{re.escape(entity_cls)}\s*\.\s*builder\s*\(\s*\)(.*?)'
+                rf'\.build\s*\(\s*\)',
+                text, re.S):
+            body = chain.group(1)
+            fm = re.search(
+                rf'\.{re.escape(field)}\s*\(\s*(\w+)\s*\.\s*get\w*\s*\(\s*\)',
+                body)
+            if fm and fm.group(1) in dto_vars:
+                # 来源是可空 DTO 字段 → 要看该 DTO 字段有没有守卫
+                if _guards_via_source(text, field, getter):
+                    total += 1
+            else:
+                # 参数是常量 / 计算式 / 实体方法 → 安全
+                total += 1
+
+    # 📌 来源可空性判定
+    for _i, src in _setter_calls(text, field, setter):
+        if src is None:
+            # 参数不是简单的 `var.getXxx()` → 常量/计算式 → 安全
+            total += 1
+            continue
+        if src not in dto_vars:
+            # 来源是实体/局部对象（主键、已计算好的值）→ 安全
+            total += 1
+            continue
+        # 📌 来源是 DTO 字段 → 必须该 DTO 字段自己也有守卫
+        if _guards_via_source(text, field, getter):
             total += 1
     return total
 
@@ -446,12 +863,25 @@ def main():
         #    这类要单独查（见下面的 json_bound_missing）。
         cls = entity_class_name(svc, table)
         if cls and cls in json_bound:
-            # 实体被 @RequestBody 直接绑定 → 服务层必须自己兜底
+            # 实体被 @RequestBody 直接绑定（或藏在包装 DTO 里）→ 服务层必须自己兜底
+            # 📌 **module_scope**：只认「拥有该写路径的模块」里的赋值/校验 ——
+            #    别的模块（platform 同步适配器）的赋值不算数，
+            #    否则 REST 接口漏传字段照样 500（真起服务实测出来的）。
+            scope = json_bound[cls]
+            # 📌 **写入路径作用域**：只看「真正执行 insert 的那个方法」，
+            #    避免「更新路径的 setter」把「插入路径的漏洞」掩盖掉。
+            #    📌 例：t_order.status 的 setter 在 updateOrderStatus() 里，
+            #       insert 路径没设 → 不限定方法就会漏报（我实测发现的）。
+            scope_texts = write_scope_texts(cls, scope, entity_fqn_of(svc, table))
             n = count_write_setters(field, entity_cls=cls,
-                                    entity_fqn=entity_fqn_of(svc, table))
+                                    entity_fqn=entity_fqn_of(svc, table),
+                                    module_scope=scope,
+                                    scope_texts=scope_texts or None)
             # 📌 也认可「入口处显式校验并报错」这种兜底方式
             g = count_null_guards(field, entity_cls=cls,
-                                  entity_fqn=entity_fqn_of(svc, table))
+                                  entity_fqn=entity_fqn_of(svc, table),
+                                  module_scope=scope,
+                                  scope_texts=scope_texts or None)
             if n == 0 and g == 0:
                 json_bound_missing.append((db, table, col, field, cls))
             continue
