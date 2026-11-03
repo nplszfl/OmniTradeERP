@@ -68,8 +68,22 @@
         <module>erp-ai-assistant-service</module>
         <module>erp-product-description-service</module>
         <!--
-          以下 3 个模块仍缺 entity/mapper/vo，编译不通过，待补齐后启用：
-            erp-assembly / erp-finance-service / erp-inventory-service
+          erp-assembly：**单体聚合模块**，故意不启用。
+
+          📌 现状：模块里 **0 个 java 文件**，pom 里配的
+             <mainClass>com.crossborder.erp.ErpApplication</mainClass>
+             **这个类不存在**。
+          📌 **注意**：显式配 <mainClass> 时 spring-boot-maven-plugin **不会校验**
+             类是否存在 → `mvn package` **照样 BUILD SUCCESS**，
+             产出 99MB 的 fat jar，**真跑起来才炸**
+             （ClassNotFoundException: com.crossborder.erp.ErpApplication）。
+          📌 不用它的原因：当前部署形态是**微服务 + 网关**（compose/k8s 里
+             21 个独立服务），没有任何编排引用这个聚合 jar。
+             要启用它 = 要同时写一个跨全部服务的单体启动类，
+             而各服务各有自己的 @SpringBootApplication 和独立数据源，
+             组件扫描会直接冲突 —— 这是一次架构改造，不是补个类的事。
+          📌 巡检 `scripts/check-boot-main-class.py` 会把它列为
+             「未启用模块」并说明状态（不计入失败，因为它不会被部署）。
         -->
         <!-- <module>erp-assembly</module> -->
         <module>erp-finance-service</module>
