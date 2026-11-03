@@ -170,6 +170,8 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         python3 scripts/check-action-versions.py --deep --strict
+        python3 scripts/check-k8s-images.py
+        python3 scripts/check-k8s-deploy-coverage.py
         python3 scripts/gen-dockerfiles.py --check
 
   # ============================================================
@@ -276,24 +278,50 @@ jobs:
         retention-days: 7
 
   # Docker镜像构建
-  docker-build:
-    name: Build Docker Images
+  # 📌 **矩阵从 k8s 清单反推** —— 不能手写模块清单。
+  #    手写 = 多一个会漂移的事实来源：以后往 k8s 加一个服务，
+  #    CI 不会自动跟着构建 → 回到「镜像从没构建过 → ImagePullBackOff」的老问题。
+  prepare-matrices:
+    name: Prepare Build Matrix
     runs-on: ubuntu-latest
-    needs: [backend-build-test, frontend-build-test]
+    outputs:
+      images: ${{ steps.gen.outputs.matrix }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: "生成镜像构建矩阵（从 k8s/*.yaml 的 image 反推）"
+      id: gen
+      run: echo "matrix=$(python3 scripts/k8s-image-matrix.py)" >> "$GITHUB_OUTPUT"
+
+  docker-build:
+    name: Build ${{ matrix.module }} image
+    runs-on: ubuntu-latest
+    needs: [backend-build-test, frontend-build-test, prepare-matrices]
     # 📌 必须是 **master** —— 本仓库唯一的分支是 master（origin/HEAD -> origin/master）。
     #    之前写的是 refs/heads/main，而 main 分支**从来不存在**
-    #    → 这个 job **永远被跳过** → 镜像从来没构建过 → 部署也从来没发生。
+    #    → 这个 job **永远被跳过** → 镜像从来没构建过 → 部署没发生过。
     if: github.ref == 'refs/heads/master'
     # 📌 **把 secret 转到 env，才能在 step 级 `if` 里判断它存不存在** ——
     #    GitHub 的上下文可用性表里，**`if` 表达式拿不到 `secrets`** ——
     #    无论 job 级还是 step 级，写 `secrets.XXX != ''` 都会让 GitHub **拒收整个文件**：
     #        Unrecognized named-value: 'secrets'.
     #        Located at position 1 within expression: secrets.DOCKER_USERNAME != ''
-    #    → 又是「0 个 job、整个 workflow 作废」的老坑（而本地 YAML 解析得通!).
+    #    → 又是「0 个 job、整个 workflow 作废」的老坑（而本地 YAML 解析得通!）。
     #    ✅ `env` 上下文在 step 级 `if` 里**可用**，
     #       而 job 级 `env` 可以引用 `secrets` → 中转一下就绕开了这个限制。
     env:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+
+    # 📌 **原来只构建 3 个镜像**（gateway / order / frontend），
+    #    而 k8s/*.yaml 引用了 **13 个 ERP 镜像** →
+    #    另外 10 个镜像**从来没被构建过、从来没被推送过**
+    #    → 一旦真的部署 → ImagePullBackOff → Pod 起不来
+    #    📌 现在改成 **matrix 覆盖 k8s 里的每一个镜像**
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.prepare-matrices.outputs.images) }}
 
     steps:
     - name: Checkout code
@@ -316,24 +344,41 @@ jobs:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: Build and push Gateway image
+    # 📌 统一用**通用的** docker/Dockerfile.service（MODULE/PORT build-arg）——
+    #    和 docker-compose.yml 的用法**完全一致** → 编排层只有一套配方。
+    - name: Build ${{ matrix.module }} image
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: ./docker/Dockerfile.gateway
+        file: ./docker/Dockerfile.service
+        build-args: |
+          MODULE=${{ matrix.module }}
+          PORT=${{ matrix.port }}
         # 📌 push 和 load 互斥 —— 按有没有凭据二选一
         push: ${{ env.DOCKER_USERNAME != '' }}
         load: ${{ env.DOCKER_USERNAME == '' }}
-        tags: nplszfl/erp-gateway:latest,nplszfl/erp-gateway:${{ github.sha }}
+        tags: ${{ matrix.image }}:latest,${{ matrix.image }}:${{ github.sha }}
 
-    - name: Build and push Order Service image
-      uses: docker/build-push-action@v5
+  docker-build-frontend:
+    name: Build Frontend image
+    runs-on: ubuntu-latest
+    needs: [frontend-build-test]
+    if: github.ref == 'refs/heads/master'
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Docker Hub
+      if: env.DOCKER_USERNAME != ''
+      uses: docker/login-action@v3
       with:
-        context: .
-        file: ./docker/Dockerfile.order
-        push: ${{ env.DOCKER_USERNAME != '' }}
-        load: ${{ env.DOCKER_USERNAME == '' }}
-        tags: nplszfl/erp-order-service:latest,nplszfl/erp-order-service:${{ github.sha }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
 
     - name: Build and push Frontend image
       uses: docker/build-push-action@v5
@@ -348,7 +393,8 @@ jobs:
   deploy-k8s:
     name: Deploy to Kubernetes
     runs-on: ubuntu-latest
-    needs: docker-build
+    # 📌 前端镜像现在由**独立 job** 构建（矩阵 job 只跑 Maven 服务）→ 必须一起等
+    needs: [docker-build, docker-build-frontend]
     # 📌 同上 —— 必须是 master
     # 📌 **「有没有 kubeconfig」这个判断必须放在 step 级，不能放 job 级** ——
     #    GitHub 的表达式上下文里，**job 级 `if` 拿不到 `secrets`** →
@@ -382,6 +428,18 @@ jobs:
           echo "⚠️ 未配置 KUBE_CONFIG secret → 跳过部署（本仓库当前无任何 secret）"
         fi
 
+    # 📌 **必须装 PyYAML** —— scripts/k8s-deploy-plan.py 要 import yaml，
+    #    而 GitHub 的 ubuntu-latest runner **默认没装**（本项目实测过）
+    - name: Set up Python
+      if: steps.kube.outputs.configured == 'true'
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: 安装 Python 依赖
+      if: steps.kube.outputs.configured == 'true'
+      run: pip install pyyaml
+
     - name: Configure kubectl
       if: steps.kube.outputs.configured == 'true'
       uses: azure/setup-kubectl@v4
@@ -394,30 +452,69 @@ jobs:
         echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig.yaml
         export KUBECONFIG=kubeconfig.yaml
 
-    - name: Deploy to Kubernetes
+    # 📌 **部署目标必须从 k8s 清单反推**，不能手写。
+    #    之前这里手写了 3 条 `kubectl set image`，**三条全是错的**：
+    #    1. `erp-frontend` 这个 Deployment 在 k8s 里**根本不存在**
+    #       → kubectl 直接报 `deployments.apps "erp-frontend" not found`
+    #    2. **container 名写错了** —— Deployment 名 ≠ container 名：
+    #          Deployment `erp-gateway` → container `gateway`
+    #          Deployment `erp-user-service` → container `user-service`
+    #       → `set image deployment/erp-gateway erp-gateway=...` 报 container not found
+    #    3. **只覆盖 3 个，k8s 里其实有 13 个 ERP Deployment**
+    #       → 另外 10 个永远跑旧镜像
+    #    📌 这个 job 一直被「KUBE_CONFIG 未配置」挡着**从没真跑过** → 所以没人发现。
+    #    ✅ 现在用 scripts/k8s-deploy-plan.py 从 k8s/*.yaml 生成部署计划，
+    #       和构建侧的 k8s-image-matrix.py **同源** → 结构上不会漂移。
+    - name: 生成部署计划（从 k8s 清单反推）
       if: steps.kube.outputs.configured == 'true'
       run: |
-        # 部署Gateway
-        kubectl set image deployment/erp-gateway \
-          erp-gateway=nplszfl/erp-gateway:${{ github.sha }} \
-          -n erp --context=default
+        python3 scripts/k8s-deploy-plan.py --tsv | tee deploy-plan.tsv
+        echo "--- 计划条目数: $(wc -l < deploy-plan.tsv)"
 
-        # 部署Order Service
-        kubectl set image deployment/erp-order-service \
-          erp-order-service=nplszfl/erp-order-service:${{ github.sha }} \
-          -n erp --context=default
+    - name: 应用服务清单（不含 mysql/redis/nacos 等基础设施）
+      if: steps.kube.outputs.configured == 'true'
+      run: |
+        # 📌 先 apply 清单再 set image —— 否则「清单里新加的服务」
+        #    在集群里还不存在 → set image 报 not found。
+        # 📌 **只 apply 应用清单**，不碰 mysql/redis/nacos：
+        #    基础设施由 deploy.sh / 运维单独管，CI 不该碰有状态的东西。
+        kubectl apply -f k8s/namespace.yaml --context=default
+        for f in k8s/gateway.yaml k8s/core-services.yaml k8s/services.yaml k8s/ai-services.yaml; do
+          echo "→ apply $f"
+          kubectl apply -f "$f" --context=default
+        done
 
-        # 部署Frontend
-        kubectl set image deployment/erp-frontend \
-          erp-frontend=nplszfl/erp-frontend:${{ github.sha }} \
-          -n erp --context=default
+    - name: Deploy to Kubernetes
+      if: steps.kube.outputs.configured == 'true'
+      env:
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        while IFS=$'\t' read -r deploy container image; do
+          [ -z "$deploy" ] && continue
+          echo "→ set image deployment/$deploy  $container=$image:$IMAGE_TAG"
+          kubectl set image "deployment/$deploy" "$container=$image:$IMAGE_TAG" \
+            -n erp --context=default
+        done < deploy-plan.tsv
 
+    # 📌 同样从部署计划里读，不再手写清单
     - name: Wait for deployment
       if: steps.kube.outputs.configured == 'true'
       run: |
-        kubectl rollout status deployment/erp-gateway -n erp --context=default --timeout=5m
-        kubectl rollout status deployment/erp-order-service -n erp --context=default --timeout=5m
-        kubectl rollout status deployment/erp-frontend -n erp --context=default --timeout=5m
+        set -uo pipefail
+        fail=0
+        while IFS=$'\t' read -r deploy container image; do
+          [ -z "$deploy" ] && continue
+          echo "→ rollout status deployment/$deploy"
+          if ! kubectl rollout status "deployment/$deploy" -n erp \
+               --context=default --timeout=5m; then
+            echo "❌ deployment/$deploy 滚动更新失败"
+            fail=1
+          fi
+        done < deploy-plan.tsv
+        # 📌 **每个服务都要真的 rollout 成功** —— 不能「失败也当过」
+        #    （`set -e` 会被 while 管道里的失败吞掉，所以这里显式收集）
+        exit $fail
 
     - name: Verify deployment
       if: steps.kube.outputs.configured == 'true'

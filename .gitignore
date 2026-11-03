@@ -52,3 +52,6 @@ application-local.properties
 # Backup files
 *.bak
 *.backup
+
+# CI 部署计划临时产物
+deploy-plan.tsv

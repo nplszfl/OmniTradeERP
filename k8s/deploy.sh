@@ -32,13 +32,19 @@ kubectl apply -f k8s/nacos.yaml
 echo "⏳ 等待Nacos就绪..."
 kubectl wait --for=condition=ready pod -l app=nacos -n erp --timeout=300s
 
-# 部署Gateway
-echo "🌐 部署Gateway..."
-kubectl apply -f k8s/gateway.yaml
-
-# 部署其他服务
+# 部署微服务
+# 📌 **必须把 k8s/ 下的服务清单全部 apply** ——
+#    之前这里只 apply 了 gateway.yaml 和 services.yaml，
+#    **core-services.yaml（6 个服务）和 ai-services.yaml（4 个服务）从没被 apply 过**
+#    → 那 10 个服务的 Deployment 在集群里**根本不存在**
+#    → 加上 CI 的 `kubectl set image` 也只覆盖 3 个 → 部署形同虚设。
+#    📌 改法：**按清单文件逐个 apply，不手写文件名列表** ——
+#    以后往 k8s/ 加一个 yaml，脚本自动跟着部署（手写清单 = 会漂移的事实来源）。
 echo "⚙️  部署微服务..."
-kubectl apply -f k8s/services.yaml
+for f in k8s/gateway.yaml k8s/core-services.yaml k8s/services.yaml k8s/ai-services.yaml; do
+  echo "  → apply $f"
+  kubectl apply -f "$f"
+done
 
 echo ""
 echo "✅ 部署完成！"

@@ -81,6 +81,8 @@ jobs:
         python3 scripts/check-seed-idempotency.py
         python3 scripts/check-workflow-validity.py
         python3 scripts/check-action-versions.py --deep --strict
+        python3 scripts/check-k8s-images.py
+        python3 scripts/check-k8s-deploy-coverage.py
         python3 scripts/gen-dockerfiles.py --check
 
   # 前端代码检查
