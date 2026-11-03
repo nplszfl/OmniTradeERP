@@ -29,11 +29,11 @@ public class AlertNotifyService {
     /**
      * 发送邮件通知
      */
-    public void sendEmailNotification(InventoryAlert alert, String emailList) {
+    public boolean sendEmailNotification(InventoryAlert alert, String emailList) {
         try {
             if (emailList == null || emailList.isEmpty()) {
                 log.warn("邮件通知列表为空，预警ID: {}", alert.getId());
-                return;
+                return false;
             }
 
             // 解析邮件列表
@@ -56,8 +56,10 @@ public class AlertNotifyService {
             }
 
             log.info("邮件通知发送成功: alertId={}, emails={}", alert.getId(), emailList);
+            return true;
         } catch (Exception e) {
             log.error("邮件通知发送失败: alertId={}, error={}", alert.getId(), e.getMessage(), e);
+            return false;
         }
     }
 
@@ -77,11 +79,11 @@ public class AlertNotifyService {
      * 发送短信通知（模拟实现）
      * 实际项目中需要对接短信网关（阿里云、腾讯云等）
      */
-    public void sendSmsNotification(InventoryAlert alert, String phoneList) {
+    public boolean sendSmsNotification(InventoryAlert alert, String phoneList) {
         try {
             if (phoneList == null || phoneList.isEmpty()) {
                 log.warn("短信通知列表为空，预警ID: {}", alert.getId());
-                return;
+                return false;
             }
 
             // 解析手机号列表
@@ -103,8 +105,10 @@ public class AlertNotifyService {
             }
 
             log.info("短信通知发送成功: alertId={}, phones={}", alert.getId(), phoneList);
+            return true;
         } catch (Exception e) {
             log.error("短信通知发送失败: alertId={}, error={}", alert.getId(), e.getMessage(), e);
+            return false;
         }
     }
 
@@ -140,27 +144,35 @@ public class AlertNotifyService {
     /**
      * 发送所有类型的通知
      */
-    public void sendNotification(InventoryAlert alert, String notifyType, String emailList, String phoneList) {
+    /**
+     * 发送通知
+     *
+     * @return 是否**真的**发出去过。
+     *         ⚠️ 以前这里是 void，调用方无条件把预警标成「已通知」——
+     *            但邮件列表为空、短信是模拟实现、发送抛异常被内部 catch 掉，
+     *            三种情况下其实**一个人都没通知到**，
+     *            记录上却写着 notified=true（列表页显示「已通知」，实际没人收到）。
+     *            现在返回真实结果，调用方据此决定要不要标记。
+     */
+    public boolean sendNotification(InventoryAlert alert, String notifyType, String emailList, String phoneList) {
         if (notifyType == null) {
             notifyType = "ALL";
         }
 
         switch (notifyType) {
             case "EMAIL":
-                sendEmailNotification(alert, emailList);
-                break;
+                return sendEmailNotification(alert, emailList);
             case "SMS":
-                sendSmsNotification(alert, phoneList);
-                break;
+                return sendSmsNotification(alert, phoneList);
             case "SYSTEM":
                 // 站内通知需要用户ID列表，这里暂时跳过
                 log.info("站内通知需要用户ID列表，请调用sendSystemNotification方法");
-                break;
+                return false;
             case "ALL":
             default:
-                sendEmailNotification(alert, emailList);
-                sendSmsNotification(alert, phoneList);
-                break;
+                boolean emailSent = sendEmailNotification(alert, emailList);
+                boolean smsSent = sendSmsNotification(alert, phoneList);
+                return emailSent || smsSent;
         }
     }
 

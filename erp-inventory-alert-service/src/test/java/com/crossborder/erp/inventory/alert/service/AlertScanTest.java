@@ -166,6 +166,35 @@ class AlertScanTest {
     }
 
     @Test
+    @DisplayName("没人通知到 → 不标记「已通知」（notified 不能撒谎）")
+    void doesNotMarkNotifiedWhenNothingWasSent() {
+        when(liveInventoryMapper.selectLiveInventory())
+                .thenReturn(List.of(row(1002L, "SKU-WAT-002-SLV", "WH-DE-HH", 18)));
+        when(ruleMapper.selectList(any())).thenReturn(List.of(rule(1002L, "WH-DE-HH", 25, 20, 10)));
+        when(alertRecordService.count(any())).thenReturn(0L);
+        // 通知服务返回 false = 一个人都没通知到
+        when(alertNotifyService.sendNotification(any(), any(), any(), any())).thenReturn(false);
+
+        service.scanLiveInventory();
+
+        verify(alertRecordService, never()).markAsNotified(any());
+    }
+
+    @Test
+    @DisplayName("真的发出去了 → 标记「已通知」")
+    void marksNotifiedWhenNotificationSent() {
+        when(liveInventoryMapper.selectLiveInventory())
+                .thenReturn(List.of(row(1002L, "SKU-WAT-002-SLV", "WH-DE-HH", 18)));
+        when(ruleMapper.selectList(any())).thenReturn(List.of(rule(1002L, "WH-DE-HH", 25, 20, 10)));
+        when(alertRecordService.count(any())).thenReturn(0L);
+        when(alertNotifyService.sendNotification(any(), any(), any(), any())).thenReturn(true);
+
+        service.scanLiveInventory();
+
+        verify(alertRecordService, times(1)).markAsNotified(any());
+    }
+
+    @Test
     @DisplayName("脏数据行（缺 productId / sku）被跳过，不打断整轮扫描")
     void scanSkipsDirtyRows() {
         Map<String, Object> dirty = new HashMap<>();

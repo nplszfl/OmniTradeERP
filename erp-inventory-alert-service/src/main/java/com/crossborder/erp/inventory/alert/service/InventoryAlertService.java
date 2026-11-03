@@ -271,13 +271,20 @@ public class InventoryAlertService extends ServiceImpl<InventoryAlertRuleMapper,
      */
     private void sendNotification(InventoryAlert alert, InventoryAlertRule rule) {
         try {
-            alertNotifyService.sendNotification(
+            boolean sent = alertNotifyService.sendNotification(
                     alert, 
                     rule.getNotifyType(), 
                     rule.getEmailList(), 
                     rule.getPhoneList()
             );
-            alertRecordService.markAsNotified(alert.getId());
+            // ⚠️ 只有真的发出去了才标「已通知」。
+            //    邮件列表为空 / 短信是模拟实现 / 发送异常 —— 这三种情况一个人都没通知到，
+            //    标成 notified=true 会让列表页显示「已通知」，实际没人收到过。
+            if (sent) {
+                alertRecordService.markAsNotified(alert.getId());
+            } else {
+                log.info("预警未发出通知（无接收人或发送失败），不标记已通知: alertId={}", alert.getId());
+            }
         } catch (Exception e) {
             log.error("发送通知失败: alertId={}, error={}", alert.getId(), e.getMessage());
         }
