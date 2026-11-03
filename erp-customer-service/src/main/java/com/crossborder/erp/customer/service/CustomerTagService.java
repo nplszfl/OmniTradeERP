@@ -2,6 +2,7 @@ package com.crossborder.erp.customer.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.customer.entity.CustomerTag;
 import com.crossborder.erp.customer.entity.CustomerTagRelation;
 import com.crossborder.erp.customer.mapper.CustomerTagMapper;
@@ -30,6 +31,16 @@ public class CustomerTagService extends ServiceImpl<CustomerTagMapper, CustomerT
      * 创建标签
      */
     public Long createTag(CustomerTag tag) {
+        // 🔴 必填校验：`t_customer_tag.name` 是 NOT NULL 且**无默认值**，
+        //    MyBatis-Plus 的 insert 会**跳过 null 字段** → INSERT 里没有这一列
+        //    → MySQL 报 "Field 'name' doesn't have a default value" → 插入失败，
+        //    错误信息还会**泄露原始 SQL 栈**给前端。
+        if (tag == null) {
+            throw new BizException("客户标签不能为空");
+        }
+        if (tag.getName() == null || tag.getName().trim().isEmpty()) {
+            throw new BizException("标签名称不能为空");
+        }
         if (tag.getStatus() == null) {
             tag.setStatus("ACTIVE");
         }

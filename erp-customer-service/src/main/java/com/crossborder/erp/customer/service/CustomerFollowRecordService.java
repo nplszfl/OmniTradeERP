@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.customer.entity.CustomerFollowRecord;
 import com.crossborder.erp.customer.mapper.CustomerFollowRecordMapper;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,16 @@ public class CustomerFollowRecordService extends ServiceImpl<CustomerFollowRecor
      * 创建跟进记录
      */
     public Long createRecord(CustomerFollowRecord record) {
+        // 🔴 必填校验：`t_customer_follow_record.customer_id` 是 NOT NULL 且**无默认值**，
+        //    MyBatis-Plus 的 insert 会**跳过 null 字段** → INSERT 里没有这一列
+        //    → MySQL 报 "Field 'customer_id' doesn't have a default value" → 插入失败，
+        //    错误信息还会**泄露原始 SQL 栈**给前端。
+        if (record == null) {
+            throw new BizException("跟进记录不能为空");
+        }
+        if (record.getCustomerId() == null) {
+            throw new BizException("客户不能为空");
+        }
         if (record.getResult() == null) {
             record.setResult("PENDING");
         }

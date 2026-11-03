@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.order.dto.OrderExportResponse;
 import com.crossborder.erp.order.dto.OrderQueryRequest;
 import com.crossborder.erp.order.entity.Order;
@@ -45,7 +46,30 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     @Timed(value = "order.create", description = "创建订单", histogram = true)
     @Transactional(rollbackFor = Exception.class)
     public Long createOrder(Order order, List<OrderItem> orderItems) {
-        log.info("创建订单, 平台订单号: {}", order.getPlatformOrderNo());
+        log.info("创建订单, 平台订单号: {}", order == null ? null : order.getPlatformOrderNo());
+
+        // 🔴 必填校验：`t_order.shop_id` / `platform` / `platform_order_no`
+        //    都是 NOT NULL 且**无默认值**，而 MyBatis-Plus 的 insert 默认
+        //    FieldStrategy.NOT_NULL 会**跳过 null 字段** → INSERT 里根本没有这些列
+        //    → MySQL 报 "Field 'shop_id' doesn't have a default value" → 订单存不进去。
+        //    📌 订单是 @RequestBody 直传的实体，客户端漏传就是 500。
+        if (order == null) {
+            throw new BizException("订单不能为空");
+        }
+        if (isBlank(order.getPlatform())) {
+            throw new BizException("订单平台不能为空");
+        }
+        if (isBlank(order.getPlatformOrderNo())) {
+            throw new BizException("平台订单号不能为空");
+        }
+        if (order.getShopId() == null) {
+            throw new BizException("店铺不能为空");
+        }
+        if (orderItems == null) {
+            // 📌 只拦 null（后续 for 会 NPE），**不拦空列表** ——
+            //    平台同步可能出现 0 明细的订单，拦掉会打断同步链路。
+            throw new BizException("订单明细不能为空");
+        }
 
         // 生成内部订单号
         String internalOrderNo = generateInternalOrderNo(order.getPlatform());
@@ -73,6 +97,16 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             // 📌 明细行的币种同理：没设就继承订单的
             if (isBlank(item.getCurrencyCode())) {
                 item.setCurrencyCode(order.getCurrencyCode());
+            }
+            // 🔴 `t_order_item.total_amount` 是 NOT NULL 且**无默认值**，
+            //    MyBatis-Plus 的 insert 会**跳过 null 字段** → INSERT 里没有这一列
+            //    → MySQL: Field 'total_amount' doesn't have a default value → 整个订单插入失败。
+            //    📌 调用方（前端 / 第三方）漏传就是 500，而且**原始 SQL 栈直接泄露给前端**。
+            //    📌 金额本身就是「单价 × 数量」可推导的 → 直接算出来，不该让调用方负责。
+            if (item.getTotalAmount() == null && item.getUnitPrice() != null
+                    && item.getQuantity() != null) {
+                item.setTotalAmount(item.getUnitPrice()
+                        .multiply(BigDecimal.valueOf(item.getQuantity())));
             }
             orderItemMapper.insert(item);
         }

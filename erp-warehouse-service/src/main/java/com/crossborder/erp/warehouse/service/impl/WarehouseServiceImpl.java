@@ -113,6 +113,15 @@ public class WarehouseServiceImpl implements WarehouseService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createWarehouse(Warehouse warehouse) {
+        // 🔴 必填校验：`wms_warehouse.name` 是 NOT NULL 且**无默认值**，
+        //    MyBatis-Plus 的 insert 默认 FieldStrategy.NOT_NULL 会**跳过 null 字段**
+        //    → INSERT 里根本没有这一列 → MySQL 报
+        //    "Field 'name' doesn't have a default value" → 整个插入失败。
+        //    📌 仓库是 @RequestBody 直传的实体，客户端漏传就是 500。
+        if (warehouse == null) {
+            throw new BusinessException("仓库信息不能为空");
+        }
+        requireNotBlank(warehouse.getName(), "仓库名称不能为空");
         warehouse.setWarehouseCode(generateWarehouseCode());
         warehouse.setStatus(WarehouseStatus.ACTIVE.getCode());
         warehouse.setCreateTime(LocalDateTime.now());
@@ -264,6 +273,16 @@ public class WarehouseServiceImpl implements WarehouseService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createLocation(WarehouseLocation location) {
+        // 🔴 必填校验：`wms_warehouse_location.warehouse_id` / `location_code`
+        //    是 NOT NULL 且**无默认值**，漏传 → INSERT 失败 → 错误信息是原始 SQL 栈。
+        if (location == null) {
+            throw new BusinessException("库位信息不能为空");
+        }
+        if (location.getWarehouseId() == null) {
+            throw new BusinessException("所属仓库不能为空");
+        }
+        requireNotBlank(location.getLocationCode(), "库位编码不能为空");
+
         // 检查库位编码是否已存在
         LambdaQueryWrapper<WarehouseLocation> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(WarehouseLocation::getWarehouseId, location.getWarehouseId())
@@ -366,6 +385,24 @@ public class WarehouseServiceImpl implements WarehouseService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createInboundOrder(InboundOrder order, List<InboundDetail> details) {
+        // 🔴 必填校验：`wms_inbound_order.warehouse_id` 与
+        //    `wms_inbound_detail.product_id` 都是 NOT NULL 且**无默认值**。
+        if (order == null) {
+            throw new BusinessException("入库单不能为空");
+        }
+        if (order.getWarehouseId() == null) {
+            throw new BusinessException("入库仓库不能为空");
+        }
+        if (details == null) {
+            // 📌 只拦 null（后续 details.stream() 会 NPE），**不拦空列表** ——
+            //    空明细的入库单是允许的，不属于本次要修的 NOT NULL 缺陷。
+            throw new BusinessException("入库明细不能为空");
+        }
+        for (InboundDetail detail : details) {
+            if (detail.getProductId() == null) {
+                throw new BusinessException("入库明细的商品不能为空");
+            }
+        }
         order.setOrderNo(generateInboundOrderNo());
         order.setStatus(0);
         order.setCreateTime(LocalDateTime.now());
@@ -496,6 +533,22 @@ public class WarehouseServiceImpl implements WarehouseService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createOutboundOrder(OutboundOrder order, List<OutboundDetail> details) {
+        // 🔴 必填校验：`wms_outbound_order.warehouse_id` 与
+        //    `wms_outbound_detail.product_id` 都是 NOT NULL 且**无默认值**。
+        if (order == null) {
+            throw new BusinessException("出库单不能为空");
+        }
+        if (order.getWarehouseId() == null) {
+            throw new BusinessException("出库仓库不能为空");
+        }
+        if (details == null) {
+            throw new BusinessException("出库明细不能为空");
+        }
+        for (OutboundDetail detail : details) {
+            if (detail.getProductId() == null) {
+                throw new BusinessException("出库明细的商品不能为空");
+            }
+        }
         order.setOrderNo(generateOutboundOrderNo());
         order.setStatus(0);
         order.setCreateTime(LocalDateTime.now());
@@ -616,6 +669,24 @@ public class WarehouseServiceImpl implements WarehouseService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createTransfer(StockTransfer transfer) {
+        // 🔴 必填校验：`wms_stock_transfer.from_warehouse_id` / `to_warehouse_id`
+        //    是 NOT NULL 且**无默认值**，而 MyBatis-Plus 的 insert 默认
+        //    FieldStrategy.NOT_NULL 会**跳过 null 字段** → INSERT 里根本没有这一列
+        //    → MySQL 报 "Field 'from_warehouse_id' doesn't have a default value"
+        //    → 整个插入失败，而且错误信息是**原始 SQL 栈**直接泄露给前端。
+        //    📌 调拨单是 @RequestBody 直传的实体，客户端漏传就是 500。
+        if (transfer == null) {
+            throw new BusinessException("调拨单不能为空");
+        }
+        if (transfer.getFromWarehouseId() == null) {
+            throw new BusinessException("调出仓库不能为空");
+        }
+        if (transfer.getToWarehouseId() == null) {
+            throw new BusinessException("调入仓库不能为空");
+        }
+        if (transfer.getFromWarehouseId().equals(transfer.getToWarehouseId())) {
+            throw new BusinessException("调出仓库和调入仓库不能相同");
+        }
         transfer.setTransferNo(generateTransferNo());
         transfer.setStatus(0);
         transfer.setCreateTime(LocalDateTime.now());
@@ -725,6 +796,17 @@ public class WarehouseServiceImpl implements WarehouseService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createInventoryBatch(InventoryBatch batch) {
+        // 🔴 必填校验：`wms_inventory_batch.product_id` / `warehouse_id`
+        //    是 NOT NULL 且**无默认值**。
+        if (batch == null) {
+            throw new BusinessException("库存批次不能为空");
+        }
+        if (batch.getProductId() == null) {
+            throw new BusinessException("库存批次的商品不能为空");
+        }
+        if (batch.getWarehouseId() == null) {
+            throw new BusinessException("库存批次的仓库不能为空");
+        }
         batch.setBatchNo(generateBatchNo());
         batch.setBatchStatus("NORMAL");
         batch.setAvailableQuantity(batch.getQuantity());
@@ -842,6 +924,12 @@ public class WarehouseServiceImpl implements WarehouseService {
     public Long createWavePicking(WavePicking wave, List<WavePickingDetail> details) {
         if (details == null || details.isEmpty()) {
             throw new BusinessException("波次明细不能为空");
+        }
+        // 🔴 必填校验：`wms_wave_picking_detail.product_id` 是 NOT NULL 且无默认值。
+        for (WavePickingDetail detail : details) {
+            if (detail.getProductId() == null) {
+                throw new BusinessException("波次明细的商品不能为空");
+            }
         }
 
         wave.setWaveNo(generateWaveNo());
@@ -1080,6 +1168,14 @@ public class WarehouseServiceImpl implements WarehouseService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createPackingMaterial(PackingMaterial material) {
+        // 🔴 同理：`wms_packing_material.material_name` 是 NOT NULL 且无默认值，
+        //    漏传 → INSERT 失败 → 原始 SQL 栈泄露给前端。
+        if (material == null) {
+            throw new BusinessException("包装材料不能为空");
+        }
+        if (material.getMaterialName() == null || material.getMaterialName().isBlank()) {
+            throw new BusinessException("包装材料名称不能为空");
+        }
         material.setMaterialCode(generateMaterialCode());
         material.setStatus(1);
         material.setCreateTime(LocalDateTime.now());
@@ -1498,6 +1594,23 @@ public class WarehouseServiceImpl implements WarehouseService {
     private String generateMaterialCode() {
         return "PKG" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd")) 
                 + String.format("%03d", new Random().nextInt(1000));
+    }
+
+    /**
+     * 必填校验：字符串非 null 且非空白
+     *
+     * <p>📌 为什么需要它：库里很多列是 {@code NOT NULL} 且**无默认值**，
+     * 而 MyBatis-Plus 的 insert 默认 {@code FieldStrategy.NOT_NULL}
+     * 会**跳过 null 字段** → INSERT 语句里根本没有这一列
+     * → MySQL 报 {@code Field 'xxx' doesn't have a default value}
+     * → 整个插入失败，而且错误信息是**原始 SQL 栈**直接泄露给前端。</p>
+     *
+     * <p>📌 与其让客户端猜哪个字段漏了，不如在入口处明确报「哪个字段不能为空」。</p>
+     */
+    private static void requireNotBlank(String value, String message) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new BusinessException(message);
+        }
     }
 
 }

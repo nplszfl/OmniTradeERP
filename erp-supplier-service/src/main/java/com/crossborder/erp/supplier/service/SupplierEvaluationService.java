@@ -2,6 +2,7 @@ package com.crossborder.erp.supplier.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.supplier.entity.SupplierEvaluation;
 import com.crossborder.erp.supplier.entity.Supplier;
 import com.crossborder.erp.supplier.mapper.SupplierEvaluationMapper;
@@ -31,6 +32,16 @@ public class SupplierEvaluationService extends ServiceImpl<SupplierEvaluationMap
      */
     @Transactional(rollbackFor = Exception.class)
     public Long createEvaluation(SupplierEvaluation evaluation) {
+        // 🔴 必填校验：`t_supplier_evaluation.supplier_id` 是 NOT NULL 且**无默认值**，
+        //    MyBatis-Plus 的 insert 会**跳过 null 字段** → INSERT 里没有这一列
+        //    → MySQL 报 "Field 'supplier_id' doesn't have a default value" → 插入失败，
+        //    错误信息还会**泄露原始 SQL 栈**给前端。
+        if (evaluation == null) {
+            throw new BizException("供应商评估不能为空");
+        }
+        if (evaluation.getSupplierId() == null) {
+            throw new BizException("供应商不能为空");
+        }
         // 计算综合评分
         BigDecimal totalScore = calculateTotalScore(evaluation);
         evaluation.setTotalScore(totalScore);

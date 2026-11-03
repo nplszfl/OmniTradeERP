@@ -25,7 +25,23 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public Product saveProduct(Product product) {
+        // 🔴 必填校验：`t_product.internal_sku` / `product_name` 是 NOT NULL 且**无默认值**，
+        //    MyBatis-Plus 的 insert 默认 FieldStrategy.NOT_NULL 会**跳过 null 字段**
+        //    → INSERT 里根本没有这两列 → MySQL 报
+        //    "Field 'internal_sku' doesn't have a default value" → 整个插入失败，
+        //    而且错误信息是**原始 SQL 栈**直接泄露给前端。
+        //    📌 注意实体字段名是 sku / name，列名是 internal_sku / product_name。
+        if (product == null) {
+            throw new BizException("商品不能为空");
+        }
         if (product.getId() == null) {
+            // 📌 只在**新增**时校验（更新走 updateById，MyBatis-Plus 只更新非 null 字段）
+            if (product.getSku() == null || product.getSku().trim().isEmpty()) {
+                throw new BizException("SKU 不能为空");
+            }
+            if (product.getName() == null || product.getName().trim().isEmpty()) {
+                throw new BizException("商品名称不能为空");
+            }
             productMapper.insert(product);
         } else {
             productMapper.updateById(product);

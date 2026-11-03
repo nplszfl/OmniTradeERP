@@ -217,6 +217,17 @@ public class GlobalExceptionHandler {
         if (e instanceof BizException || e instanceof IllegalArgumentException) {
             return false; // 上面已有专门的分支处理
         }
+        // 🔴 **数据完整性异常**（MyBatis 包装的 SQL 失败）绝不能原样返回
+        //    —— 它的 message 里含**完整的 SQL 语句、列名、表名**，
+        //    例如："Field 'total_amount' doesn't have a default value ...
+        //             SQL: INSERT INTO t_order_item ..."
+        //    → 直接透给前端 = **数据库结构泄露**（还能把内部表名/字段名告诉攻击者）。
+        //    📌 实测：漏传 totalAmount 的下单请求，前端收到了整段 SQL 栈。
+        if (e instanceof org.springframework.dao.DataIntegrityViolationException
+                || e instanceof org.springframework.dao.DataAccessException
+                || e instanceof java.sql.SQLException) {
+            return false;
+        }
         return e instanceof RuntimeException
                 && e.getMessage() != null
                 && !e.getMessage().isBlank();

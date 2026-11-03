@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.erp.supplier.entity.Supplier;
 import com.crossborder.erp.supplier.mapper.SupplierMapper;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,17 @@ public class SupplierService extends ServiceImpl<SupplierMapper, Supplier> {
      * 创建供应商
      */
     public Long createSupplier(Supplier supplier) {
+        // 🔴 必填校验：`t_supplier.name` 是 NOT NULL 且**无默认值**，
+        //    MyBatis-Plus 的 insert 默认 FieldStrategy.NOT_NULL 会**跳过 null 字段**
+        //    → INSERT 里根本没有这一列 → MySQL 报
+        //    "Field 'name' doesn't have a default value" → 整个插入失败，
+        //    而且错误信息是**原始 SQL 栈**直接泄露给前端。
+        if (supplier == null) {
+            throw new BizException("供应商不能为空");
+        }
+        if (supplier.getName() == null || supplier.getName().trim().isEmpty()) {
+            throw new BizException("供应商名称不能为空");
+        }
         if (supplier.getStatus() == null) {
             supplier.setStatus("ACTIVE");
         }
