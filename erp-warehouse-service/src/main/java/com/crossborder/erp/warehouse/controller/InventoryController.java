@@ -46,7 +46,7 @@ public class InventoryController {
      * 创建库存批次
      */
     @PostMapping("/batches")
-    public Result<Long> createInventoryBatch(@RequestBody InventoryBatch batch) {
+    public Result<String> createInventoryBatch(@RequestBody InventoryBatch batch) {
         // Service 内部会用 quantity 回填 availableQuantity，这里兜底避免空值拆箱
         if (batch.getQuantity() == null) {
             batch.setQuantity(0);
@@ -54,7 +54,7 @@ public class InventoryController {
         log.info("创建库存批次请求: 仓库={}, SKU={}, 数量={}",
                 batch.getWarehouseId(), batch.getProductId(), batch.getQuantity());
         Long batchId = warehouseService.createInventoryBatch(batch);
-        return Result.success(batchId);
+        return Result.successId(batchId);
     }
 
     /**
@@ -178,13 +178,13 @@ public class InventoryController {
      * 根本没法调 confirm。现在真正落库并把 checkId 返回给前端。</p>
      */
     @PostMapping("/checks")
-    public Result<Long> createInventoryCheck(@RequestBody InventoryCheckRequest request) {
+    public Result<String> createInventoryCheck(@RequestBody InventoryCheckRequest request) {
         List<Long> locationIds = request.getLocationIds() == null ? List.of() : request.getLocationIds();
         log.info("创建盘点单: 仓库={}, 类型={}, 库位数={}", request.getWarehouseId(), request.getCheckType(),
                 locationIds.size());
         Long checkId = warehouseService.createInventoryCheck(request.getWarehouseId(), locationIds,
                 request.getCheckType(), request.getRemark());
-        return Result.success(checkId);
+        return Result.successId(checkId);
     }
 
     /**

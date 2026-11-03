@@ -35,9 +35,10 @@ public class OrderController {
      * 创建订单
      */
     @PostMapping("/create")
-    public Result<Long> createOrder(@RequestBody CreateOrderRequest request) {
+    public Result<String> createOrder(@RequestBody CreateOrderRequest request) {
         Long orderId = orderService.createOrder(request.getOrder(), request.getOrderItems());
-        return Result.success(orderId);
+        // 📌 data 用字符串：orderId 是雪花 ID（19 位），JS Number 承载不了
+        return Result.successId(orderId);
     }
 
     /**

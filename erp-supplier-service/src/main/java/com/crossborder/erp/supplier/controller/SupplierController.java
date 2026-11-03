@@ -22,9 +22,14 @@ public class SupplierController {
     /**
      * 创建供应商
      */
+    /**
+     * 📌 <b>返回字符串而不是 Long</b>：主键是雪花 ID（19 位），
+     * JS Number 承载不了 → 前端回传时 id 被截断 → 匹配不到行 → 静默失败。
+     */
     @PostMapping("/create")
-    public Long createSupplier(@RequestBody Supplier supplier) {
-        return supplierService.createSupplier(supplier);
+    public String createSupplier(@RequestBody Supplier supplier) {
+        Long id = supplierService.createSupplier(supplier);
+        return id == null ? null : id.toString();
     }
 
     /**

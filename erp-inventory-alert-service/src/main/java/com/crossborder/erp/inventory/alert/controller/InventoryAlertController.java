@@ -35,9 +35,9 @@ public class InventoryAlertController {
      * 创建预警规则
      */
     @PostMapping("/rule")
-    public Result<Long> createRule(@RequestBody InventoryAlertRule rule) {
+    public Result<String> createRule(@RequestBody InventoryAlertRule rule) {
         Long id = alertService.createRule(rule);
-        return Result.success(id);
+        return Result.successId(id);
     }
 
     /**

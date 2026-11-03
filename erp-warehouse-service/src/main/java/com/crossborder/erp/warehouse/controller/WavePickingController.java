@@ -46,7 +46,7 @@ public class WavePickingController {
      * 创建波次（波次主信息使用 WaveCreateDTO，拣货明细单独提交）
      */
     @PostMapping("/waves")
-    public Result<Long> createWavePicking(@RequestBody WaveCreateRequest request) {
+    public Result<String> createWavePicking(@RequestBody WaveCreateRequest request) {
         WaveCreateDTO waveDto = request.getWave() == null ? new WaveCreateDTO() : request.getWave();
         List<WavePickingDetail> details = request.getDetails() == null ? List.of() : request.getDetails();
 
@@ -60,7 +60,8 @@ public class WavePickingController {
                 waveDto.getOrderIds() == null ? 0 : waveDto.getOrderIds().size(), details.size());
 
         Long waveId = warehouseService.createWavePicking(wave, details);
-        return Result.success(waveId);
+        // 📌 data 用字符串：waveId 是雪花 ID（19 位），JS Number 承载不了
+        return Result.successId(waveId);
     }
 
     /**
@@ -152,14 +153,14 @@ public class WavePickingController {
      * 创建包装材料
      */
     @PostMapping("/materials")
-    public Result<Long> createPackingMaterial(@RequestBody PackingMaterial material) {
+    public Result<String> createPackingMaterial(@RequestBody PackingMaterial material) {
         // Service 的出入库逻辑会直接累加 stockQuantity，这里兜底避免空值拆箱
         if (material.getStockQuantity() == null) {
             material.setStockQuantity(0);
         }
         log.info("创建包装材料请求: {}", material.getMaterialName());
         Long materialId = warehouseService.createPackingMaterial(material);
-        return Result.success(materialId);
+        return Result.successId(materialId);
     }
 
     /**

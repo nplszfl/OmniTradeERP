@@ -20,9 +20,13 @@ public class SupplierEvaluationController {
     /**
      * 创建评估记录
      */
+    /**
+     * 📌 <b>返回字符串而不是 Long</b>：主键是雪花 ID（19 位），JS Number 承载不了。
+     */
     @PostMapping("/create")
-    public Long create(@RequestBody SupplierEvaluation evaluation) {
-        return evaluationService.createEvaluation(evaluation);
+    public String create(@RequestBody SupplierEvaluation evaluation) {
+        Long id = evaluationService.createEvaluation(evaluation);
+        return id == null ? null : id.toString();
     }
 
     /**

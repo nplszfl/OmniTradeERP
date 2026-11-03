@@ -20,9 +20,13 @@ public class CustomerGroupController {
     /**
      * 创建客户分组
      */
+    /**
+     * 📌 <b>返回字符串而不是 Long</b>：主键是雪花 ID（19 位），JS Number 承载不了。
+     */
     @PostMapping("/create")
-    public Long create(@RequestBody CustomerGroup group) {
-        return customerGroupService.createGroup(group);
+    public String create(@RequestBody CustomerGroup group) {
+        Long id = customerGroupService.createGroup(group);
+        return id == null ? null : id.toString();
     }
 
     /**

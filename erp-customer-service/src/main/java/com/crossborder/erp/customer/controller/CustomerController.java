@@ -22,9 +22,13 @@ public class CustomerController {
     /**
      * 创建客户
      */
+    /**
+     * 📌 <b>返回字符串而不是 Long</b>：主键是雪花 ID（19 位），JS Number 承载不了。
+     */
     @PostMapping("/create")
-    public Long createCustomer(@RequestBody Customer customer) {
-        return customerService.createCustomer(customer);
+    public String createCustomer(@RequestBody Customer customer) {
+        Long id = customerService.createCustomer(customer);
+        return id == null ? null : id.toString();
     }
 
     /**

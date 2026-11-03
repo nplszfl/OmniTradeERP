@@ -145,8 +145,9 @@ class PurchaseOrderRestControllerTest {
 
         when(purchaseOrderService.createOrder(any(), any())).thenReturn(555L);
 
-        Long id = controller.create(req);
-        assertEquals(555L, id);
+        // 📌 返回值现在是字符串（雪花 ID 19 位，JS Number 承载不了）
+        String id = controller.create(req);
+        assertEquals("555", id);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<PurchaseOrderItem>> captor = ArgumentCaptor.forClass(List.class);

@@ -75,9 +75,15 @@ public class PurchaseOrderRestController {
 
     /**
      * 创建采购单
+     *
+     * 📌 <b>返回字符串而不是 Long</b>：采购单主键是雪花 ID（19 位），
+     * JS 的 {@code Number} 只能精确表示 16 位 → 前端拿到的 id 会被截断
+     * → 回传后端时匹配不到任何行 → <b>HTTP 200 但删除/更新静默失败</b>。
+     *
+     * <p>📌 服务层仍然用 {@code Long}，只在 HTTP 出口转成字符串。</p>
      */
     @PostMapping("/orders")
-    public Long create(@RequestBody CreateOrderRequest request) {
+    public String create(@RequestBody CreateOrderRequest request) {
         if (request == null || request.getSupplierId() == null) {
             throw new BizException("供应商不能为空");
         }
@@ -108,7 +114,8 @@ public class PurchaseOrderRestController {
             return po;
         }).toList();
 
-        return purchaseOrderService.createOrder(order, items);
+        Long orderId = purchaseOrderService.createOrder(order, items);
+        return orderId == null ? null : orderId.toString();
     }
 
     /**

@@ -22,9 +22,13 @@ public class CustomerFollowRecordController {
     /**
      * 创建跟进记录
      */
+    /**
+     * 📌 <b>返回字符串而不是 Long</b>：主键是雪花 ID（19 位），JS Number 承载不了。
+     */
     @PostMapping("/create")
-    public Long create(@RequestBody CustomerFollowRecord record) {
-        return followRecordService.createRecord(record);
+    public String create(@RequestBody CustomerFollowRecord record) {
+        Long id = followRecordService.createRecord(record);
+        return id == null ? null : id.toString();
     }
 
     /**

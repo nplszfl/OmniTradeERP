@@ -20,9 +20,13 @@ public class CustomerTagController {
     /**
      * 创建标签
      */
+    /**
+     * 📌 <b>返回字符串而不是 Long</b>：主键是雪花 ID（19 位），JS Number 承载不了。
+     */
     @PostMapping("/create")
-    public Long create(@RequestBody CustomerTag tag) {
-        return customerTagService.createTag(tag);
+    public String create(@RequestBody CustomerTag tag) {
+        Long id = customerTagService.createTag(tag);
+        return id == null ? null : id.toString();
     }
 
     /**

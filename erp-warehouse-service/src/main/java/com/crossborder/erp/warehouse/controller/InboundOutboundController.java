@@ -44,12 +44,12 @@ public class InboundOutboundController {
      * 创建入库单（含明细）
      */
     @PostMapping("/inbound/orders")
-    public Result<Long> createInboundOrder(@RequestBody InboundOrderRequest request) {
+    public Result<String> createInboundOrder(@RequestBody InboundOrderRequest request) {
         List<InboundDetail> details = request.getDetails() == null ? List.of() : request.getDetails();
         log.info("创建入库单请求: 仓库={}, 明细行数={}",
                 request.getOrder() == null ? null : request.getOrder().getWarehouseId(), details.size());
         Long orderId = warehouseService.createInboundOrder(request.getOrder(), details);
-        return Result.success(orderId);
+        return Result.successId(orderId);
     }
 
     /**
@@ -121,12 +121,12 @@ public class InboundOutboundController {
      * 创建出库单（含明细，创建时自动锁定库位库存）
      */
     @PostMapping("/outbound/orders")
-    public Result<Long> createOutboundOrder(@RequestBody OutboundOrderRequest request) {
+    public Result<String> createOutboundOrder(@RequestBody OutboundOrderRequest request) {
         List<OutboundDetail> details = request.getDetails() == null ? List.of() : request.getDetails();
         log.info("创建出库单请求: 仓库={}, 明细行数={}",
                 request.getOrder() == null ? null : request.getOrder().getWarehouseId(), details.size());
         Long orderId = warehouseService.createOutboundOrder(request.getOrder(), details);
-        return Result.success(orderId);
+        return Result.successId(orderId);
     }
 
     /**

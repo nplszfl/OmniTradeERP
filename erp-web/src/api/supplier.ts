@@ -134,7 +134,7 @@ export const supplierApi = {
   
   // 创建供应商
   createSupplier: (data: Supplier) => 
-    request.post<any, number>('/supplier/create', data),
+    request.post<any, string>('/supplier/create', data),
 
   // 获取供应商详情
   getSupplierById: (id: string) => 
@@ -167,7 +167,7 @@ export const supplierApi = {
 
   // 创建采购订单
   createPurchaseOrder: (data: PurchaseOrder) => 
-    request.post<any, number>('/supplier/purchase/create', data),
+    request.post<any, string>('/supplier/purchase/create', data),
 
   // 获取采购订单详情
   getPurchaseOrderById: (id: string) => 
@@ -233,7 +233,7 @@ export const supplierApi = {
 
   // 创建供应商评估
   createEvaluation: (data: SupplierEvaluation) =>
-    request.post<any, number>('/supplier/evaluation/create', data),
+    request.post<any, string>('/supplier/evaluation/create', data),
 
   // 删除评估记录
   deleteEvaluation: (id: string) =>

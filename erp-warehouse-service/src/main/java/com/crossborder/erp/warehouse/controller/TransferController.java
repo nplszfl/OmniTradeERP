@@ -39,10 +39,10 @@ public class TransferController {
      * 创建调拨单
      */
     @PostMapping
-    public Result<Long> createTransfer(@RequestBody StockTransfer transfer) {
+    public Result<String> createTransfer(@RequestBody StockTransfer transfer) {
         log.info("创建调拨单请求: {} -> {}", transfer.getFromWarehouseId(), transfer.getToWarehouseId());
         Long transferId = warehouseService.createTransfer(transfer);
-        return Result.success(transferId);
+        return Result.successId(transferId);
     }
 
     /**

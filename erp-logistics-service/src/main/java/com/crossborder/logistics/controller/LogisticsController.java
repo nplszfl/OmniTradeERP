@@ -94,8 +94,10 @@ public class LogisticsController {
      * POST /logistics/rate
      */
     @PostMapping("/rate")
-    public Long createRate(@RequestBody LogisticsRateVO rate) {
-        return logisticsService.createRate(rate);
+    public String createRate(@RequestBody LogisticsRateVO rate) {
+        // 📌 返回字符串而不是 Long：费率主键是雪花 ID（19 位），JS Number 承载不了
+        Long id = logisticsService.createRate(rate);
+        return id == null ? null : id.toString();
     }
 
     /**
