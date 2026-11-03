@@ -161,6 +161,23 @@ def main():
                             f"      → 该 job 在本仓库**永远不会被执行**\n"
                             f"      → 本仓库真实分支：{sorted(branches) or '（取不到）'}"
                         )
+                # 📌 **`if` 表达式里不能出现 `secrets`** ——
+                #    GitHub 的上下文可用性表：`if` 可用 github/needs/vars/inputs/
+                #    strategy/matrix/job/runner/env/steps —— **没有 secrets**。
+                #    写成 `if: ${{ secrets.X != '' }}` 会被 GitHub **拒收整个文件**：
+                #        Unrecognized named-value: 'secrets'.
+                #    → 又是「0 个 job、整个 workflow 作废」的老坑。
+                #    ✅ 正解：job 级 `env: FOO: ${{ secrets.X }}` 中转，
+                #       然后 step 级写 `if: env.FOO != ''`。
+                if re.search(r"\bsecrets\s*\.", cond):
+                    errors.append(
+                        f"[{fn}] job '{jn}' 的 if 表达式里用了 secrets 上下文\n"
+                        f"      if: {cond}\n"
+                        f"      → GitHub 的 `if` **拿不到 secrets 上下文** → "
+                        f"**整个 workflow 文件被拒收**（0 个 job）\n"
+                        f"      → 正解：job 级 `env: FOO: ${{{{ secrets.X }}}}` 中转，"
+                        f"再在 step 级写 `if: env.FOO != ''`"
+                    )
 
             for sn, step in enumerate(job.get("steps") or [], 1):
                 if not isinstance(step, dict):
@@ -173,6 +190,17 @@ def main():
                         errors.append(f"[{fn}] job '{jn}' step「{sname}」非法 key: {k!r}{hint}")
                 if "run" in step and "uses" in step:
                     errors.append(f"[{fn}] job '{jn}' step「{sname}」同时有 run 和 uses")
+                # 📌 step 级 `if` 同样**拿不到 secrets 上下文**（见上面 job 级的说明）
+                scond = step.get("if")
+                if isinstance(scond, str) and re.search(r"\bsecrets\s*\.", scond):
+                    errors.append(
+                        f"[{fn}] job '{jn}' step「{sname}」的 if 表达式里用了 secrets 上下文\n"
+                        f"      if: {scond}\n"
+                        f"      → GitHub 的 `if` **拿不到 secrets 上下文** → "
+                        f"**整个 workflow 文件被拒收**（0 个 job）\n"
+                        f"      → 正解：job 级 `env: FOO: ${{{{ secrets.X }}}}` 中转，"
+                        f"再写 `if: env.FOO != ''`"
+                    )
                 if "uses" in step and not USES_RE.match(str(step["uses"])):
                     errors.append(f"[{fn}] job '{jn}' step「{sname}」uses 格式可疑: {step['uses']!r}")
                 # 📌 闸门步骤不许 continue-on-error → 挂了也得红

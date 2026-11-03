@@ -275,6 +275,16 @@ jobs:
     #    之前写的是 refs/heads/main，而 main 分支**从来不存在**
     #    → 这个 job **永远被跳过** → 镜像从来没构建过 → 部署也从来没发生。
     if: github.ref == 'refs/heads/master'
+    # 📌 **把 secret 转到 env，才能在 step 级 `if` 里判断它存不存在** ——
+    #    GitHub 的上下文可用性表里，**`if` 表达式拿不到 `secrets`** ——
+    #    无论 job 级还是 step 级，写 `secrets.XXX != ''` 都会让 GitHub **拒收整个文件**：
+    #        Unrecognized named-value: 'secrets'.
+    #        Located at position 1 within expression: secrets.DOCKER_USERNAME != ''
+    #    → 又是「0 个 job、整个 workflow 作废」的老坑（而本地 YAML 解析得通!).
+    #    ✅ `env` 上下文在 step 级 `if` 里**可用**，
+    #       而 job 级 `env` 可以引用 `secrets` → 中转一下就绕开了这个限制。
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
 
     steps:
     - name: Checkout code
@@ -291,7 +301,7 @@ jobs:
     #      这样这个 job 依然能验证「Dockerfile 能不能构建成功」——
     #      📌 这才是这个 job 真正有价值的部分（实测过所有 Dockerfile 都是坏的）。
     - name: Login to Docker Hub
-      if: ${{ secrets.DOCKER_USERNAME != '' }}
+      if: env.DOCKER_USERNAME != ''
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
@@ -303,8 +313,8 @@ jobs:
         context: .
         file: ./docker/Dockerfile.gateway
         # 📌 push 和 load 互斥 —— 按有没有凭据二选一
-        push: ${{ secrets.DOCKER_USERNAME != '' }}
-        load: ${{ secrets.DOCKER_USERNAME == '' }}
+        push: ${{ env.DOCKER_USERNAME != '' }}
+        load: ${{ env.DOCKER_USERNAME == '' }}
         tags: nplszfl/erp-gateway:latest,nplszfl/erp-gateway:${{ github.sha }}
 
     - name: Build and push Order Service image
@@ -312,8 +322,8 @@ jobs:
       with:
         context: .
         file: ./docker/Dockerfile.order
-        push: ${{ secrets.DOCKER_USERNAME != '' }}
-        load: ${{ secrets.DOCKER_USERNAME == '' }}
+        push: ${{ env.DOCKER_USERNAME != '' }}
+        load: ${{ env.DOCKER_USERNAME == '' }}
         tags: nplszfl/erp-order-service:latest,nplszfl/erp-order-service:${{ github.sha }}
 
     - name: Build and push Frontend image
@@ -321,8 +331,8 @@ jobs:
       with:
         context: .
         file: ./Dockerfile
-        push: ${{ secrets.DOCKER_USERNAME != '' }}
-        load: ${{ secrets.DOCKER_USERNAME == '' }}
+        push: ${{ env.DOCKER_USERNAME != '' }}
+        load: ${{ env.DOCKER_USERNAME == '' }}
         tags: nplszfl/erp-frontend:latest,nplszfl/erp-frontend:${{ github.sha }}
 
   # 部署到Kubernetes
@@ -331,14 +341,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: docker-build
     # 📌 同上 —— 必须是 master
-    # 📌 **还必须要求 KUBE_CONFIG 存在** ——
-    #    本仓库目前**一个 secret 都没配**（`gh secret list` 为空）→
-    #    `echo "${{ secrets.KUBE_CONFIG }}" | base64 -d` 会把**空字符串**写进 kubeconfig.yaml
-    #    → kubectl 拿一个空配置 → 报 "The connection to the server localhost:8080 was refused"
-    #    → 这个 job 必挂。
-    #    → 改成：**没有 kubeconfig 就不部署**（而不是硬失败）。
-    #      一旦配好 KUBE_CONFIG，不用改 workflow 就自动恢复部署。
-    if: github.ref == 'refs/heads/master' && secrets.KUBE_CONFIG != ''
+    # 📌 **「有没有 kubeconfig」这个判断必须放在 step 级，不能放 job 级** ——
+    #    GitHub 的表达式上下文里，**job 级 `if` 拿不到 `secrets`** →
+    #    写成 `if: ... && secrets.KUBE_CONFIG != ''` 会让 GitHub **拒收整个 workflow**：
+    #        Unrecognized named-value: 'secrets'.
+    #        Located at position 1 within expression: secrets.DOCKER_USERNAME != ''
+    #    → 又是「0 个 job、整个文件作废」的老坑。
+    #    📌 所以：job 级只看分支，secret 判断下沉到 step 级。
+    if: github.ref == 'refs/heads/master'
     environment:
       name: production
       url: https://erp.example.com
@@ -347,17 +357,36 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # 📌 没配 KUBE_CONFIG 就**跳过部署**（而不是硬失败）。
+    #    本仓库目前**一个 secret 都没配**（`gh secret list` 为空）→
+    #    `echo "${{ secrets.KUBE_CONFIG }}" | base64 -d` 会把**空字符串**写进 kubeconfig.yaml
+    #    → kubectl 拿一个空配置 → "The connection to the server localhost:8080 was refused"
+    #    → 这个 job 必挂。
+    #    一旦配好 KUBE_CONFIG，不用改 workflow 就自动恢复部署。
+    - name: 检查 KUBE_CONFIG 是否已配置
+      id: kube
+      run: |
+        if [ -n "${{ secrets.KUBE_CONFIG }}" ]; then
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "configured=false" >> "$GITHUB_OUTPUT"
+          echo "⚠️ 未配置 KUBE_CONFIG secret → 跳过部署（本仓库当前无任何 secret）"
+        fi
+
     - name: Configure kubectl
+      if: steps.kube.outputs.configured == 'true'
       uses: azure/setup-kubectl@v4
       with:
         version: 'v1.28.0'
 
     - name: Set up kubeconfig
+      if: steps.kube.outputs.configured == 'true'
       run: |
         echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig.yaml
         export KUBECONFIG=kubeconfig.yaml
 
     - name: Deploy to Kubernetes
+      if: steps.kube.outputs.configured == 'true'
       run: |
         # 部署Gateway
         kubectl set image deployment/erp-gateway \
@@ -375,12 +404,14 @@ jobs:
           -n erp --context=default
 
     - name: Wait for deployment
+      if: steps.kube.outputs.configured == 'true'
       run: |
         kubectl rollout status deployment/erp-gateway -n erp --context=default --timeout=5m
         kubectl rollout status deployment/erp-order-service -n erp --context=default --timeout=5m
         kubectl rollout status deployment/erp-frontend -n erp --context=default --timeout=5m
 
     - name: Verify deployment
+      if: steps.kube.outputs.configured == 'true'
       run: |
         kubectl get pods -n erp
         kubectl get svc -n erp
