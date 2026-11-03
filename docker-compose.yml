@@ -34,6 +34,11 @@ services:
       - ./database/product-recommendation-service.sql:/docker-entrypoint-initdb.d/product-recommendation-service.sql:ro
       - ./database/purchase-service.sql:/docker-entrypoint-initdb.d/purchase-service.sql:ro
       - ./database/reporting-service.sql:/docker-entrypoint-initdb.d/reporting-service.sql:ro
+      # ⚠️ 这个漏挂过一次：erp_social 库从来没被创建，
+      #    而 erp-social-commerce-service 用 JPA ddl-auto:update —— Hibernate 只建表不建库，
+      #    → 社交电商服务在 compose 环境启动即报 "Unknown database 'erp_social'"。
+      #    scripts/check-db-schema-provision.py 会守住这条。
+      - ./database/social-commerce-service.sql:/docker-entrypoint-initdb.d/social-commerce-service.sql:ro
       - ./database/tenant-service.sql:/docker-entrypoint-initdb.d/tenant-service.sql:ro
       - ./database/seed-data.sql:/docker-entrypoint-initdb.d/seed-data.sql:ro
       - ./database/user-service.sql:/docker-entrypoint-initdb.d/user-service.sql:ro

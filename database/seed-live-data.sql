@@ -471,6 +471,132 @@ ON DUPLICATE KEY UPDATE
     `alert_type` = VALUES(`alert_type`), `notify_type` = VALUES(`notify_type`),
     `enabled` = VALUES(`enabled`), `remark` = VALUES(`remark`);
 
+
+-- ============================================================
+-- 7. 社交电商（活表 influencer / cooperation / live_stream /
+--     tiktok_shop_config / douyin_shop_config，库 erp_social）
+-- ============================================================
+-- ⚠️ 之前**完全没有社交电商种子数据** ——
+--    而且 erp_social 库本身都没挂进 docker-compose.yml，
+--    → 社交电商服务在 compose 环境启动即报 "Unknown database 'erp_social'"
+--    （Hibernate ddl-auto=update 只建表不建库，所以补了 DDL 也没用）
+--
+-- ⚠️ 前端「社交电商」页面的每一列 prop 都写错了
+--    （viewers/gmv/followers/category 前端 vs viewerCount/totalGmv/
+--      followerCount/categories 后端）→ 表格全是空白。
+--    本轮一并修掉了。
+--
+-- ⚠️ platform / level / status 都是 **@Enumerated(EnumType.STRING)** 的枚举，
+--    值必须落在枚举里，否则 Hibernate 读的时候直接抛
+--    "No enum constant" → 整个服务查询报错。
+--    直播平台只有 TIKTOK / DOUYIN / TAOBAO_LIVE（**没有** INSTAGRAM / YOUTUBE）；
+--    达人平台只有 TIKTOK / DOUYIN / INSTAGRAM / YOUTUBE（**没有** TAOBAO_LIVE）。
+-- ⚠️ 直播/合作的日期用 NOW() 相对偏移：
+--    写死的话过几天「即将开始」永远是空的。
+USE `erp_social`;
+
+-- 达人
+INSERT INTO `influencer`
+    (`id`, `name`, `platform_id`, `platform`, `avatar_url`, `follower_count`,
+     `following_count`, `total_views`, `total_likes`, `level`, `status`,
+     `contact_email`, `contact_phone`, `cooperation_price`, `categories`,
+     `description`, `created_at`, `updated_at`)
+VALUES
+    (7001, '美妆小美',   'TTK-90001', 'TIKTOK',    NULL, 1250000, 320,  98000000, 6200000,  'MAK',  'ACTIVE',    'xiaomei@example.com',   '+86-138-1000-7001', 35000.00, '美妆个护',           'TikTok 美妆头部达人，直播转化率高', NOW() - INTERVAL 200 DAY, NOW() - INTERVAL 3 DAY),
+    (7002, '数码大叔',   'TTK-90002', 'TIKTOK',    NULL,  860000, 150,  42000000, 2100000,  'KOL',  'ACTIVE',    'dashushu@example.com',  '+86-139-1000-7002', 18000.00, '数码3C',            '3C 数码测评，客单价高',   NOW() - INTERVAL 180 DAY, NOW() - INTERVAL 2 DAY),
+    (7003, '家居设计',   'IG-90003',  'INSTAGRAM', NULL,  320000, 210,  18000000,  940000,  'KOL',  'ACTIVE',    'home@example.com',     '+86-137-1000-7003', 12000.00, '家居生活',           '家居好物种草',       NOW() - INTERVAL 160 DAY, NOW() - INTERVAL 1 DAY),
+    (7004, '健身教练Tom','DY-90004',  'DOUYIN',    NULL,  540000, 180,  33000000, 1800000,  'KOL',  'ACTIVE',    'tom@example.com',      '+86-136-1000-7004', 15000.00, '运动健身',           '健身器材带货',       NOW() - INTERVAL 150 DAY, NOW() - INTERVAL 5 DAY),
+    (7005, '美食阿May',  'DY-90005',  'DOUYIN',    NULL,  210000, 260,   9600000,  720000,  'KOC',  'ACTIVE',    'may@example.com',      '+86-135-1000-7005',  5000.00, '食品生鲜',           '零食测评',           NOW() - INTERVAL 120 DAY, NOW() - INTERVAL 8 DAY),
+    (7006, '户外老王',   'YT-90006',  'YOUTUBE',   NULL,  185000, 120,  12000000,  610000,  'KOC',  'ACTIVE',    'laowang@example.com',  '+86-134-1000-7006',  6000.00, '户外运动',           '露营装备测评',       NOW() - INTERVAL 100 DAY, NOW() - INTERVAL 12 DAY),
+    (7007, '母婴小鹿',   'TTK-90007', 'TIKTOK',    NULL,   96000, 190,   4200000,  280000,  'KOC',  'ACTIVE',    'lulu@example.com',     '+86-133-1000-7007',  3000.00, '母婴用品',           '母婴好物',           NOW() - INTERVAL 80 DAY,  NOW() - INTERVAL 15 DAY),
+    (7008, '科技Tech',   'TTK-90008', 'TIKTOK',    NULL,      0,   0,          0,       0,  'KOC',  'INACTIVE',  'tech@example.com',     NULL,                     0.00, '数码3C',            '已停止合作',         NOW() - INTERVAL 300 DAY, NOW() - INTERVAL 60 DAY)
+ON DUPLICATE KEY UPDATE
+    `name` = VALUES(`name`), `platform` = VALUES(`platform`),
+    `follower_count` = VALUES(`follower_count`), `following_count` = VALUES(`following_count`),
+    `total_views` = VALUES(`total_views`), `total_likes` = VALUES(`total_likes`),
+    `level` = VALUES(`level`), `status` = VALUES(`status`),
+    `contact_email` = VALUES(`contact_email`), `contact_phone` = VALUES(`contact_phone`),
+    `cooperation_price` = VALUES(`cooperation_price`), `categories` = VALUES(`categories`),
+    `description` = VALUES(`description`), `updated_at` = VALUES(`updated_at`);
+
+-- 达人合作
+INSERT INTO `cooperation`
+    (`id`, `influencer_id`, `product_id`, `product_name`, `type`, `status`,
+     `planned_start_date`, `planned_end_date`, `actual_start_date`, `actual_end_date`,
+     `agreed_price`, `actual_cost`, `commission_rate`, `expected_views`, `actual_views`,
+     `expected_sales`, `actual_sales`, `expected_gmv`, `actual_gmv`,
+     `content`, `remark`, `created_at`, `updated_at`)
+VALUES
+    (7101, 7001, 'SKU-BTY-010',   '精华液 30ml',         'LIVE',        'COMPLETED',   NOW() - INTERVAL 30 DAY, NOW() - INTERVAL 30 DAY, NOW() - INTERVAL 30 DAY, NOW() - INTERVAL 30 DAY, 35000.00, 31200.00, 15.00, 200000, 268000, 1200, 1450, 180000.00, 216400.00, '直播首发精华液新品',   '转化率最高的单场',   NOW() - INTERVAL 45 DAY, NOW() - INTERVAL 30 DAY),
+    (7102, 7002, 'SKU-PWB-005-BLK','20000mAh 充电宝',    'SHORT_VIDEO', 'COMPLETED',   NOW() - INTERVAL 26 DAY, NOW() - INTERVAL 26 DAY, NOW() - INTERVAL 26 DAY, NOW() - INTERVAL 26 DAY, 18000.00, 17400.00, 12.00, 150000, 171000,  900, 1042, 135000.00, 156300.00, '开箱测评充电宝',     '视频播放超预期',     NOW() - INTERVAL 40 DAY, NOW() - INTERVAL 26 DAY),
+    (7103, 7003, 'SKU-STG-007',   '真空收纳袋 10 件',    'POST',        'COMPLETED',   NOW() - INTERVAL 20 DAY, NOW() - INTERVAL 20 DAY, NOW() - INTERVAL 20 DAY, NOW() - INTERVAL 20 DAY, 12000.00, 11500.00, 10.00,  80000,  94000,  500,  612,  60000.00,  73440.00, '家居收纳好物图文',   '图文种草稳定',       NOW() - INTERVAL 32 DAY, NOW() - INTERVAL 20 DAY),
+    (7104, 7004, 'SKU-WAT-002-SLV','智能手表 X1',        'LIVE',        'IN_PROGRESS', NOW() - INTERVAL 3 DAY,  NOW() + INTERVAL 4 DAY,  NOW() - INTERVAL 3 DAY,  NULL,              15000.00,  9200.00, 12.00, 120000,  98000,  700,  640,  90000.00,  76800.00, '智能手表直播专场',    '进行中',             NOW() - INTERVAL 10 DAY, NOW() - INTERVAL 1 DAY),
+    (7105, 7005, 'SKU-PWB-005-BLK','便携充电宝mini',     'LIVE_STREAM', 'CONFIRMED',   NOW() + INTERVAL 2 DAY,  NOW() + INTERVAL 2 DAY,  NULL, NULL,                  5000.00,     NULL, 10.00,  60000,  NULL,   400, NULL,  45000.00,     NULL, '零食专场顺带带货',   '待开播',             NOW() - INTERVAL 5 DAY,  NOW() - INTERVAL 1 DAY),
+    (7106, 7006, 'SKU-STN-004',   '便携手机支架',        'COLLABORATION','PENDING',    NOW() + INTERVAL 6 DAY,  NOW() + INTERVAL 9 DAY,  NULL, NULL,                  6000.00,     NULL,  8.00,  50000,  NULL,   300, NULL,  30000.00,     NULL, '户外场景支架合作',   '待客户确认',         NOW() - INTERVAL 2 DAY,  NOW() - INTERVAL 2 DAY),
+    (7107, 7007, 'SKU-BTY-010',   '精华液家庭装',        'STORY',       'DRAFT',       NOW() + INTERVAL 12 DAY, NOW() + INTERVAL 12 DAY, NULL, NULL,                  3000.00,     NULL, 12.00,  30000,  NULL,   200, NULL,  18000.00,     NULL, '限时 story 推广',     '草稿待完善',         NOW() - INTERVAL 1 DAY,  NOW() - INTERVAL 1 DAY),
+    (7108, 7002, 'SKU-STG-007',   '收纳袋清仓专场',      'LIVE',        'CANCELLED',   NOW() - INTERVAL 12 DAY, NOW() - INTERVAL 12 DAY, NULL, NULL,                  12000.00,     NULL, 10.00,  70000,  NULL,   400, NULL,  42000.00,     NULL, '清仓专场（取消）',    '达人档期冲突取消',   NOW() - INTERVAL 18 DAY, NOW() - INTERVAL 12 DAY)
+ON DUPLICATE KEY UPDATE
+    `product_name` = VALUES(`product_name`), `type` = VALUES(`type`),
+    `status` = VALUES(`status`), `planned_start_date` = VALUES(`planned_start_date`),
+    `planned_end_date` = VALUES(`planned_end_date`), `actual_start_date` = VALUES(`actual_start_date`),
+    `actual_end_date` = VALUES(`actual_end_date`), `agreed_price` = VALUES(`agreed_price`),
+    `actual_cost` = VALUES(`actual_cost`), `commission_rate` = VALUES(`commission_rate`),
+    `expected_views` = VALUES(`expected_views`), `actual_views` = VALUES(`actual_views`),
+    `expected_sales` = VALUES(`expected_sales`), `actual_sales` = VALUES(`actual_sales`),
+    `expected_gmv` = VALUES(`expected_gmv`), `actual_gmv` = VALUES(`actual_gmv`),
+    `content` = VALUES(`content`), `remark` = VALUES(`remark`),
+    `updated_at` = VALUES(`updated_at`);
+
+-- 直播
+INSERT INTO `live_stream`
+    (`id`, `stream_id`, `title`, `platform`, `influencer_id`, `status`,
+     `scheduled_start_time`, `actual_start_time`, `end_time`, `duration`,
+     `viewer_count`, `peak_viewers`, `like_count`, `share_count`, `comment_count`,
+     `new_followers`, `total_sales`, `total_orders`, `total_gmv`,
+     `cover_image_url`, `products`, `created_at`, `updated_at`)
+VALUES
+    (7201, 'LIVE-20261101-01', '美妆新品发布专场',   'TIKTOK',  7001, 'ENDED',     NOW() - INTERVAL 3 DAY, NOW() - INTERVAL 3 DAY, NOW() - INTERVAL 3 DAY + INTERVAL 2 HOUR, 120, 268000, 41200, 1860000,  42000, 31000, 2400,  1680, 1450, 216400.00, NULL, 'SKU-BTY-010,SKU-BTY-011', NOW() - INTERVAL 5 DAY, NOW() - INTERVAL 3 DAY),
+    (7202, 'LIVE-20261102-01', '充电宝开箱直播',     'TIKTOK',  7002, 'ENDED',     NOW() - INTERVAL 2 DAY, NOW() - INTERVAL 2 DAY, NOW() - INTERVAL 2 DAY + INTERVAL 90 MINUTE, 90, 171000, 27800,  940000,  26000, 19000, 1200,  1042,  890, 156300.00, NULL, 'SKU-PWB-005-BLK',        NOW() - INTERVAL 4 DAY, NOW() - INTERVAL 2 DAY),
+    (7203, 'LIVE-20261103-01', '智能手表体验直播',   'DOUYIN',  7004, 'LIVE',      NOW() - INTERVAL 1 DAY, NOW() - INTERVAL 1 DAY, NULL, NULL, 98000, 21400, 620000, 15000, 11000,  680,   640,  480,  76800.00, NULL, 'SKU-WAT-002-SLV',        NOW() - INTERVAL 3 DAY, NOW() - INTERVAL 1 HOUR),
+    (7204, 'LIVE-20261105-01', '今日零食福利场',     'DOUYIN',  7005, 'SCHEDULED', NOW() + INTERVAL 1 DAY,  NULL, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, 'SKU-PWB-005-BLK', NOW() - INTERVAL 1 DAY, NOW() - INTERVAL 1 DAY),
+    (7205, 'LIVE-20261108-01', '家居收纳专场直播',   'TIKTOK',  7003, 'SCHEDULED', NOW() + INTERVAL 4 DAY,  NULL, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, 'SKU-STG-007',           NOW() - INTERVAL 1 DAY, NOW() - INTERVAL 1 DAY),
+    (7206, 'LIVE-20261028-01', '露营装备选品直播',   'TAOBAO_LIVE', 7006, 'CANCELLED', NOW() - INTERVAL 8 DAY, NULL, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, 'SKU-STN-004',            NOW() - INTERVAL 12 DAY, NOW() - INTERVAL 8 DAY)
+ON DUPLICATE KEY UPDATE
+    `title` = VALUES(`title`), `platform` = VALUES(`platform`),
+    `influencer_id` = VALUES(`influencer_id`), `status` = VALUES(`status`),
+    `scheduled_start_time` = VALUES(`scheduled_start_time`),
+    `actual_start_time` = VALUES(`actual_start_time`), `end_time` = VALUES(`end_time`),
+    `duration` = VALUES(`duration`), `viewer_count` = VALUES(`viewer_count`),
+    `peak_viewers` = VALUES(`peak_viewers`), `like_count` = VALUES(`like_count`),
+    `share_count` = VALUES(`share_count`), `comment_count` = VALUES(`comment_count`),
+    `new_followers` = VALUES(`new_followers`), `total_sales` = VALUES(`total_sales`),
+    `total_orders` = VALUES(`total_orders`), `total_gmv` = VALUES(`total_gmv`),
+    `products` = VALUES(`products`), `updated_at` = VALUES(`updated_at`);
+
+-- TikTok 店铺授权
+INSERT INTO `tiktok_shop_config`
+    (`id`, `shop_name`, `shop_id`, `access_token`, `refresh_token`,
+     `token_expire_time`, `app_key`, `app_secret`, `status`, `created_at`, `updated_at`)
+VALUES
+    (7301, 'OmniTrade 官方海外店', 'SHOP-TT-0001', 'tt-access-demo-0001', 'tt-refresh-demo-0001', NOW() + INTERVAL 60 DAY, 'tt-app-key-demo', 'tt-app-secret-demo', 'ACTIVE',    NOW() - INTERVAL 120 DAY, NOW() - INTERVAL 2 DAY),
+    (7302, 'OmniTrade 家居专营店', 'SHOP-TT-0002', 'tt-access-demo-0002', 'tt-refresh-demo-0002', NOW() + INTERVAL 12 DAY,  'tt-app-key-demo', 'tt-app-secret-demo', 'EXPIRED',   NOW() - INTERVAL 90 DAY,  NOW() - INTERVAL 10 DAY)
+ON DUPLICATE KEY UPDATE
+    `shop_name` = VALUES(`shop_name`), `access_token` = VALUES(`access_token`),
+    `refresh_token` = VALUES(`refresh_token`), `token_expire_time` = VALUES(`token_expire_time`),
+    `app_key` = VALUES(`app_key`), `status` = VALUES(`status`), `updated_at` = VALUES(`updated_at`);
+
+-- 抖音店铺授权
+INSERT INTO `douyin_shop_config`
+    (`id`, `shop_name`, `shop_id`, `access_token`, `refresh_token`,
+     `token_expire_time`, `app_key`, `app_secret`, `status`, `created_at`, `updated_at`)
+VALUES
+    (7401, 'OmniTrade 抖音旗舰店', 'SHOP-DY-0001', 'dy-access-demo-0001', 'dy-refresh-demo-0001', NOW() + INTERVAL 45 DAY, 'dy-app-key-demo', 'dy-app-secret-demo', 'ACTIVE',  NOW() - INTERVAL 100 DAY, NOW() - INTERVAL 1 DAY),
+    (7402, 'OmniTrade 数码专营店', 'SHOP-DY-0002', 'dy-access-demo-0002', 'dy-refresh-demo-0002', NOW() - INTERVAL 3 DAY,  'dy-app-key-demo', 'dy-app-secret-demo', 'ERROR',   NOW() - INTERVAL 60 DAY,  NOW() - INTERVAL 3 DAY)
+ON DUPLICATE KEY UPDATE
+    `shop_name` = VALUES(`shop_name`), `access_token` = VALUES(`access_token`),
+    `refresh_token` = VALUES(`refresh_token`), `token_expire_time` = VALUES(`token_expire_time`),
+    `app_key` = VALUES(`app_key`), `status` = VALUES(`status`), `updated_at` = VALUES(`updated_at`);
+
 -- ============================================================
 -- 完
 -- ============================================================
