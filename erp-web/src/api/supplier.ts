@@ -61,23 +61,48 @@ export interface PurchaseOrderItem {
   orderId: number
   productName: string
   sku: string
+  category?: string
   quantity: number
+  unit?: string
   unitPrice: number
-  totalAmount: number
+  /** 小计（后端字段是 subtotal，不是 totalAmount） */
+  subtotal: number
+  receivedQuantity?: number
+  remark?: string
 }
 
+/**
+ * 供应商绩效评估（对应后端实体 SupplierEvaluation / 表 t_supplier_evaluation）
+ *
+ * ⚠️ 字段必须逐字对齐后端实体：
+ *    后端是 `totalScore` / `conclusion` / `advantages` / `improvements` /
+ *    `evaluatorName` / `techScore`，
+ *    **没有** `overallScore` / `comment` / `evaluateBy` / `orderId`。
+ *    之前前端类型写错了 → 绩效评分卡永远显示 0.0。
+ */
 export interface SupplierEvaluation {
   id: number
   supplierId: number
-  orderId: number
   qualityScore: number
   deliveryScore: number
   priceScore: number
   serviceScore: number
-  overallScore: number
-  comment: string
-  evaluateBy: string
-  evaluateAt: string
+  techScore?: number
+  /** 综合得分（后端字段是 totalScore，不是 overallScore） */
+  totalScore: number
+  /** 评估结论 */
+  conclusion?: string
+  /** 优势 */
+  advantages?: string
+  /** 改进建议 */
+  improvements?: string
+  remark?: string
+  evaluatorId?: number
+  /** 评估人（后端字段是 evaluatorName，不是 evaluateBy） */
+  evaluatorName?: string
+  evaluateAt?: string
+  createTime?: string
+  updateTime?: string
 }
 
 export interface SupplierStats {
@@ -85,6 +110,16 @@ export interface SupplierStats {
   activeSuppliers: number
   avgRating: number
   totalPurchaseAmount: number
+}
+
+/** 采购订单统计（后端 record OrderStats，字段名全小写开头） */
+export interface OrderStats {
+  total: number
+  pending: number
+  inTransit: number
+  received: number
+  totalAmount: number
+  totalPaid: number
 }
 
 export interface PageResult<T> {
@@ -155,19 +190,70 @@ export const supplierApi = {
   deletePurchaseOrder: (id: number) => 
     request.delete<any, void>(`/supplier/purchase/${id}`),
 
+  // 采购单明细
+  getPurchaseOrderItems: (id: number) =>
+    request.get<any, PurchaseOrderItem[]>(`/supplier/purchase/${id}/items`),
+
+  // ========== 采购单状态机 ==========
+  // PENDING → APPROVED → PURCHASING → RECEIVED，任意未终态可 CANCELLED
+  approvePurchaseOrder: (id: number) =>
+    request.post<any, void>(`/supplier/purchase/${id}/approve`),
+  markPurchaseOrderPurchasing: (id: number) =>
+    request.post<any, void>(`/supplier/purchase/${id}/purchasing`),
+  markPurchaseOrderReceived: (id: number) =>
+    request.post<any, void>(`/supplier/purchase/${id}/received`),
+  cancelPurchaseOrder: (id: number, reason?: string) =>
+    request.post<any, void>(`/supplier/purchase/${id}/cancel`, null, { params: { reason } }),
+  payPurchaseOrder: (id: number, amount: number) =>
+    request.post<any, void>(`/supplier/purchase/${id}/payment`, null, { params: { amount } }),
+
   // ========== 供应商绩效评估 ==========
 
-  // 获取供应商绩效评估列表
-  getEvaluationList: (supplierId: number) => 
+  /**
+   * 获取供应商的评估记录列表
+   *
+   * 📌 后端 `/supplier/evaluation/list` 支持 supplierId / conclusion 两个可选过滤，
+   *    返回**裸数组**（不是分页对象）。
+   */
+  getEvaluationList: (params?: { supplierId?: number; conclusion?: string }) =>
+    request.get<any, SupplierEvaluation[]>('/supplier/evaluation/list', { params }),
+
+  // 获取单条评估详情
+  getEvaluationDetail: (id: number) =>
+    request.get<any, SupplierEvaluation>(`/supplier/evaluation/${id}`),
+
+  // 获取某个供应商的全部评估记录
+  getEvaluationsBySupplier: (supplierId: number) =>
     request.get<any, SupplierEvaluation[]>(`/supplier/evaluation/supplier/${supplierId}`),
 
+  // 获取某个供应商的**最近一次**评估
+  // ⚠️ 后端返回的是**一条评价记录**，不是聚合的评分统计对象。
+  getLatestEvaluation: (supplierId: number) =>
+    request.get<any, SupplierEvaluation>(`/supplier/evaluation/supplier/${supplierId}/latest`),
+
   // 创建供应商评估
-  createEvaluation: (data: SupplierEvaluation) => 
+  createEvaluation: (data: SupplierEvaluation) =>
     request.post<any, number>('/supplier/evaluation/create', data),
 
-  // 获取供应商评分统计
-  getEvaluationStats: (supplierId: number) => 
-    request.get<any, { avgQuality: number, avgDelivery: number, avgPrice: number, avgService: number, avgOverall: number }>(
-      `/supplier/evaluation/supplier/${supplierId}/latest`
-    )
+  // 删除评估记录
+  deleteEvaluation: (id: number) =>
+    request.delete<any, void>(`/supplier/evaluation/${id}`),
+
+  // ========== 采购统计 / 在途 ==========
+
+  // 头部供应商（按采购额排序）
+  getTopSuppliers: () =>
+    request.get<any, Supplier[]>('/supplier/top'),
+
+  // 待收货（在途）采购订单
+  getInTransitOrders: () =>
+    request.get<any, PurchaseOrder[]>('/supplier/purchase/in-transit'),
+
+  // 采购订单统计
+  getPurchaseStats: () =>
+    request.get<any, OrderStats>('/supplier/purchase/stats'),
+
+  /** 采购单下拉用的精简供应商列表（返回 [{id, name, code}]） */
+  getPurchaseSupplierOptions: () =>
+    request.get<any, Array<{ id: number; name: string; code: string }>>('/purchase/suppliers'),
 }

@@ -597,6 +597,117 @@ ON DUPLICATE KEY UPDATE
     `refresh_token` = VALUES(`refresh_token`), `token_expire_time` = VALUES(`token_expire_time`),
     `app_key` = VALUES(`app_key`), `status` = VALUES(`status`), `updated_at` = VALUES(`updated_at`);
 
+
+-- ============================================================
+-- 8. 供应商与采购（活表 t_supplier / t_purchase_order /
+--     t_purchase_order_item / t_supplier_evaluation，库 erp_supplier）
+-- ============================================================
+-- ⚠️ 之前**完全没有供应商种子数据** ——
+--    seed-data.sql 和 seed-live-data.sql 都没种 erp_supplier 的表，
+--    结果：供应商列表页 + 采购订单页 + 绩效页**全是空表**。
+--
+-- ⚠️ t_supplier.id / t_purchase_order.id 是 BIGINT 主键（没有 auto_increment），
+--    这里用 5001+ / 5101+ / 5201+ 号段，避免和运行时雪花 ID 撞号。
+--
+-- ⚠️ 采购单状态：**以后端代码为准**（DDL 注释写的是 DRAFT/CONFIRMED/SHIPPED，
+--    那是过时的）：
+--    PENDING → APPROVED → PURCHASING → IN_TRANSIT → RECEIVED，任意可 CANCELLED
+-- ⚠️ 评估表的 `conclusion` 是 VARCHAR(500)（不是枚举），
+--    但取值必须和后端 SupplierEvaluationService.calculateConclusion 一致：
+--    ≥4.5 EXCELLENT / ≥4.0 GOOD / ≥3.0 ACCEPTABLE / 否则 POOR
+--    （没有 FAIR 这一档）
+-- ⚠️ `total_score` 也由后端按加权平均算（质量30+交付25+价格20+服务15+技术10），
+--    种子里写死的是当初算好的值，与后端算法一致。
+USE `erp_supplier`;
+
+-- 供应商
+INSERT INTO `t_supplier`
+    (`id`, `name`, `contact_person`, `phone`, `email`, `type`, `country`, `city`,
+     `address`, `category`, `cooperation_start_at`, `total_purchase_amount`,
+     `total_orders`, `rating`, `level`, `remark`, `status`)
+VALUES
+    (5001, '深圳华强电子厂',   '陈国强', '+86-755-8800-1001', 'chen@huaqiang.example.com', 'FACTORY', 'CN', '深圳',   '深圳市宝安区西乡工业园 8 号', '数码3C',   NOW() - INTERVAL 400 DAY, 486000.00, 32, 4.45, 'A', '主力电子代工，良率稳定',       'ACTIVE'),
+    (5002, '义乌小商品集散中心','王丽',   '+86-579-8800-1002', 'wang@yiwu.example.com',    'TRADER',  'CN', '义乌',   '义乌市国际商贸城 3 区',         '家居日用', NOW() - INTERVAL 320 DAY, 152000.00, 21, 4.10, 'B', '小批量快反，价格有优势',       'ACTIVE'),
+    (5003, '宁波家纺工厂',     '李建国', '+86-574-8800-1003', 'li@ningbo.example.com',   'FACTORY', 'CN', '宁波',   '宁波市北仑区纺织工业园 12 号',   '家纺',     NOW() - INTERVAL 280 DAY, 298000.00, 18, 4.45, 'A', '四件套起订量低',             'ACTIVE'),
+    (5004, '广州美妆代工厂',   '张薇',   '+86-20-8800-1004',  'zhang@guangzhou.example.com','FACTORY','CN','广州',   '广州市白云区美妆产业园 B 座',     '美妆个护', NOW() - INTERVAL 240 DAY, 224000.00, 14, 4.50, 'A', '备案齐全，可做新品',         'ACTIVE'),
+    (5005, '苏州精密五金厂',   '赵军',   '+86-512-8800-1005', 'zhao@suzhou.example.com',  'FACTORY', 'CN', '苏州',   '苏州市工业园区星湖街 328 号',      '五金工具', NOW() - INTERVAL 200 DAY,  96000.00,  9, 3.75, 'B', '起订量 500 起',             'ACTIVE'),
+    (5006, '广州德迅国际物流', '孙敏',   '+86-20-8800-1006',  'sun@deyun.example.com',    'AGENT',   'CN', '广州',   '广州市天河区物流园 A 区',         '物流仓储', NOW() - INTERVAL 180 DAY,  68000.00, 12, 3.45, 'C', '海运价格低但时效一般',       'ACTIVE'),
+    (5007, '越南成服装厂',     'Nguyen', '+84-24-8800-1007', 'nguyen@vietnam.example.com','FACTORY','VN','胡志明市','胡志明市第 7 郡制衣工业区',    '服装',     NOW() - INTERVAL 120 DAY,  42000.00,  6, 3.05, 'C', '关税优惠，交期不稳定',       'ACTIVE'),
+    (5008, '孟加拉服装贸易商', 'Rahman', '+880-2-8800-1008', 'rahman@bangladesh.example.com','TRADER','BD','达卡','达卡 Wari 商业街 22 号',        '服装',     NOW() - INTERVAL 90 DAY,   18000.00,  3, 3.20, 'C', '量小，暂不主推',           'INACTIVE')
+ON DUPLICATE KEY UPDATE
+    `name` = VALUES(`name`), `contact_person` = VALUES(`contact_person`),
+    `phone` = VALUES(`phone`), `email` = VALUES(`email`), `type` = VALUES(`type`),
+    `country` = VALUES(`country`), `city` = VALUES(`city`), `address` = VALUES(`address`),
+    `category` = VALUES(`category`), `total_purchase_amount` = VALUES(`total_purchase_amount`),
+    `total_orders` = VALUES(`total_orders`), `rating` = VALUES(`rating`),
+    `level` = VALUES(`level`), `remark` = VALUES(`remark`), `status` = VALUES(`status`);
+
+-- 采购订单
+INSERT INTO `t_purchase_order`
+    (`id`, `order_no`, `supplier_id`, `supplier_name`, `status`, `total_amount`,
+     `paid_amount`, `currency`, `expected_arrival_at`, `actual_arrival_at`,
+     `payment_method`, `payment_status`, `purchaser_id`, `purchaser_name`, `remark`)
+VALUES
+    (5101, 'PO-20261001-001', 5001, '深圳华强电子厂',    'RECEIVED',   86000.00,  86000.00, 'USD', NOW() - INTERVAL 35 DAY, NOW() - INTERVAL 32 DAY, 'TT',  'PAID',    1, 'admin', '蓝牙耳机首批采购'),
+    (5102, 'PO-20261005-002', 5002, '义乌小商品集散中心','RECEIVED',   32000.00,  32000.00, 'USD', NOW() - INTERVAL 30 DAY, NOW() - INTERVAL 27 DAY, 'TT',  'PAID',    1, 'admin', '手机支架补货'),
+    (5103, 'PO-20261012-003', 5003, '宁波家纺工厂',      'RECEIVED',   45600.00,  45600.00, 'USD', NOW() - INTERVAL 25 DAY, NOW() - INTERVAL 21 DAY, 'LC',  'PAID',    1, 'admin', '四件套批量'),
+    (5104, 'PO-20261020-004', 5004, '广州美妆代工厂',    'IN_TRANSIT', 52800.00,  26400.00, 'USD', NOW() - INTERVAL 2 DAY,  NULL,                 'TT',  'PARTIAL',1, 'admin', '精华液新品首单'),
+    (5105, 'PO-20261028-005', 5005, '苏州精密五金厂',    'PURCHASING', 18900.00,      0.00, 'USD', NOW() + INTERVAL 5 DAY,  NULL,                 'TT',  'UNPAID',  1, 'admin', '五金配件待发货'),
+    (5106, 'PO-20261102-006', 5001, '深圳华强电子厂',    'APPROVED',   72000.00,      0.00, 'USD', NOW() + INTERVAL 12 DAY, NULL,                 'LC',  'UNPAID',  1, 'admin', '智能手表芯片备货'),
+    (5107, 'PO-20261103-007', 5002, '义乌小商品集散中心','PENDING',    24600.00,      0.00, 'USD', NOW() + INTERVAL 8 DAY,  NULL,                 'TT',  'UNPAID',  1, 'admin', '收纳袋旺季备货'),
+    (5108, 'PO-20261015-008', 5006, '广州德迅国际物流',  'CANCELLED',  12400.00,      0.00, 'USD', NOW() - INTERVAL 20 DAY, NULL,                 'TT',  'UNPAID',  1, 'admin', '海运方案报价过高取消'),
+    (5109, 'PO-20261018-009', 5004, '广州美妆代工厂',    'RECEIVED',   39400.00,  39400.00, 'USD', NOW() - INTERVAL 22 DAY, NOW() - INTERVAL 19 DAY, 'TT',  'PAID',    1, 'admin', '精华液补货')
+ON DUPLICATE KEY UPDATE
+    `supplier_name` = VALUES(`supplier_name`), `status` = VALUES(`status`),
+    `total_amount` = VALUES(`total_amount`), `paid_amount` = VALUES(`paid_amount`),
+    `currency` = VALUES(`currency`), `expected_arrival_at` = VALUES(`expected_arrival_at`),
+    `actual_arrival_at` = VALUES(`actual_arrival_at`), `payment_method` = VALUES(`payment_method`),
+    `payment_status` = VALUES(`payment_status`), `purchaser_name` = VALUES(`purchaser_name`),
+    `remark` = VALUES(`remark`);
+
+-- 采购订单明细
+INSERT INTO `t_purchase_order_item`
+    (`id`, `order_id`, `sku`, `product_name`, `category`, `quantity`, `unit`,
+     `unit_price`, `subtotal`, `received_quantity`, `remark`)
+VALUES
+    (5201, 5101, 'SKU-BLU-001-BLK', '无线蓝牙耳机 Pro',   '数码3C',   500, 'PCS', 120.0000, 60000.00, 500, '首批 500 台'),
+    (5202, 5101, 'SKU-BLU-001-WHT', '无线蓝牙耳机 Pro 白色','数码3C',  200, 'PCS', 130.0000, 26000.00, 200, '白色版'),
+    (5203, 5102, 'SKU-STN-004',     '便携手机支架',       '数码配件', 800, 'PCS',  40.0000, 32000.00, 800, NULL),
+    (5204, 5103, 'SKU-HOM-011',     '纯棉四件套',         '家纺',     300, 'SET', 152.0000, 45600.00, 300, '标准装'),
+    (5205, 5104, 'SKU-BTY-010',     '精华液 30ml',        '美妆个护',1200, 'PCS',  44.0000, 52800.00,   0, '在途，尚未收货'),
+    (5206, 5105, 'SKU-HRD-003',     '精密五金配件',       '五金工具', 600, 'PCS',  31.5000, 18900.00,   0, '供应商备货中'),
+    (5207, 5106, 'SKU-WAT-002-SLV', '智能手表 X1',        '数码3C',   400, 'PCS', 180.0000, 72000.00,   0, '含芯片方案'),
+    (5208, 5107, 'SKU-STG-007',     '真空收纳袋 10 件',   '家居日用',1000, 'PCS',  24.6000, 24600.00,   0, '旺季备货'),
+    (5209, 5108, 'SKU-LOG-001',     '海运服务费',         '物流仓储',   1, 'SET',12400.0000,12400.00,   0, '方案取消'),
+    (5210, 5109, 'SKU-BTY-010',     '精华液 30ml',        '美妆个护', 700, 'PCS',  56.2857, 39400.00, 700, '补货')
+ON DUPLICATE KEY UPDATE
+    `product_name` = VALUES(`product_name`), `category` = VALUES(`category`),
+    `quantity` = VALUES(`quantity`), `unit` = VALUES(`unit`),
+    `unit_price` = VALUES(`unit_price`), `subtotal` = VALUES(`subtotal`),
+    `received_quantity` = VALUES(`received_quantity`), `remark` = VALUES(`remark`);
+
+-- 供应商绩效评估
+INSERT INTO `t_supplier_evaluation`
+    (`id`, `supplier_id`, `quality_score`, `delivery_score`, `price_score`,
+     `service_score`, `tech_score`, `total_score`, `conclusion`, `advantages`,
+     `improvements`, `remark`, `evaluator_id`, `evaluator_name`, `evaluate_at`)
+VALUES
+    (5301, 5001, 5, 4, 4, 5, 5, 4.55, 'EXCELLENT', '良率高、交期准、配合度高', '报价可再谈', '长期主力供应商', 1, 'admin', NOW() - INTERVAL 10 DAY),
+    (5302, 5001, 4, 5, 4, 4, 5, 4.35, 'GOOD',      '产能充足',               '批次一致性待提升', 'Q3 评估',   1, 'admin', NOW() - INTERVAL 75 DAY),
+    (5303, 5002, 4, 4, 5, 4, 3, 4.10, 'GOOD',      '价格有优势、款式多',     '质检流程较弱',       '小家电类',     1, 'admin', NOW() - INTERVAL 20 DAY),
+    (5304, 5003, 5, 4, 4, 5, 4, 4.45, 'GOOD',      '面料品质好',             '交期偶有延误',       '家纺类',       1, 'admin', NOW() - INTERVAL 40 DAY),
+    (5305, 5004, 5, 5, 3, 5, 4, 4.50, 'EXCELLENT',      '打样快、配合度高',       '单价偏高',           '美妆类',       1, 'admin', NOW() - INTERVAL 12 DAY),
+    (5306, 5005, 4, 3, 4, 4, 4, 3.75, 'ACCEPTABLE',      '工艺稳定',               '起订量高、交期长',   '五金类',       1, 'admin', NOW() - INTERVAL 55 DAY),
+    (5307, 5006, 3, 3, 5, 4, 2, 3.45, 'ACCEPTABLE',      '海运价格低',             '时效波动、清关慢',   '物流类',       1, 'admin', NOW() - INTERVAL 60 DAY),
+    (5308, 5007, 3, 2, 5, 3, 2, 3.05, 'ACCEPTABLE',      '成本有优势',             '交期与品控不稳',     '服装类试单',   1, 'admin', NOW() - INTERVAL 30 DAY)
+ON DUPLICATE KEY UPDATE
+    `quality_score` = VALUES(`quality_score`), `delivery_score` = VALUES(`delivery_score`),
+    `price_score` = VALUES(`price_score`), `service_score` = VALUES(`service_score`),
+    `tech_score` = VALUES(`tech_score`), `total_score` = VALUES(`total_score`),
+    `conclusion` = VALUES(`conclusion`), `advantages` = VALUES(`advantages`),
+    `improvements` = VALUES(`improvements`), `remark` = VALUES(`remark`),
+    `evaluator_name` = VALUES(`evaluator_name`), `evaluate_at` = VALUES(`evaluate_at`);
+
 -- ============================================================
 -- 完
 -- ============================================================

@@ -78,6 +78,7 @@
             <el-form-item>
               <el-button type="primary" :icon="Search" @click="handleSearch">搜索</el-button>
               <el-button :icon="Refresh" @click="handleReset">重置</el-button>
+              <el-button :icon="Trophy" @click="loadTopSuppliers">头部供应商</el-button>
               <el-button type="success" :icon="Plus" @click="handleAddSupplier">新增供应商</el-button>
             </el-form-item>
           </el-form>
@@ -121,11 +122,12 @@
                 <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ row.status }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="180" fixed="right">
+            <el-table-column label="操作" width="240" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="handleViewSupplier(row)">详情</el-button>
                 <el-button link type="primary" size="small" @click="handleEditSupplier(row)">编辑</el-button>
                 <el-button link type="success" size="small" @click="handleCreatePurchase(row)">采购</el-button>
+                <el-button link type="danger" size="small" @click="removeSupplier(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -171,7 +173,9 @@
             </el-form-item>
             <el-form-item>
               <el-button type="primary" @click="loadPurchaseOrders">搜索</el-button>
-              <el-button type="success" :icon="Plus" @click="showPurchaseDialog = true">新建采购单</el-button>
+              <el-button :icon="Van" @click="loadInTransitOrders">在途采购</el-button>
+              <el-button :icon="DataAnalysis" @click="loadPurchaseStats">采购统计</el-button>
+              <el-button type="success" :icon="Plus" @click="openPurchaseDialog()">新建采购单</el-button>
             </el-form-item>
           </el-form>
         </el-card>
@@ -210,10 +214,13 @@
                 {{ formatTime(row.createTime) }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="150" fixed="right">
+            <el-table-column label="操作" width="230" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" size="small">详情</el-button>
-                <el-button link type="success" size="small" v-if="row.status === 'PENDING'">审批</el-button>
+                <el-button link type="primary" size="small" @click="viewPurchaseOrder(row)">详情</el-button>
+                <el-button link type="success" size="small" v-if="row.status === 'PENDING'" @click="advancePurchase(row, 'approve')">审批</el-button>
+                <el-button link type="warning" size="small" v-if="row.status === 'APPROVED'" @click="advancePurchase(row, 'purchasing')">采购中</el-button>
+                <el-button link type="success" size="small" v-if="row.status === 'PURCHASING' || row.status === 'IN_TRANSIT'" @click="advancePurchase(row, 'received')">收货</el-button>
+                <el-button link type="danger" size="small" v-if="!['RECEIVED', 'CANCELLED'].includes(row.status)" @click="advancePurchase(row, 'cancel')">取消</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -236,42 +243,96 @@
         <el-card class="search-card" shadow="never">
           <el-form :inline="true">
             <el-form-item label="选择供应商">
-              <el-select v-model="evalSupplierId" placeholder="请选择供应商" style="width: 200px" @change="loadEvaluationStats">
+              <el-select v-model="evalSupplierId" placeholder="请选择供应商" clearable style="width: 200px" @change="loadEvaluations">
                 <el-option v-for="s in supplierList" :key="s.id" :label="s.name" :value="s.id" />
               </el-select>
+            </el-form-item>
+            <el-form-item label="评估结论">
+              <el-select v-model="evalConclusion" placeholder="全部" clearable style="width: 140px" @change="loadEvaluations">
+                <el-option label="优秀" value="EXCELLENT" />
+                <el-option label="良好" value="GOOD" />
+                <el-option label="合格" value="ACCEPTABLE" />
+                <el-option label="不合格" value="POOR" />
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" :icon="Search" @click="loadEvaluations">查询</el-button>
+              <el-button type="success" :icon="Plus" :disabled="!evalSupplierId" @click="openEvalDialog()">新增评估</el-button>
             </el-form-item>
           </el-form>
         </el-card>
 
-        <el-row :gutter="20" v-if="evalSupplierId">
-          <el-col :span="8">
+        <!-- 最新一次评估的评分卡 -->
+        <el-row :gutter="20" v-if="latestEvaluation">
+          <el-col :span="6">
             <el-card shadow="never">
               <div class="eval-score">
                 <div class="score-label">质量评分</div>
-                <div class="score-value">{{ evaluationStats.avgQuality.toFixed(1) }}</div>
-                <el-progress :percentage="evaluationStats.avgQuality * 20" :stroke-width="10" />
+                <div class="score-value">{{ latestEvaluation.qualityScore ?? '-' }}</div>
+                <el-progress :percentage="(latestEvaluation.qualityScore || 0) * 20" :stroke-width="10" />
               </div>
             </el-card>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="6">
             <el-card shadow="never">
               <div class="eval-score">
                 <div class="score-label">交货评分</div>
-                <div class="score-value">{{ evaluationStats.avgDelivery.toFixed(1) }}</div>
-                <el-progress :percentage="evaluationStats.avgDelivery * 20" :stroke-width="10" status="success" />
+                <div class="score-value">{{ latestEvaluation.deliveryScore ?? '-' }}</div>
+                <el-progress :percentage="(latestEvaluation.deliveryScore || 0) * 20" :stroke-width="10" status="success" />
               </div>
             </el-card>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="6">
             <el-card shadow="never">
               <div class="eval-score">
                 <div class="score-label">价格评分</div>
-                <div class="score-value">{{ evaluationStats.avgPrice.toFixed(1) }}</div>
-                <el-progress :percentage="evaluationStats.avgPrice * 20" :stroke-width="10" status="warning" />
+                <div class="score-value">{{ latestEvaluation.priceScore ?? '-' }}</div>
+                <el-progress :percentage="(latestEvaluation.priceScore || 0) * 20" :stroke-width="10" status="warning" />
+              </div>
+            </el-card>
+          </el-col>
+          <el-col :span="6">
+            <el-card shadow="never">
+              <div class="eval-score">
+                <div class="score-label">综合得分</div>
+                <div class="score-value">{{ latestEvaluation.totalScore ?? '-' }}</div>
+                <el-progress :percentage="(latestEvaluation.totalScore || 0) * 20" :stroke-width="10" type="success" />
               </div>
             </el-card>
           </el-col>
         </el-row>
+
+        <el-empty v-else-if="evalSupplierId" description="该供应商还没有绩效评估记录" style="padding: 24px" />
+
+        <el-card class="table-card" shadow="never" v-if="evalSupplierId">
+          <el-table v-loading="evalLoading" :data="evaluationList" stripe>
+            <el-table-column prop="id" label="ID" width="80" />
+            <el-table-column prop="qualityScore" label="质量" width="70" />
+            <el-table-column prop="deliveryScore" label="交货" width="70" />
+            <el-table-column prop="priceScore" label="价格" width="70" />
+            <el-table-column prop="serviceScore" label="服务" width="70" />
+            <el-table-column prop="techScore" label="技术" width="70" />
+            <el-table-column prop="totalScore" label="综合" width="80">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.totalScore >= 80 ? 'success' : (row.totalScore >= 60 ? 'warning' : 'danger')">
+                  {{ row.totalScore }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="conclusion" label="结论" width="90" />
+            <el-table-column prop="evaluatorName" label="评估人" width="100" />
+            <el-table-column prop="evaluateAt" label="评估时间" width="160">
+              <template #default="{ row }">{{ formatTime(row.evaluateAt) }}</template>
+            </el-table-column>
+            <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip />
+            <el-table-column label="操作" width="140" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="viewEvaluation(row)">详情</el-button>
+                <el-button link type="danger" size="small" @click="removeEvaluation(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
       </el-tab-pane>
     </el-tabs>
 
@@ -303,6 +364,106 @@
 
       <template #footer>
         <el-button @click="supplierDetailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 新增供应商评估弹窗 -->
+    <el-dialog v-model="evalDialogVisible" title="新增绩效评估" width="560px" append-to-body>
+      <el-form :model="evalForm" label-width="90px">
+        <el-form-item label="质量评分">
+          <el-rate v-model="evalForm.qualityScore" :max="5" show-score @change="syncTotalScore" />
+        </el-form-item>
+        <el-form-item label="交货评分">
+          <el-rate v-model="evalForm.deliveryScore" :max="5" show-score @change="syncTotalScore" />
+        </el-form-item>
+        <el-form-item label="价格评分">
+          <el-rate v-model="evalForm.priceScore" :max="5" show-score @change="syncTotalScore" />
+        </el-form-item>
+        <el-form-item label="服务评分">
+          <el-rate v-model="evalForm.serviceScore" :max="5" show-score @change="syncTotalScore" />
+        </el-form-item>
+        <el-form-item label="技术评分">
+          <el-rate v-model="evalForm.techScore" :max="5" show-score @change="syncTotalScore" />
+        </el-form-item>
+        <el-form-item label="综合得分">
+          <el-input-number v-model="evalForm.totalScore" :min="0" :max="5" :step="0.05" :precision="2" disabled />
+          <span style="margin-left: 8px; color: #909399; font-size: 12px">按后端权重自动计算</span>
+        </el-form-item>
+        <el-form-item label="评估结论">
+          <el-input value="保存时由后端按综合得分自动判定" disabled />
+        </el-form-item>
+        <el-form-item label="评估人">
+          <el-input v-model="evalForm.evaluatorName" placeholder="如：采购部 张三" />
+        </el-form-item>
+        <el-form-item label="优势">
+          <el-input v-model="evalForm.advantages" type="textarea" :rows="2" />
+        </el-form-item>
+        <el-form-item label="改进建议">
+          <el-input v-model="evalForm.improvements" type="textarea" :rows="2" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="evalForm.remark" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="evalDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="evalDialogSaving" @click="saveEvaluation">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 评估详情弹窗 -->
+    <el-dialog v-model="evalDetailVisible" title="评估详情" width="640px" append-to-body>
+      <el-descriptions :column="2" border v-if="currentEvaluation">
+        <el-descriptions-item label="质量评分">{{ currentEvaluation.qualityScore ?? '-' }}</el-descriptions-item>
+        <el-descriptions-item label="交货评分">{{ currentEvaluation.deliveryScore ?? '-' }}</el-descriptions-item>
+        <el-descriptions-item label="价格评分">{{ currentEvaluation.priceScore ?? '-' }}</el-descriptions-item>
+        <el-descriptions-item label="服务评分">{{ currentEvaluation.serviceScore ?? '-' }}</el-descriptions-item>
+        <el-descriptions-item label="技术评分">{{ currentEvaluation.techScore ?? '-' }}</el-descriptions-item>
+        <el-descriptions-item label="综合得分">{{ currentEvaluation.totalScore ?? '-' }}</el-descriptions-item>
+        <el-descriptions-item label="评估结论">{{ currentEvaluation.conclusion || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="评估人">{{ currentEvaluation.evaluatorName || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="评估时间">{{ formatTime(currentEvaluation.evaluateAt) }}</el-descriptions-item>
+        <el-descriptions-item label="供应商 ID">{{ currentEvaluation.supplierId }}</el-descriptions-item>
+        <el-descriptions-item label="优势" :span="2">{{ currentEvaluation.advantages || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="改进建议" :span="2">{{ currentEvaluation.improvements || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="备注" :span="2">{{ currentEvaluation.remark || '-' }}</el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button @click="evalDetailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 采购单详情弹窗 -->
+    <el-dialog v-model="purchaseDetailVisible" title="采购单详情" width="800px" append-to-body>
+      <el-descriptions :column="2" border v-if="currentPurchaseOrder">
+        <el-descriptions-item label="采购单号">{{ currentPurchaseOrder.orderNo }}</el-descriptions-item>
+        <el-descriptions-item label="供应商">{{ currentPurchaseOrder.supplierName }}</el-descriptions-item>
+        <el-descriptions-item label="订单金额">
+          {{ formatAmount(currentPurchaseOrder.totalAmount) }} {{ currentPurchaseOrder.currency }}
+        </el-descriptions-item>
+        <el-descriptions-item label="已付金额">{{ formatAmount(currentPurchaseOrder.paidAmount) }}</el-descriptions-item>
+        <el-descriptions-item label="订单状态">{{ getPurchaseStatusName(currentPurchaseOrder.status) }}</el-descriptions-item>
+        <el-descriptions-item label="付款状态">{{ getPaymentStatusName(currentPurchaseOrder.paymentStatus) }}</el-descriptions-item>
+        <el-descriptions-item label="预计到货">{{ formatTime(currentPurchaseOrder.expectedArrivalAt) }}</el-descriptions-item>
+        <el-descriptions-item label="实际到货">{{ formatTime(currentPurchaseOrder.actualArrivalAt) }}</el-descriptions-item>
+        <el-descriptions-item label="采购员">{{ currentPurchaseOrder.purchaserName || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="付款方式">{{ currentPurchaseOrder.paymentMethod || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="备注" :span="2">{{ currentPurchaseOrder.remark || '-' }}</el-descriptions-item>
+      </el-descriptions>
+
+      <h4 v-if="purchaseOrderItems.length">明细</h4>
+      <el-table v-if="purchaseOrderItems.length" :data="purchaseOrderItems" size="small" border>
+        <el-table-column prop="productName" label="商品" min-width="160" />
+        <el-table-column prop="sku" label="SKU" width="140" />
+        <el-table-column prop="quantity" label="数量" width="80" />
+        <el-table-column prop="unitPrice" label="单价" width="100" />
+        <el-table-column prop="subtotal" label="小计" width="110" />
+        <el-table-column prop="receivedQuantity" label="已收" width="80" />
+      </el-table>
+      <el-empty v-else description="没有明细" style="padding: 16px" />
+
+      <template #footer>
+        <el-button @click="purchaseDetailVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -362,8 +523,8 @@
     <el-dialog v-model="showPurchaseDialog" title="新建采购单" width="700px" append-to-body>
       <el-form :model="purchaseForm" label-width="100px">
         <el-form-item label="供应商" required>
-          <el-select v-model="purchaseForm.supplierId" placeholder="请选择供应商" style="width: 100%">
-            <el-option v-for="s in supplierList" :key="s.id" :label="s.name" :value="s.id" />
+          <el-select v-model="purchaseForm.supplierId" placeholder="请选择供应商" filterable style="width: 100%">
+            <el-option v-for="s in purchaseSupplierOptions" :key="s.id" :label="s.name" :value="s.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="预计到货">
@@ -392,9 +553,16 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Search, Refresh, Plus, OfficeBuilding, CircleCheck, Star, Money } from '@element-plus/icons-vue'
-import { supplierApi, type Supplier, type PurchaseOrder, type SupplierStats } from '@/api/supplier'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search, Refresh, Plus, OfficeBuilding, CircleCheck, Star, Money, Trophy, Van, DataAnalysis } from '@element-plus/icons-vue'
+import {
+  supplierApi,
+  type Supplier,
+  type PurchaseOrder,
+  type PurchaseOrderItem,
+  type SupplierStats,
+  type SupplierEvaluation,
+} from '@/api/supplier'
 import dayjs from 'dayjs'
 import { unwrapPage } from '@/utils/response'
 
@@ -483,13 +651,219 @@ const purchaseForm = reactive({
 
 // 绩效评估
 const evalSupplierId = ref<number | null>(null)
-const evaluationStats = reactive({
-  avgQuality: 0,
-  avgDelivery: 0,
-  avgPrice: 0,
-  avgService: 0,
-  avgOverall: 0
+const evalConclusion = ref<string>('')
+const evaluationList = ref<SupplierEvaluation[]>([])
+const latestEvaluation = ref<SupplierEvaluation | null>(null)
+const evalLoading = ref(false)
+
+// 新增/查看评估的弹窗
+const evalDialogVisible = ref(false)
+const evalDialogSaving = ref(false)
+const evalForm = reactive({
+  id: 0,
+  supplierId: 0,
+  qualityScore: 5,
+  deliveryScore: 5,
+  priceScore: 5,
+  serviceScore: 5,
+  techScore: 5,
+  totalScore: 5,
+  conclusion: 'GOOD',
+  advantages: '',
+  improvements: '',
+  remark: '',
+  evaluatorName: '',
 })
+
+// 评估详情弹窗
+const evalDetailVisible = ref(false)
+const currentEvaluation = ref<SupplierEvaluation | null>(null)
+
+// 采购单详情弹窗
+const purchaseDetailVisible = ref(false)
+const currentPurchaseOrder = ref<PurchaseOrder | null>(null)
+const purchaseOrderItems = ref<PurchaseOrderItem[]>([])
+
+// 采购单下拉用的供应商选项（后端 /purchase/suppliers 返回**全部**供应商，
+// 而 supplierList 只是当前分页的数据 —— 用它做下拉会漏掉其它页的供应商）
+const purchaseSupplierOptions = ref<Array<{ id: number; name: string; code: string }>>([])
+
+const loadPurchaseSupplierOptions = async () => {
+  purchaseSupplierOptions.value = (await supplierApi.getPurchaseSupplierOptions()) || []
+}
+
+/** 加载某个供应商的评估记录 + 最新一次评估 */
+const loadEvaluations = async () => {
+  if (!evalSupplierId.value) {
+    evaluationList.value = []
+    latestEvaluation.value = null
+    return
+  }
+  evalLoading.value = true
+  try {
+    const params: { supplierId?: number; conclusion?: string } = { supplierId: evalSupplierId.value }
+    if (evalConclusion.value) params.conclusion = evalConclusion.value
+    evaluationList.value = (await supplierApi.getEvaluationList(params)) || []
+
+    // 最新一次评估：后端返回**一条记录**（不是聚合统计对象）
+    const latest = await supplierApi.getLatestEvaluation(evalSupplierId.value)
+    latestEvaluation.value = latest || null
+  } catch (error) {
+    console.error('加载评估记录失败', error)
+    evaluationList.value = []
+    latestEvaluation.value = null
+  } finally {
+    evalLoading.value = false
+  }
+}
+
+const openEvalDialog = () => {
+  if (!evalSupplierId.value) {
+    ElMessage.warning('请先选择供应商')
+    return
+  }
+  evalForm.id = 0
+  evalForm.supplierId = evalSupplierId.value
+  evalForm.qualityScore = 5
+  evalForm.deliveryScore = 5
+  evalForm.priceScore = 5
+  evalForm.serviceScore = 5
+  evalForm.techScore = 5
+  evalForm.totalScore = 5
+  evalForm.conclusion = ''
+  evalForm.advantages = ''
+  evalForm.improvements = ''
+  evalForm.remark = ''
+  evalForm.evaluatorName = ''
+  evalDialogVisible.value = true
+}
+
+/**
+ * 综合得分 —— 必须和后端 SupplierEvaluationService.calculateTotalScore 一样，
+ * 否则页面显示的分和库里存的对不上。
+ *
+ * 📌 后端算法：质量30% + 交付25% + 价格20% + 服务15% + 技术10%
+ * ⚠️ 还有一点：**综合得分和评估结论都是后端算的**，
+ *    前端传的 totalScore / conclusion / evaluateAt 会被后端覆盖。
+ */
+const syncTotalScore = () => {
+  const q = evalForm.qualityScore || 0
+  const d = evalForm.deliveryScore || 0
+  const p = evalForm.priceScore || 0
+  const s = evalForm.serviceScore || 0
+  const t = evalForm.techScore || 0
+  evalForm.totalScore = Math.round((q * 0.3 + d * 0.25 + p * 0.2 + s * 0.15 + t * 0.1) * 100) / 100
+}
+
+const saveEvaluation = async () => {
+  evalDialogSaving.value = true
+  try {
+    // 📌 不传 totalScore / conclusion / evaluateAt ——
+    //    这三个都是后端算的（加权平均 + 按分数推导结论 + 服务器当前时间），
+    //    传了也会被覆盖，传错格式（如 '2026-11-03 12:00:00'）反而会 400。
+    await supplierApi.createEvaluation({
+      supplierId: evalForm.supplierId,
+      qualityScore: evalForm.qualityScore,
+      deliveryScore: evalForm.deliveryScore,
+      priceScore: evalForm.priceScore,
+      serviceScore: evalForm.serviceScore,
+      techScore: evalForm.techScore,
+      advantages: evalForm.advantages,
+      improvements: evalForm.improvements,
+      remark: evalForm.remark,
+      evaluatorName: evalForm.evaluatorName,
+    } as SupplierEvaluation)
+    ElMessage.success('评估已保存')
+    evalDialogVisible.value = false
+    loadEvaluations()
+  } catch (error) {
+    console.error('保存评估失败', error)
+  } finally {
+    evalDialogSaving.value = false
+  }
+}
+
+const viewEvaluation = async (row: SupplierEvaluation) => {
+  // 📌 真去后端拉详情，而不是把列表行对象直接塞进弹窗
+  try {
+    currentEvaluation.value = await supplierApi.getEvaluationDetail(row.id)
+  } catch (error) {
+    console.error('加载评估详情失败', error)
+    currentEvaluation.value = row
+  }
+  evalDetailVisible.value = true
+}
+
+const removeEvaluation = async (row: SupplierEvaluation) => {
+  await ElMessageBox.confirm(`确定删除评估记录 #${row.id} 吗？`, '提示', { type: 'warning' })
+  await supplierApi.deleteEvaluation(row.id)
+  ElMessage.success('已删除')
+  loadEvaluations()
+}
+
+/** 采购单详情（含明细） */
+const viewPurchaseOrder = async (row: PurchaseOrder) => {
+  const detail = await supplierApi.getPurchaseOrderById(row.id)
+  currentPurchaseOrder.value = detail
+  purchaseOrderItems.value = (await supplierApi.getPurchaseOrderItems(row.id)) || []
+  purchaseDetailVisible.value = true
+}
+
+/** 采购单状态流转 */
+const advancePurchase = async (row: PurchaseOrder, action: 'approve' | 'purchasing' | 'received' | 'cancel') => {
+  if (action === 'cancel') {
+    const { value } = await ElMessageBox.prompt('请输入取消原因', '取消采购单', {
+      inputPlaceholder: '如：供应商缺货',
+      inputValidator: v => (v && v.trim() ? true : '取消原因必填'),
+    })
+    await supplierApi.cancelPurchaseOrder(row.id, value)
+  } else if (action === 'approve') {
+    await supplierApi.approvePurchaseOrder(row.id)
+  } else if (action === 'purchasing') {
+    await supplierApi.markPurchaseOrderPurchasing(row.id)
+  } else {
+    await supplierApi.markPurchaseOrderReceived(row.id)
+  }
+  ElMessage.success('操作成功')
+  loadPurchaseOrders()
+}
+
+/** 删除供应商 */
+const removeSupplier = async (row: Supplier) => {
+  await ElMessageBox.confirm(
+    `确定删除供应商「${row.name}」吗？\n（如果该供应商还有采购单，会被后端拒绝）`,
+    '提示',
+    { type: 'warning' },
+  )
+  await supplierApi.deleteSupplier(row.id)
+  ElMessage.success('已删除')
+  loadSuppliers()
+}
+
+/** 头部供应商（后端按采购额排序） */
+const loadTopSuppliers = async () => {
+  const rows = (await supplierApi.getTopSuppliers()) || []
+  supplierList.value = rows
+  ElMessage.success(`已加载头部供应商（${rows.length} 家）`)
+}
+
+/** 在途（待收货）采购订单 */
+const loadInTransitOrders = async () => {
+  const rows = (await supplierApi.getInTransitOrders()) || []
+  purchaseOrderList.value = rows
+  purchasePagination.total = rows.length
+  ElMessage.success(`在途采购订单 ${rows.length} 条`)
+}
+
+/** 采购订单统计 */
+const loadPurchaseStats = async () => {
+  const stats = await supplierApi.getPurchaseStats()
+  ElMessageBox.alert(
+    `采购单总数：${stats.total}\n待审批：${stats.pending}\n在途：${stats.inTransit}\n` +
+    `已收货：${stats.received}\n订单总额：${stats.totalAmount}\n已付金额：${stats.totalPaid}`,
+    '采购订单统计',
+  )
+}
 
 // 加载供应商列表
 const loadSuppliers = async () => {
@@ -594,14 +968,30 @@ const resetSupplierForm = () => {
 }
 
 // 查看供应商详情
-const handleViewSupplier = (supplier: Supplier) => {
-  currentSupplier.value = supplier
+const handleViewSupplier = async (supplier: Supplier) => {
+  // 📌 真去后端拉详情，而不是把列表行对象直接塞进弹窗
+  //    （列表是分页查询，返回的字段可能不完整）
+  try {
+    const detail = await supplierApi.getSupplierById(supplier.id)
+    currentSupplier.value = detail
+  } catch (error) {
+    console.error('加载供应商详情失败', error)
+    currentSupplier.value = supplier
+  }
   supplierDetailVisible.value = true
 }
 
 // 创建采购
 const handleCreatePurchase = (supplier: Supplier) => {
   purchaseForm.supplierId = supplier.id
+  openPurchaseDialog()
+}
+
+/** 打开新建采购单弹窗（先拉供应商下拉数据） */
+const openPurchaseDialog = async () => {
+  if (!purchaseSupplierOptions.value.length) {
+    await loadPurchaseSupplierOptions()
+  }
   showPurchaseDialog.value = true
 }
 
@@ -660,17 +1050,6 @@ const loadPurchaseOrders = async () => {
   }
 }
 
-// 加载评估统计
-const loadEvaluationStats = async () => {
-  if (!evalSupplierId.value) return
-  try {
-    const res = await supplierApi.getEvaluationStats(evalSupplierId.value)
-    Object.assign(evaluationStats, res)
-  } catch (error) {
-    console.error('加载评估统计失败', error)
-  }
-}
-
 // 工具函数
 const getTypeName = (type: string) => {
   const map: Record<string, string> = { FACTORY: '工厂', TRADER: '贸易商', AGENT: '代理商' }
@@ -709,12 +1088,13 @@ const getPaymentStatusType = (status: string) => {
 }
 
 const formatAmount = (amount: number) => amount?.toFixed(2) || '0.00'
-const formatTime = (time: string) => time ? dayjs(time).format('YYYY-MM-DD') : '-'
+const formatTime = (time?: string) => time ? dayjs(time).format('YYYY-MM-DD') : '-'
 
 onMounted(() => {
   loadSuppliers()
   loadStats()
   loadPurchaseOrders()
+  loadPurchaseSupplierOptions()
 })
 </script>
 

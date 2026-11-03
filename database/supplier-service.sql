@@ -25,7 +25,7 @@ CREATE TABLE `t_supplier` (
     `contact_person` VARCHAR(50) COMMENT '联系人',
     `phone` VARCHAR(20) COMMENT '联系电话',
     `email` VARCHAR(100) COMMENT '邮箱',
-    `type` VARCHAR(30) COMMENT '供应商类型(FACTORY/TRADE/AGENT)',
+    `type` VARCHAR(30) COMMENT '供应商类型(FACTORY/TRADER/AGENT) —— 与前端下拉取值一致',
     `country` VARCHAR(50) COMMENT '国家',
     `city` VARCHAR(50) COMMENT '城市',
     `address` VARCHAR(255) COMMENT '详细地址',
