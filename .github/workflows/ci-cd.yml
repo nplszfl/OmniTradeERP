@@ -89,6 +89,15 @@ jobs:
       with:
         python-version: '3.11'
 
+    # 📌 **必须装 PyYAML** —— check-port-consistency.py / check-workflow-validity.py
+    #    都要 `import yaml`，而 GitHub 的 ubuntu-latest runner **默认没装**
+    #    → ModuleNotFoundError: No module named 'yaml'
+    #    → 巡检脚本**第一步就崩** → 整个 job 失败
+    #    📌 本项目实测：code-quality.yml 的「契约巡检」步骤就是这么挂的，
+    #       而**后面的巡检一个都没跑**（shell -e 遇到第一个失败就停）。
+    - name: 安装 Python 依赖
+      run: pip install pyyaml
+
     - name: 端口一致性（application.yml ↔ compose ↔ k8s ↔ Dockerfile ↔ 文档）
       run: python3 scripts/check-port-consistency.py
 
@@ -133,6 +142,16 @@ jobs:
     - name: 种子脚本自洽（表名/列名在 SQL 里真实存在）
       run: python3 scripts/check-seed-table-refs.py
 
+    # 📌 **workflow 自身合法性** ——
+    #    GitHub 的 workflow 校验在**服务端**做，本地 yaml.safe_load **解析得通**
+    #    （PyYAML 不校验 key 合法性）→ 本地全绿、线上**整个文件被拒**
+    #    → 0 个 job、0 行日志 → 该 workflow 形同虚设（却显示 failure，不像被跳过）
+    #    📌 本项目实测：ci-cd.yml 因为一处 `working:`（应为 `working-directory:`）
+    #       从 2026-03-14 起**连续 100 次 run 全部 failure，0 个 job**，
+    #       期间所有「CI 巡检全绿」的说法都是**假的** —— 闸门压根没跑过。
+    - name: Workflow 文件合法性（GitHub 会直接拒收的写法）
+      run: python3 scripts/check-workflow-validity.py
+
   # ============================================================
   # 结构巡检：需要**真实 MySQL 结构**的两个闸门
   # ============================================================
@@ -163,6 +182,15 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+
+    # 📌 **必须装 PyYAML** —— check-port-consistency.py / check-workflow-validity.py
+    #    都要 `import yaml`，而 GitHub 的 ubuntu-latest runner **默认没装**
+    #    → ModuleNotFoundError: No module named 'yaml'
+    #    → 巡检脚本**第一步就崩** → 整个 job 失败
+    #    📌 本项目实测：code-quality.yml 的「契约巡检」步骤就是这么挂的，
+    #       而**后面的巡检一个都没跑**（shell -e 遇到第一个失败就停）。
+    - name: 安装 Python 依赖
+      run: pip install pyyaml
 
     - name: 启动全新 MySQL（跑完 database/*.sql 初始化）
       run: bash scripts/start-audit-mysql.sh 3411
@@ -201,7 +229,7 @@ jobs:
       run: npm ci
 
     - name: Lint check
-      working: ./erp-web
+      working-directory: ./erp-web
       run: npm run lint --if-present
 
     - name: Run tests
@@ -232,7 +260,10 @@ jobs:
     name: Build Docker Images
     runs-on: ubuntu-latest
     needs: [backend-build-test, frontend-build-test]
-    if: github.ref == 'refs/heads/main'
+    # 📌 必须是 **master** —— 本仓库唯一的分支是 master（origin/HEAD -> origin/master）。
+    #    之前写的是 refs/heads/main，而 main 分支**从来不存在**
+    #    → 这个 job **永远被跳过** → 镜像从来没构建过 → 部署也从来没发生。
+    if: github.ref == 'refs/heads/master'
 
     steps:
     - name: Checkout code
@@ -276,7 +307,8 @@ jobs:
     name: Deploy to Kubernetes
     runs-on: ubuntu-latest
     needs: docker-build
-    if: github.ref == 'refs/heads/main'
+    # 📌 同上 —— 必须是 master
+    if: github.ref == 'refs/heads/master'
     environment:
       name: production
       url: https://erp.example.com

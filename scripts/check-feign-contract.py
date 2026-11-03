@@ -36,6 +36,66 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+
+def _strip_java_comments(text):
+    """去掉 Java 注释（// 行注释 与 /* */ 块注释）。
+
+    📌 **必须去注释再匹配** —— 巡检脚本自己的解析缺陷曾经让整个闸门**静默失效**：
+
+    2026-11-04 实测：给 Feign 方法加了一段说明注释（写在 @PostMapping 和方法签名之间），
+    而 MAPPING_RE 原本要求「注解后面紧跟返回类型」→ **createOrder 整条方法被跳过**→
+    报告里「方法数」从 2 变成 1 → 闸门照样输出「✅ 所有契约都对得上」。
+
+    📌 **这就是最危险的失败模式**：闸门不是报错，而是**少查了东西然后报绿**。
+    与「假绿」相比，它更有迷惑性 —— 因为报告里「方法数」变了，但没人会去数。
+
+    📌 教训：闸门报告里**必须带「检查了多少」**，少查了要能看出来。
+
+    📌 实现要点：**不能用正则直接去注释** —— 正则分不清
+    「字符串里的 // 」和「真注释里的 // 」，一视同仁地删会把
+    `@PostMapping("/create")` 里的路径一起删掉 → 反而解析不出方法。
+    所以这里用**逐字符状态机**：先认字符串，再认注释。
+    """
+    out = []
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        # 字符串字面量（含转义）：原样保留
+        if c == '"' or c == "'":
+            quote = c
+            out.append(c)
+            i += 1
+            while i < n:
+                if text[i] == "\\":
+                    out.append(text[i:i + 2])
+                    i += 2
+                    continue
+                out.append(text[i])
+                if text[i] == quote:
+                    i += 1
+                    break
+                i += 1
+            continue
+        # 块注释
+        if c == "/" and i + 1 < n and text[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i += 2
+            out.append(" ")
+            continue
+        # 行注释
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] != "\n":
+                i += 1
+            out.append(" ")
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 MAPPING_RE = re.compile(
     r"@(Get|Post|Put|Delete|Patch)Mapping\(\s*(?:value\s*=\s*)?\"([^\"]*)\"\s*\)\s*"
     r"(?:public\s+)?([A-Za-z_][\w<>,.\[\]\s]*?)\s+([A-Za-z_]\w*)\s*\(",
@@ -66,7 +126,7 @@ def parse_controller_endpoints(module_dir):
     if not java_root.exists():
         return out
     for java in java_root.rglob("*.java"):
-        text = java.read_text(encoding="utf-8", errors="ignore")
+        text = _strip_java_comments(java.read_text(encoding="utf-8", errors="ignore"))
         if "@RestController" not in text and "@Controller" not in text:
             continue
         cls = re.search(r'@RequestMapping\(\s*(?:value\s*=\s*)?"([^"]*)"', text)
@@ -90,6 +150,38 @@ def unwrapped(ret):
     return r, None
 
 
+# 📌 **数字型与 String 的互转不算契约不一致** ——
+#
+#    本项目的 ID 出口约定：**所有 ID 在 HTTP 层都是字符串**
+#    （雪花 ID 19 位，JS Number 承载不了 → Result.successId() 把 Long 转成 String）。
+#    而 Feign 客户端是 **Java ↔ Java**，Java 的 Long 没有精度问题，
+#    所以声明成 `Result<Long>` 是**故意**的：
+#    - 后端 `Result.successId(orderId)` → JSON `{"data":"2117546519450398722"}`
+#    - Feign 声明 `Result<Long>` → Jackson 把 JSON 字符串**隐式转成 Long**
+#    - 这一步是**精确**的（Long 能装下 19 位），有真实解码测试证明：
+#      erp-platform-service/.../OrderServiceClientDecodeTest.java
+#
+#    📌 **所以 `Result<String>` vs `Result<Long>` 不是 bug，而是本项目的既定契约。**
+#    闸门如果把它报成「泛型不一致」→ 就是**误报**。
+#    ⚠️ 误报比漏报更危险：闸门一旦学会误报，真正的问题就会被一起忽略
+#       （本项目实测：就是因为这条误报，差点把一处正确的 Feign 声明改成错的）。
+NUMERIC_TYPES = {"long", "int", "integer", "short", "byte", "bigdecimal", "double", "float"}
+
+
+def _is_numeric(t):
+    return t.strip().lower() in NUMERIC_TYPES
+
+
+def _coercion_pair(a, b):
+    """a、b 是否属于「数字 ↔ 字符串」这一对可互转的类型。"""
+    a, b = a.strip(), b.strip()
+    if a.lower() == "string" and _is_numeric(b):
+        return True
+    if b.lower() == "string" and _is_numeric(a):
+        return True
+    return False
+
+
 
 def _check_return(problems, rel, service, hit, name, feign_ret=None):
     """检查 Feign 声明的返回类型与后端实际返回是否对得上"""
@@ -104,9 +196,11 @@ def _check_return(problems, rel, service, hit, name, feign_ret=None):
                          f"Feign 声明的是裸 {feign_inner} → "
                          f"会把 {back_wrapper} 外壳反序列化成字段全空的对象"))
     elif back_wrapper and feign_wrapper and feign_inner != back_inner:
-        problems.append((rel, service, f"返回值 @ {backend_path}", name,
-                         f"泛型不一致：后端 {back_wrapper}<{back_inner}> "
-                         f"vs Feign {feign_wrapper}<{feign_inner}>"))
+        # 📌 数字 ↔ String 的隐式互转**不算不一致**（见 _coercion_pair 的说明）
+        if not _coercion_pair(feign_inner, back_inner):
+            problems.append((rel, service, f"返回值 @ {backend_path}", name,
+                             f"泛型不一致：后端 {back_wrapper}<{back_inner}> "
+                             f"vs Feign {feign_wrapper}<{feign_inner}>"))
 
 
 def main():
@@ -114,7 +208,7 @@ def main():
 
     feigns = []
     for java in sorted(ROOT.glob("erp-*/src/main/java/**/*.java")):
-        text = java.read_text(encoding="utf-8", errors="ignore")
+        text = _strip_java_comments(java.read_text(encoding="utf-8", errors="ignore"))
         fm = FEIGN_RE.search(text)
         if not fm:
             continue

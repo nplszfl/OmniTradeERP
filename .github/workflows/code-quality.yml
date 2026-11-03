@@ -25,6 +25,15 @@ jobs:
       with:
         python-version: '3.11'
 
+    # 📌 **必须装 PyYAML** —— check-port-consistency.py / check-workflow-validity.py
+    #    都要 `import yaml`，而 GitHub 的 ubuntu-latest runner **默认没装**
+    #    → ModuleNotFoundError: No module named 'yaml'
+    #    → 巡检脚本**第一步就崩** → 整个 job 失败
+    #    📌 本项目实测：code-quality.yml 的「契约巡检」步骤就是这么挂的，
+    #       而**后面的巡检一个都没跑**（shell -e 遇到第一个失败就停）。
+    - name: 安装 Python 依赖
+      run: pip install pyyaml
+
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
@@ -118,13 +127,41 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # 📌 **必须先预热 Maven 本地仓库** ——
+    #    trivy 扫 pom.xml 时会去 Maven Central 拉 BOM/父 pom 来确定依赖版本，
+    #    而 GitHub runner 的出口 IP 常年被限流：
+    #        FATAL Error  remote Maven repository returned 429 Too Many Requests
+    #                 for https://repo.maven.apache.org/maven2/...
+    #                 Retry-After: 1800
+    #        The repository blocks all subsequent requests from this IP until the block clears.
+    #    → **整个 Security Scan job 挂掉**（本项目实测，连续多次 run 都是这么挂的）
+    #    📌 解法：先 `mvn dependency:go-offline` 把依赖拉进 ~/.m2，
+    #       再用 actions/cache 缓存起来 —— trivy 就能离线解析版本，不碰 Maven Central。
+    - name: 预热 Maven 本地仓库（避免 Trivy 拉 BOM 时被 429）
+      run: mvn -B -q dependency:go-offline -DexcludeArtifactIds=erp-common || mvn -B -q dependency:resolve || true
+
+    - name: 缓存 Maven 仓库
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: |
+          ${{ runner.os }}-m2-
+
     - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@0.28.0
       with:
         scan-type: 'fs'
         scan-ref: '.'
         format: 'sarif'
         output: 'trivy-results.sarif'
+        # 📌 固定版本号，别用 @master —— master 会漂移，
+        #    哪天上游改了行为，CI 突然红/绿都不是自己的锅。
+        # 📌 exit-code: '0' —— SARIF 会照常上传给 GitHub Security，
+        #    真正的门禁交给「安全」页面的告警，而不是让整个 CI 挂掉。
+        exit-code: '0'
+        ignore-unfixed: true
+        vuln-type: 'os,library'
 
     - name: Upload Trivy results to GitHub Security
       uses: github/codeql-action/upload-sarif@v2

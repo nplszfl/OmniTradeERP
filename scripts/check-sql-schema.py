@@ -87,6 +87,20 @@ SQL_KEYWORDS = {
     "duplicate", "row", "rows", "unnest", "lateral", "with", "recursive",
 }
 
+# 📌 **MySQL/PostgreSQL 自带的系统 schema** ——
+#    它们不是「项目建的库」，但代码里查元数据时会合法地引用。
+#    📌 实测踩坑：TenantDataIntegrityTest 里查
+#       `INFORMATION_SCHEMA.COLUMNS` → 被当成「引用了不存在的库 erp_information_schema」
+#       → 闸门误报 → 唯一的 schema 不一致报警是**假的** → 闸门一旦学会误报，
+#          真正的问题就会被一起忽略。
+#    ⚠️ 关键：这类误报比漏报更危险 —— 它会让人开始无视这个闸门。
+SYSTEM_SCHEMAS = {
+    # MySQL
+    "information_schema", "mysql", "performance_schema", "sys",
+    # PostgreSQL
+    "pg_catalog", "pg_toast",
+}
+
 # SQL 里常见的函数名后跟 ( 形如 xxx( —— 不是表名
 FUNC_CALL = re.compile(r"\b([a-z_][a-z0-9_]*)\s*\(", re.I)
 
@@ -265,6 +279,9 @@ def check_sql(sql, tables, schemas):
             r"(?:from|join)\s+([a-z][a-z0-9_]*)\s*\.\s*([a-z_][a-z0-9_]*)\b", stripped):
         sch, tbl = m.group(1), m.group(2)
         if sch in SQL_KEYWORDS:
+            continue
+        # 📌 系统 schema 不校验（information_schema 等）
+        if sch in SYSTEM_SCHEMAS:
             continue
         from_refs.add((sch, tbl))
         if sch not in schemas:
