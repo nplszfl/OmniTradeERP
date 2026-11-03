@@ -62,6 +62,7 @@ jobs:
         python3 scripts/check-silent-failures.py
         python3 scripts/check-db-schema-provision.py
         python3 scripts/check-seed-table-refs.py
+        python3 scripts/check-seed-idempotency.py
 
   # 前端代码检查
   frontend-code-quality:

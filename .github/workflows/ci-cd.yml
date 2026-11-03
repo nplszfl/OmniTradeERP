@@ -50,6 +50,12 @@ jobs:
         python3 scripts/check-boot-main-class.py
         python3 scripts/check-jar-start-class.py
 
+    # 📌 种子脚本幂等性巡检
+    #    主键冲突 → ERROR 1062 → docker-entrypoint **中止整个 init**
+    #    （容器却照样起来 → 后面几个种子文件全没执行 → 静默失败）
+    - name: 种子脚本幂等性巡检
+      run: python3 scripts/check-seed-idempotency.py
+
     - name: Upload JAR files
       uses: actions/upload-artifact@v4
       with:
