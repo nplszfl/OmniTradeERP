@@ -50,6 +50,19 @@ jobs:
         python3 scripts/check-feign-contract.py --strict
         python3 scripts/check-gateway-strip.py
 
+    # 📌 后续补的巡检也要进来 —— **闸门不跑 = 不存在**，
+    #    之前只跑前 6 个，后 10 个的盲区就是这么活下来的。
+    - name: 结构/可启动性巡检
+      run: |
+        python3 scripts/check-boot-main-class.py
+        python3 scripts/check-dead-endpoints.py
+        python3 scripts/check-id-precision.py
+        python3 scripts/check-map-injection-keys.py
+        python3 scripts/check-placeholder-syntax.py
+        python3 scripts/check-silent-failures.py
+        python3 scripts/check-db-schema-provision.py
+        python3 scripts/check-seed-table-refs.py
+
   # 前端代码检查
   frontend-code-quality:
     name: Frontend Code Quality

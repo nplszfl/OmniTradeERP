@@ -40,6 +40,16 @@ jobs:
     - name: Package with Maven
       run: mvn clean package -DskipTests
 
+    # 📌 **产物级**可启动性巡检（源码层过了不代表产物能跑）
+    #    - check-boot-main-class.py：主类在不在源码里
+    #    - check-jar-start-class.py：主类在不在**打出来的 jar** 里
+    #      （显式 <mainClass> 时 maven 插件**不校验** → package 照样成功，
+    #        产出一个跑起来就 ClassNotFoundException 的 jar）
+    - name: 可启动性巡检（主类：源码层 + 产物层）
+      run: |
+        python3 scripts/check-boot-main-class.py
+        python3 scripts/check-jar-start-class.py
+
     - name: Upload JAR files
       uses: actions/upload-artifact@v4
       with:
@@ -90,6 +100,79 @@ jobs:
 
     - name: 网关路径改写 ↔ 后端 controller 根路径
       run: python3 scripts/check-gateway-strip.py
+
+    # 📌 以下这几个是**后来补的**巡检，之前只跑前 6 个 ——
+    #    「闸门不跑 = 不存在」，它们的盲区就是这么活下来的。
+    - name: 主类存在性（源码层：主类在不在、是否唯一）
+      run: python3 scripts/check-boot-main-class.py
+
+    - name: 死接口巡检（Controller 里没有对应实现的方法）
+      run: python3 scripts/check-dead-endpoints.py
+
+    - name: Long 主键精度（前端不能把 id 当 number 传）
+      run: python3 scripts/check-id-precision.py
+
+    - name: Map 注入的 key 不应是用户输入
+      run: python3 scripts/check-map-injection-keys.py
+
+    - name: 占位符语法（${} 与 #{} 混用）
+      run: python3 scripts/check-placeholder-syntax.py
+
+    - name: 静默失败（catch 空 / 吞异常 / return null）
+      run: python3 scripts/check-silent-failures.py
+
+    - name: DDL 挂载（database/*.sql 有没有进 docker-compose 的 init 目录）
+      run: python3 scripts/check-db-schema-provision.py
+
+    - name: 种子脚本自洽（表名/列名在 SQL 里真实存在）
+      run: python3 scripts/check-seed-table-refs.py
+
+  # ============================================================
+  # 结构巡检：需要**真实 MySQL 结构**的两个闸门
+  # ============================================================
+  # 📌 为什么必须单独一个 job，而且必须**全新初始化**：
+  #    check-not-null-defaults / check-not-null-writes 查的是
+  #    **线上真实的表结构**（information_schema），
+  #    而不是解析 database/*.sql 文件 ——
+  #    DDL 文件和线上可能不一致（我一开始就解析 DDL，
+  #    结果把 customer-service 的表结构判错了）。
+  #
+  # 📌 「全新初始化」是关键：
+  #    docker-entrypoint 遇到 .sql 里的报错会**中止整个 init**，
+  #    但**容器照样起来** → 看起来初始化成功，
+  #    实际排在后面的种子文件一个都没跑 → 静默失败。
+  #    （实测踩过：zz-seed-data.sql 的 t_role 主键重复
+  #      → ERROR 1062 → 后面 3 个种子文件全被跳过。）
+  #    scripts/start-audit-mysql.sh 会**扫 init 日志**，
+  #    有报错就退出非 0 → 这一层就把静默失败堵住了。
+  schema-audit:
+    name: Schema Audit (真实表结构 / NOT NULL 写入路径)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: 启动全新 MySQL（跑完 database/*.sql 初始化）
+      run: bash scripts/start-audit-mysql.sh 3411
+
+    # 📌 **必须带 --strict**：连不上库就直接失败。
+    #    不带的话是「跳过 + 绿灯」→ MySQL 没起来也照样显示检查通过
+    #    → 盲区就这么溜过去了。
+    - name: NOT NULL 无默认值 → 实体↔表结构错位
+      run: python3 scripts/check-not-null-defaults.py --strict
+
+    - name: NOT NULL 无默认值 → 写路径从不赋值（插入必失败）
+      run: python3 scripts/check-not-null-writes.py --strict
+
+    - name: Dump init 日志（排查用）
+      if: always()
+      run: docker logs erp-fresh-mysql 2>&1 | tail -60
 
   # 前端构建和测试
   frontend-build-test:

@@ -156,8 +156,17 @@ def entity_map():
 
 
 def main():
+    # 📌 **--strict**：连不上库时**直接失败**，而不是「跳过 + 绿灯」
+    #    📌 **为什么必须**：闸门在 CI 里跑，如果 MySQL 没起来，
+    #    静默跳过 = **假装检查过了** → 盲区直接溜过去。
+    strict = "--strict" in sys.argv
+
     schema = live_schema()
     if schema is None:
+        if strict:
+            print(f"❌ 连不上 MySQL 容器 `{CONTAINER}` —— 检查无法进行（strict 模式）")
+            print(f"   先跑：scripts/start-audit-mysql.sh")
+            return 1
         print(f"⚠️  连不上 MySQL 容器 {CONTAINER} —— 跳过（无法确认真实表结构）")
         return 0
 

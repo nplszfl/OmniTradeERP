@@ -23,12 +23,26 @@ SET NAMES utf8mb4;
 USE `erp_user`;
 
 -- 角色
+-- 📌 **幂等**：t_role / t_user / t_user_role 这 3 张表
+--    **user-service.sql 已经插过一遍**（它是 erp_user 的 DDL 属主，自带种子）。
+--    而本文件按 `zz-` 前缀排在它**之后**执行
+--    → 直接 INSERT 会撞主键：
+--      ERROR 1062 (23000): Duplicate entry '1' for key 't_role.PRIMARY'
+--    → **docker-entrypoint 遇到报错会中止整个 init**
+--    → 排在后面的 zz-seed-live-data / zz-seed-tenant / zz-seed-warehouse
+--      **全部不执行**，而容器还照样「启动成功」→ 静默失败。
+--    → 所以这 3 条必须 ON DUPLICATE KEY UPDATE。
 INSERT INTO `t_role` (`id`, `role_code`, `role_name`, `description`, `status`) VALUES
 (1, 'SUPER_ADMIN', '超级管理员', '系统最高权限，可访问所有功能', 1),
 (2, 'OPS_ADMIN', '运营管理员', '负责日常运营，订单/商品/库存', 1),
 (3, 'FINANCE', '财务人员', '查看财务报表、处理结算', 1),
 (4, 'WAREHOUSE', '仓库管理员', '负责出入库、库存盘点', 1),
-(5, 'CUSTOMER_SERVICE', '客服人员', '处理客户问题与售后', 1);
+(5, 'CUSTOMER_SERVICE', '客服人员', '处理客户问题与售后', 1)
+ON DUPLICATE KEY UPDATE
+  `role_code`   = VALUES(`role_code`),
+  `role_name`   = VALUES(`role_name`),
+  `description` = VALUES(`description`),
+  `status`      = VALUES(`status`);
 
 -- 用户（密码 admin123 用 BCrypt 加密后的样子：$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy）
 INSERT INTO `t_user` (`id`, `username`, `password`, `real_name`, `email`, `phone`, `status`, `last_login_time`) VALUES
@@ -38,11 +52,21 @@ INSERT INTO `t_user` (`id`, `username`, `password`, `real_name`, `email`, `phone
 (4, 'wh001',   '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '王仓管',   'wh001@crossborder.com',   '13800138003', 1, NOW()),
 (5, 'cs001',   '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '赵客服',   'cs001@crossborder.com',   '13800138004', 1, NOW()),
 (6, 'ops002',  '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '陈运营',   'ops002@crossborder.com',  '13800138005', 1, NULL),
-(7, 'ops003',  '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '林运营',   'ops003@crossborder.com',  '13800138006', 1, NULL);
+(7, 'ops003',  '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '林运营',   'ops003@crossborder.com',  '13800138006', 1, NULL)
+ON DUPLICATE KEY UPDATE
+  `password`        = VALUES(`password`),
+  `real_name`       = VALUES(`real_name`),
+  `email`           = VALUES(`email`),
+  `phone`           = VALUES(`phone`),
+  `status`          = VALUES(`status`),
+  `last_login_time` = VALUES(`last_login_time`);
 
 -- 用户-角色关联
 INSERT INTO `t_user_role` (`id`, `user_id`, `role_id`) VALUES
-(1, 1, 1),(2, 2, 2),(3, 3, 3),(4, 4, 4),(5, 5, 5),(6, 6, 2),(7, 7, 2);
+(1, 1, 1),(2, 2, 2),(3, 3, 3),(4, 4, 4),(5, 5, 5),(6, 6, 2),(7, 7, 2)
+ON DUPLICATE KEY UPDATE
+  `user_id` = VALUES(`user_id`),
+  `role_id` = VALUES(`role_id`);
 
 -- 权限（树形）
 INSERT INTO `t_permission` (`id`, `parent_id`, `permission_code`, `permission_name`, `permission_type`, `url`, `sort_order`, `status`) VALUES
