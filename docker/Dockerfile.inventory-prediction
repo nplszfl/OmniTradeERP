@@ -1,38 +1,46 @@
-FROM maven:3.9-eclipse-temurin-21 AS builder
+# erp-inventory-prediction-service 的运行镜像
+#
+# 📌 **由 scripts/gen-dockerfiles.py 生成** —— 改之前先改生成脚本。
+#
+# ⚠️ **为什么不能只 COPY 少数几个模块的 pom 再 go-offline**：
+#    根 pom 声明了 26 个 module，Maven 解析根 pom 时会**逐个检查子模块目录是否存在**。
+#    只 COPY 少数几个 → `mvn dependency:go-offline` 直接报：
+#        [ERROR] Child module /app/erp-tenant-service of /app/pom.xml does not exist
+#    → 镜像构建失败。
+#    📌 **实测：本项目所有 Maven Dockerfile 在改成这个写法之前，每一个都构建失败。**
+#    📌 而它们以前**从来没在 CI 里跑过** —— docker-build job 被
+#       `if: refs/heads/main` 卡住，而本仓库只有 master 分支。
 
+FROM maven:3.9-eclipse-temurin-21 AS builder
 WORKDIR /app
 
-# 复制pom.xml并下载依赖
-COPY pom.xml .
-COPY erp-common/pom.xml ./erp-common/
-COPY erp-inventory-prediction-service/pom.xml ./erp-inventory-prediction-service/
+# 📌 容器内用 aliyun 镜像（宿主机 ~/.m2/settings.xml 不会自动进容器）
+COPY docker/maven-settings.xml /root/.m2/settings.xml
 
-RUN mvn dependency:go-offline -B
-
-# 复制源代码
 COPY . .
 
-# 编译打包
-RUN mvn clean package -DskipTests -B
+# 📌 BuildKit cache mount：~/.m2 跨构建复用，依赖不用重复下载
+#    （原来靠「先铺 pom 再 go-offline」分层，但那个 trick 在本项目必然失败）
+# 📌 只构建目标模块及其依赖，不做全 reactor 构建
+RUN --mount=type=cache,target=/root/.m2/repository \
+    mvn -B clean package -DskipTests -pl erp-inventory-prediction-service -am
 
 FROM eclipse-temurin:21-jre-alpine
-
 WORKDIR /app
 
-# 安装时区数据
 RUN apk add --no-cache tzdata && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
     apk del tzdata
 
-# 复制jar包
-COPY --from=builder /app/erp-inventory-prediction-service/target/*.jar ./inventory-prediction-service.jar
+# 📌 （本模块只产出 1 个 jar）
+COPY --from=builder /app/erp-inventory-prediction-service/target/erp-inventory-prediction-service-*.jar ./app.jar
 
-ENV JAVA_OPTS="-Xms512m -Xmx1024m -XX:+UseG1GC"
+ENV JAVA_OPTS="-Xms512m -Xmx1024m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
 
 EXPOSE 8088
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8088/actuator/health || exit 1
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar inventory-prediction-service.jar"]
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

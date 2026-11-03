@@ -185,6 +185,20 @@ def main():
                             f"      → 巡检挂了但整体仍绿 → **等于没跑**"
                         )
 
+    # ── 检查 9：Dockerfile 与生成脚本一致 ───────────────────────────────
+    gen = os.path.join(ROOT, "scripts", "gen-dockerfiles.py")
+    if os.path.exists(gen):
+        r = subprocess.run([sys.executable, gen, "--check"],
+                           capture_output=True, text=True, cwd=ROOT, timeout=120)
+        if r.returncode != 0:
+            errors.append(
+                "[docker/] Dockerfile 与 scripts/gen-dockerfiles.py **不一致**\n"
+                "      → 说明有人直接改了 Dockerfile，但没改生成脚本\n"
+                "      → 下次有人跑生成脚本，**改动会被无声覆盖**\n"
+                "      → 正确姿势：改 scripts/gen-dockerfiles.py，然后跑它重新生成\n"
+                + "      " + r.stdout.strip().replace("\n", "\n      ")
+            )
+
     # ── 报告 ──────────────────────────────────────────────────────────
     print(f"📋 校验 {len(files)} 个 workflow 文件\n")
 

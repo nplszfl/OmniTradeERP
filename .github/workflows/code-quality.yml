@@ -73,7 +73,8 @@ jobs:
         python3 scripts/check-seed-table-refs.py
         python3 scripts/check-seed-idempotency.py
         python3 scripts/check-workflow-validity.py
-        python3 scripts/check-action-versions.py
+        python3 scripts/check-action-versions.py --deep --strict
+        python3 scripts/gen-dockerfiles.py --check
 
   # 前端代码检查
   frontend-code-quality:
@@ -151,7 +152,7 @@ jobs:
           ${{ runner.os }}-m2-
 
     - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@v0.28.0
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
         scan-type: 'fs'
         scan-ref: '.'
@@ -159,6 +160,12 @@ jobs:
         output: 'trivy-results.sarif'
         # 📌 固定版本号，别用 @master —— master 会漂移，
         #    哪天上游改了行为，CI 突然红/绿都不是自己的锅。
+        # 📌 **版本不能随便挑** —— 实测踩坑：
+        #    v0.28.0 看着正常，但它内部引 `setup-trivy@v0.2.1`，
+        #    而上游把那个 tag **删了** → 顶层 action 存在，**一跑就炸**，
+        #    报错还报的是**内层** action 的名字 → 排查时极容易看错地方。
+        #    → v0.36.0 内部按 **SHA** 固定 setup-trivy（不可变，不会被删）。
+        #    → 这就是 scripts/check-action-versions.py --deep 存在的意义。
         # 📌 exit-code: '0' —— SARIF 会照常上传给 GitHub Security，
         #    真正的门禁交给「安全」页面的告警，而不是让整个 CI 挂掉。
         exit-code: '0'
