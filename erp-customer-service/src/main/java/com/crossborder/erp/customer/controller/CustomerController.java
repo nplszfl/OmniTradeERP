@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.crossborder.erp.customer.entity.Customer;
 import com.crossborder.erp.customer.service.CustomerService;
 import lombok.RequiredArgsConstructor;
+import com.crossborder.erp.common.result.Result;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -26,9 +27,9 @@ public class CustomerController {
      * 📌 <b>返回字符串而不是 Long</b>：主键是雪花 ID（19 位），JS Number 承载不了。
      */
     @PostMapping("/create")
-    public String createCustomer(@RequestBody Customer customer) {
+    public Result<String> createCustomer(@RequestBody Customer customer) {
         Long id = customerService.createCustomer(customer);
-        return id == null ? null : id.toString();
+        return Result.successId(id);
     }
 
     /**

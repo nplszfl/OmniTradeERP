@@ -11,6 +11,7 @@ import com.crossborder.erp.supplier.service.SupplierService;
 import com.crossborder.erp.supplier.vo.PurchaseOrderVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.crossborder.erp.common.result.Result;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -83,7 +84,7 @@ public class PurchaseOrderRestController {
      * <p>📌 服务层仍然用 {@code Long}，只在 HTTP 出口转成字符串。</p>
      */
     @PostMapping("/orders")
-    public String create(@RequestBody CreateOrderRequest request) {
+    public Result<String> create(@RequestBody CreateOrderRequest request) {
         if (request == null || request.getSupplierId() == null) {
             throw new BizException("供应商不能为空");
         }
@@ -115,7 +116,7 @@ public class PurchaseOrderRestController {
         }).toList();
 
         Long orderId = purchaseOrderService.createOrder(order, items);
-        return orderId == null ? null : orderId.toString();
+        return Result.successId(orderId);
     }
 
     /**

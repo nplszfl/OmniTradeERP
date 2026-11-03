@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.crossborder.erp.supplier.entity.Supplier;
 import com.crossborder.erp.supplier.service.SupplierService;
 import lombok.RequiredArgsConstructor;
+import com.crossborder.erp.common.result.Result;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -27,9 +28,9 @@ public class SupplierController {
      * JS Number 承载不了 → 前端回传时 id 被截断 → 匹配不到行 → 静默失败。
      */
     @PostMapping("/create")
-    public String createSupplier(@RequestBody Supplier supplier) {
+    public Result<String> createSupplier(@RequestBody Supplier supplier) {
         Long id = supplierService.createSupplier(supplier);
-        return id == null ? null : id.toString();
+        return Result.successId(id);
     }
 
     /**

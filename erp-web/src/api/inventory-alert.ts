@@ -1,3 +1,4 @@
+import { ResultShape } from '@/utils/response'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
@@ -150,7 +151,7 @@ export interface PageResult<T> {
 export const inventoryAlertApi = {
   // 预警规则
   createRule: (data: InventoryAlertRule) =>
-    request.post<any, string>('/inventory/alert/rule', data),
+    request.post<any, ResultShape<string>>('/inventory/alert/rule', data),
 
   getRules: (params: {
     page: number
@@ -246,7 +247,7 @@ export const logisticsApi = {
   }) => request.get<any, PageResult<LogisticsRate>>('/logistics/rates', { params }),
 
   createRate: (data: LogisticsRate) =>
-    request.post<any, string>('/logistics/rate', data),
+    request.post<any, ResultShape<string>>('/logistics/rate', data),
 
   updateRate: (id: string, data: LogisticsRate) =>
     request.put<any, void>(`/logistics/rate/${id}`, data),

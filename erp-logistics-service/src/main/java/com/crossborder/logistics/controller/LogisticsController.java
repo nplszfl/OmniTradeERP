@@ -8,6 +8,7 @@ import com.crossborder.logistics.dto.ShippingRateResult;
 import com.crossborder.logistics.service.LogisticsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.crossborder.erp.common.result.Result;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -94,10 +95,10 @@ public class LogisticsController {
      * POST /logistics/rate
      */
     @PostMapping("/rate")
-    public String createRate(@RequestBody LogisticsRateVO rate) {
+    public Result<String> createRate(@RequestBody LogisticsRateVO rate) {
         // 📌 返回字符串而不是 Long：费率主键是雪花 ID（19 位），JS Number 承载不了
         Long id = logisticsService.createRate(rate);
-        return id == null ? null : id.toString();
+        return Result.successId(id);
     }
 
     /**

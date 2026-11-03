@@ -1,3 +1,4 @@
+import { ResultShape } from '@/utils/response'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
@@ -95,7 +96,7 @@ export interface PageResult<T> {
 export const customerApi = {
   // 创建客户
   create: (data: Customer) => 
-    request.post<any, string>('/customer/create', data),
+    request.post<any, ResultShape<string>>('/customer/create', data),
 
   // 获取客户详情
   getById: (id: string) => 
@@ -147,7 +148,7 @@ export const customerFollowApi = {
 
   // 新增跟进记录
   create: (data: Partial<CustomerFollowRecord>) =>
-    request.post<any, string>('/customer/follow/create', data),
+    request.post<any, ResultShape<string>>('/customer/follow/create', data),
 
   // 标记跟进完成
   complete: (id: string, result: string, remark?: string) =>
@@ -164,7 +165,7 @@ export const customerGroupApi = {
     request.get<any, CustomerGroup[]>('/customer/group/list', { params: { keyword } }),
 
   create: (data: Partial<CustomerGroup>) =>
-    request.post<any, string>('/customer/group/create', data),
+    request.post<any, ResultShape<string>>('/customer/group/create', data),
 
   update: (id: string, data: Partial<CustomerGroup>) =>
     request.put<any, void>(`/customer/group/${id}`, data),
@@ -179,7 +180,7 @@ export const customerTagApi = {
     request.get<any, CustomerTag[]>('/customer/tag/list', { params: { keyword } }),
 
   create: (data: Partial<CustomerTag>) =>
-    request.post<any, string>('/customer/tag/create', data),
+    request.post<any, ResultShape<string>>('/customer/tag/create', data),
 
   update: (id: string, data: Partial<CustomerTag>) =>
     request.put<any, void>(`/customer/tag/${id}`, data),

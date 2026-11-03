@@ -3,6 +3,7 @@ package com.crossborder.erp.supplier.controller;
 import com.crossborder.erp.supplier.entity.SupplierEvaluation;
 import com.crossborder.erp.supplier.service.SupplierEvaluationService;
 import lombok.RequiredArgsConstructor;
+import com.crossborder.erp.common.result.Result;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -24,9 +25,9 @@ public class SupplierEvaluationController {
      * 📌 <b>返回字符串而不是 Long</b>：主键是雪花 ID（19 位），JS Number 承载不了。
      */
     @PostMapping("/create")
-    public String create(@RequestBody SupplierEvaluation evaluation) {
+    public Result<String> create(@RequestBody SupplierEvaluation evaluation) {
         Long id = evaluationService.createEvaluation(evaluation);
-        return id == null ? null : id.toString();
+        return Result.successId(id);
     }
 
     /**

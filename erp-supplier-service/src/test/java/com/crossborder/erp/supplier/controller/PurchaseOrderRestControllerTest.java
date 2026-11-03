@@ -2,6 +2,7 @@ package com.crossborder.erp.supplier.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.crossborder.erp.common.exception.BizException;
+import com.crossborder.erp.common.result.Result;
 import com.crossborder.erp.supplier.entity.PurchaseOrder;
 import com.crossborder.erp.supplier.entity.PurchaseOrderItem;
 import com.crossborder.erp.supplier.entity.Supplier;
@@ -145,9 +146,11 @@ class PurchaseOrderRestControllerTest {
 
         when(purchaseOrderService.createOrder(any(), any())).thenReturn(555L);
 
-        // 📌 返回值现在是字符串（雪花 ID 19 位，JS Number 承载不了）
-        String id = controller.create(req);
-        assertEquals("555", id);
+        // 📌 返回值现在是 Result<String>：data 是字符串
+        //    （雪花 ID 19 位，JS Number 承载不了；且裸 String 返回会被
+        //     StringHttpMessageConverter 原样输出成裸数字 → JS 解析后又变数字）
+        Result<String> resp = controller.create(req);
+        assertEquals("555", resp.getData());
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<PurchaseOrderItem>> captor = ArgumentCaptor.forClass(List.class);

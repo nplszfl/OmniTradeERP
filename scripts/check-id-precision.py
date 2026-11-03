@@ -100,7 +100,49 @@ def main():
             '后端',
             f'{rel}:{lineno}  `{name}` 直接返回裸 Long —— '
             f'根级标量不走 BeanSerializerModifier，JS 解析必丢精度。'
-            f'应改成 String（服务层仍用 Long，只在 HTTP 出口转字符串）'))
+            f'应改成 Result<String>（用 Result.successId(...)）。'
+            f'⚠️ 注意：**不能只改成裸 String** —— StringHttpMessageConverter 会先于 '
+            f'Jackson 接管，输出无引号裸文本，前端 JSON.parse 后又变回数字。'))
+
+    # ---- 3b. 后端：Controller 返回裸 String（id 语义）也会丢精度 ----
+    # 📌 原因：Spring 的 StringHttpMessageConverter 会**先于 Jackson** 接管 String 返回值，
+    #    原样写成裸文本（无引号）。axios 拿到后 JSON.parse("2117...") → **数字** → 丢精度。
+    #    加 produces="application/json" 也**没用**（实测：Content-Type 变了，body 仍是裸数字）。
+    #    唯一可靠的做法：用 Result<String> 包一层，让 Jackson 输出带引号的字符串。
+    bare_str_hits = []
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS | {'erp-web'}]
+        for fn in filenames:
+            if not fn.endswith('Controller.java'):
+                continue
+            path = os.path.join(dirpath, fn)
+            text = open(path, encoding='utf-8', errors='ignore').read()
+            for m in re.finditer(r'public\s+String\s+(\w+)\s*\(', text):
+                name = m.group(1)
+                if not re.search(r'create|add|save|insert|new', name, re.I):
+                    continue
+                # 📌 只在「真的返回 id」时才算问题：
+                #    方法体里必须有 Long 类型的 id 变量（名字以 id 结尾）。
+                #    否则像 `return "知识添加成功！"` 这种纯消息返回是**误报**。
+                body = text[m.end():m.end() + 800]
+                # 📌 必须是「本次新建出来的 id」才���问题：
+                #    `Long xxxId = service.createXxx(...); return xxxId.toString();`
+                #    而不是 `Long productId`（@PathVariable 入参）。
+                if not re.search(
+                        r'Long\s+(\w*[Ii]d)\s*=\s*[^;]*;\s*return\s+'
+                        r'(?:\w+\s*==\s*null\s*\?\s*null\s*:\s*)?\1\.toString\(\)',
+                        body, re.S):
+                    continue
+                lineno = text[:m.start()].count('\n') + 1
+                rel = os.path.relpath(path, ROOT)
+                bare_str_hits.append((rel, lineno, name))
+    for rel, lineno, name in bare_str_hits:
+        problems.append((
+            '后端',
+            f'{rel}:{lineno}  `{name}` 直接返回裸 String —— '
+            f'StringHttpMessageConverter 会先于 Jackson 接管，输出**无引号**的裸文本，'
+            f'前端 JSON.parse 后又变回数字 → 精度照样丢。'
+            f'应改成 Result<String>（用 Result.successId(...)）。'))
 
     # ---- 4. 后端：Result<Long> 的 create 接口应改用 Result.successId ----
     result_hits = []

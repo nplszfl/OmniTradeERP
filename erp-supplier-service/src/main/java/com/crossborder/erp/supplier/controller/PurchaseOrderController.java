@@ -7,6 +7,7 @@ import com.crossborder.erp.supplier.entity.PurchaseOrder;
 import com.crossborder.erp.supplier.entity.PurchaseOrderItem;
 import com.crossborder.erp.supplier.service.PurchaseOrderService;
 import lombok.RequiredArgsConstructor;
+import com.crossborder.erp.common.result.Result;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -29,9 +30,9 @@ public class PurchaseOrderController {
      * 📌 <b>返回字符串而不是 Long</b>：主键是雪花 ID（19 位），JS Number 承载不了。
      */
     @PostMapping("/create")
-    public String create(@RequestBody PurchaseOrderRequest request) {
+    public Result<String> create(@RequestBody PurchaseOrderRequest request) {
         Long id = purchaseOrderService.createOrder(request.getOrder(), request.getItems());
-        return id == null ? null : id.toString();
+        return Result.successId(id);
     }
 
     /**
