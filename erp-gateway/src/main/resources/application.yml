@@ -329,7 +329,7 @@ spring:
 
     sentinel:
       transport:
-        dashboard: localhost:8858
+        dashboard: ${SENTINEL_DASHBOARD:localhost:8858}
         port: 8719
       eager: true
 

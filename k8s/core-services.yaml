@@ -24,8 +24,10 @@ spec:
         - containerPort: 8084
           name: http
         env:
-        - name: NACOS_SERVER_ADDR
-          value: "nacos-service:8848"
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
         - name: SENTINEL_DASHBOARD
           value: "sentinel-service:8858"
         - name: MYSQL_HOST
@@ -99,8 +101,10 @@ spec:
         - containerPort: 8083
           name: http
         env:
-        - name: NACOS_SERVER_ADDR
-          value: "nacos-service:8848"
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
         - name: SENTINEL_DASHBOARD
           value: "sentinel-service:8858"
         - name: MYSQL_HOST
@@ -174,8 +178,10 @@ spec:
         - containerPort: 8094
           name: http
         env:
-        - name: NACOS_SERVER_ADDR
-          value: "nacos-service:8848"
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
         - name: SENTINEL_DASHBOARD
           value: "sentinel-service:8858"
         - name: MYSQL_HOST
@@ -249,8 +255,10 @@ spec:
         - containerPort: 8092
           name: http
         env:
-        - name: NACOS_SERVER_ADDR
-          value: "nacos-service:8848"
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
         - name: SENTINEL_DASHBOARD
           value: "sentinel-service:8858"
         - name: MYSQL_HOST
@@ -324,8 +332,10 @@ spec:
         - containerPort: 8090
           name: http
         env:
-        - name: NACOS_SERVER_ADDR
-          value: "nacos-service:8848"
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
         - name: SENTINEL_DASHBOARD
           value: "sentinel-service:8858"
         - name: MYSQL_HOST
@@ -397,8 +407,10 @@ spec:
         - containerPort: 8100
           name: http
         env:
-        - name: NACOS_SERVER_ADDR
-          value: "nacos-service:8848"
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
         - name: SENTINEL_DASHBOARD
           value: "sentinel-service:8858"
         - name: MYSQL_HOST

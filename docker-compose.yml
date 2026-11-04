@@ -164,7 +164,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       TZ: Asia/Shanghai
     depends_on:
@@ -194,7 +195,8 @@ services:
     ports:
       - "8084:8084"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       REDIS_HOST: redis
@@ -231,7 +233,8 @@ services:
     ports:
       - "8083:8083"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       REDIS_HOST: redis
@@ -268,7 +271,8 @@ services:
     ports:
       - "8081:8081"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       REDIS_HOST: redis
@@ -305,7 +309,8 @@ services:
     ports:
       - "8082:8082"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       REDIS_HOST: redis
@@ -342,7 +347,8 @@ services:
     ports:
       - "8094:8094"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       REDIS_HOST: redis
@@ -379,7 +385,8 @@ services:
     ports:
       - "8092:8092"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       REDIS_HOST: redis
@@ -416,7 +423,8 @@ services:
     ports:
       - "8100:8100"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       REDIS_HOST: redis
@@ -453,7 +461,8 @@ services:
     ports:
       - "8090:8090"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       REDIS_HOST: redis
@@ -490,7 +499,8 @@ services:
     ports:
       - "8087:8087"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       REDIS_HOST: redis
@@ -527,7 +537,8 @@ services:
     ports:
       - "8085:8085"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
@@ -567,7 +578,6 @@ services:
     environment:
       NACOS_HOST: nacos
       NACOS_PORT: 8848
-      NACOS_SERVER_ADDR: nacos:8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
@@ -603,7 +613,8 @@ services:
     ports:
       - "8098:8098"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
@@ -639,7 +650,8 @@ services:
     ports:
       - "8093:8093"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
@@ -675,7 +687,8 @@ services:
     ports:
       - "8088:8088"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       REDIS_HOST: redis
@@ -712,7 +725,8 @@ services:
     ports:
       - "8089:8089"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       REDIS_HOST: redis
@@ -749,7 +763,8 @@ services:
     ports:
       - "8091:8091"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
       MYSQL_HOST: mysql
       REDIS_HOST: redis

@@ -36,7 +36,7 @@ spring:
         format_sql: false
   data:
     redis:
-      host: localhost
+      host: ${REDIS_HOST:localhost}
       port: 6379
       database: 2
       timeout: 3000

@@ -22,8 +22,10 @@ spec:
         - containerPort: 8080
           name: http
         env:
-        - name: NACOS_SERVER_ADDR
-          value: "nacos-service:8848"
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
         - name: SENTINEL_DASHBOARD
           value: "sentinel-service:8858"
         - name: TZ

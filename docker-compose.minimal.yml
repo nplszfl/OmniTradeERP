@@ -82,7 +82,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       TZ: Asia/Shanghai
       JAVA_OPTS: "-Xms256m -Xmx512m -XX:+UseG1GC"
     depends_on:
@@ -110,7 +111,8 @@ services:
     ports:
       - "8084:8084"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       MYSQL_HOST: mysql
       REDIS_HOST: redis
       TZ: Asia/Shanghai
@@ -144,7 +146,8 @@ services:
     ports:
       - "8083:8083"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       MYSQL_HOST: mysql
       REDIS_HOST: redis
       TZ: Asia/Shanghai
@@ -178,7 +181,8 @@ services:
     ports:
       - "8081:8081"
     environment:
-      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
       MYSQL_HOST: mysql
       REDIS_HOST: redis
       TZ: Asia/Shanghai

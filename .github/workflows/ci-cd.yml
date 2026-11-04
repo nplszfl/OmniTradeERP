@@ -101,6 +101,19 @@ jobs:
     - name: 端口一致性（application.yml ↔ compose ↔ k8s ↔ Dockerfile ↔ 文档）
       run: python3 scripts/check-port-consistency.py
 
+    # 📌 **环境变量契约**（部署层注入的每个变量 ↔ 应用侧真正读的变量）
+    #    📌 为什么必须单独一道闸门：
+    #       `check-port-consistency.py` 查端口、`check-k8s-images.py` 查镜像 ——
+    #       但**没有任何一道闸门校验「环境变量契约」**，
+    #       因为它跨了「部署层（compose/k8s yaml）」和「应用层（application.yml + 框架 jar）」两个域。
+    #    📌 实测过的坑（2026-11-04）：
+    #       `NACOS_SERVER_ADDR` 部署层到处注入 → 应用读的是 `NACOS_HOST` → 名字对不上 → 注入是摆设
+    #       `SENTINEL_DASHBOARD` 注入 → 应用把 dashboard 写死 `localhost:8858` → 连容器自己
+    #       → 容器里每个服务都在连**自己**的 localhost
+    #    📌 **单测全绿、mvn package 通过、k8s 清单看着都对**，只有真起容器才暴露。
+    - name: 环境变量契约（compose/k8s 注入 ↔ 应用读取）
+      run: python3 scripts/check-env-contract.py
+
     - name: SQL 契约（Java SQL ↔ database/*.sql ↔ datasource 库名）
       run: python3 scripts/check-sql-schema.py --strict
 
