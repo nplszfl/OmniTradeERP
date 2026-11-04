@@ -4,9 +4,12 @@ import com.crossborder.productdescription.dto.DescriptionGenerationRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
 import com.crossborder.productdescription.dto.FrontendDescriptionRequest;
 import com.crossborder.productdescription.dto.FrontendDescriptionResponse;
+import com.crossborder.productdescription.dto.FrontendDescriptionSaveRequest;
+import com.crossborder.productdescription.dto.FrontendDescriptionSaveResponse;
 import com.crossborder.productdescription.service.ProductDescriptionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -77,9 +80,41 @@ public class ProductDescriptionController {
         return productDescriptionService.generateABTestVersions(productId, versionCount);
     }
 
-    @Operation(summary = "保存描述")
+    /**
+     * 保存产品描述（<b>前端契约</b>，按 SKU 定位商品）
+     *
+     * <p>前端 {@code erp-web/src/api/ai.ts} 的
+     * {@code descriptionApi.save()} → {@code POST /api/description/save}
+     * （网关改写成 {@code /api/v1/product-description/save}）。</p>
+     *
+     * <p>📌 <b>为什么这个路径归前端契约</b>：前端只有 SKU，
+     * 而雪花 ID 是 19 位（JS Number 装不下）→ 让前端传 productId 必然出精度问题。
+     * 由后端解析 SKU → productId，解析不到就<b>明确报错</b>。</p>
+     */
+    @Operation(summary = "保存产品描述（前端接口，按 SKU）")
     @PostMapping("/save")
-    public String saveDescription(@RequestBody DescriptionGenerationResponse response) {
+    public FrontendDescriptionSaveResponse saveDescription(
+            @Valid @RequestBody FrontendDescriptionSaveRequest request) {
+        return productDescriptionService.saveFrontendDescription(request);
+    }
+
+    /**
+     * 保存描述（<b>内部接口</b>，完整参数）
+     *
+     * <p>📌 <b>为什么从 {@code /save} 改成 {@code /save/internal}</b>：
+     * {@code /save} 这个路径现在归「前端契约（按 SKU 存）」——
+     * 两个接口的请求体形状完全不同（一个收 sku，一个收 productId），
+     * 同路径只能靠内容区分，Spring 会直接抛
+     * {@code Ambiguous mapping} → <b>整个服务起不来</b>。
+     * 改法参照本 Controller 已有的 {@code /generate}（前端）与
+     * {@code /generate/internal}（内部）的命名惯例。</p>
+     *
+     * <p>⚠️ 全仓已核对：除前端（它打的是前端契约那个 /save）外，
+     * 没有其它地方调用旧的 {@code POST /api/v1/product-description/save}。</p>
+     */
+    @Operation(summary = "保存描述（内部接口，完整参数）")
+    @PostMapping("/save/internal")
+    public String saveDescriptionInternal(@RequestBody DescriptionGenerationResponse response) {
         Boolean saved = productDescriptionService.saveDescription(response);
         return saved ? "描述保存成功！" : "描述保存失败！";
     }

@@ -1,8 +1,13 @@
 package com.crossborder.productdescription.service.impl;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.productdescription.config.LLMConfig;
 import com.crossborder.productdescription.dto.DescriptionGenerationRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
+import com.crossborder.productdescription.entity.ProductBrief;
+import com.crossborder.productdescription.entity.ProductDescription;
+import com.crossborder.productdescription.service.ProductCatalogService;
+import com.crossborder.productdescription.service.ProductDescriptionRecordService;
 import com.crossborder.productdescription.service.ProductDescriptionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -10,8 +15,11 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 /**
  * 产品描述生成服务测试
@@ -20,11 +28,37 @@ class ProductDescriptionServiceImplTest {
 
     private ProductDescriptionService productDescriptionService;
 
+    /** 落库服务（单测里用 mock；真实落库由 {@code ProductDescriptionPersistenceTest} 验） */
+    private ProductDescriptionRecordService recordService;
+
+    /** 商品主数据（单测里用 mock） */
+    private ProductCatalogService catalogService;
+
     @BeforeEach
     void setUp() {
         // LLM 未配置时走模拟生成（原先字段注入在非 Spring 环境下为 null，
         // 导致 callLLMAPI 抛 NPE 被 catch 吞掉，响应变成「生成失败」）
-        productDescriptionService = new ProductDescriptionServiceImpl(new LLMConfig());
+        recordService = mock(ProductDescriptionRecordService.class);
+        catalogService = mock(ProductCatalogService.class);
+
+        // 📌 upsert 默认回显传入的记录（模拟「真的写进去了」）
+        when(recordService.upsert(any(ProductDescription.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+        when(recordService.listByProductId(anyLong())).thenReturn(List.of());
+        when(catalogService.findById(anyLong())).thenAnswer(inv -> Optional.of(
+                productBrief(inv.getArgument(0))));
+        when(catalogService.findBySku(anyString())).thenAnswer(inv -> Optional.of(
+                productBrief(1L)));
+
+        productDescriptionService = new ProductDescriptionServiceImpl(
+                new LLMConfig(), recordService, catalogService);
+    }
+
+    private ProductBrief productBrief(Long id) {
+        ProductBrief brief = new ProductBrief();
+        brief.setId(id);
+        brief.setProductName("测试商品-" + id);
+        return brief;
     }
 
     @Test
@@ -252,18 +286,58 @@ class ProductDescriptionServiceImplTest {
         // 验证结果
         assertNotNull(result);
         assertTrue(result);
+
+        // 📌 **光断言返回值 true 不算数**（项目教训）：
+        //    之前的实现根本没写库，只是 log 了一句就返回 true。
+        //    这里额外验证「确实把记录交给了落库层」。
+        verify(recordService, times(1)).upsert(any(ProductDescription.class));
+    }
+
+    @Test
+    @DisplayName("保存描述：productId 为空必须报错，不能静默成功")
+    void testSaveDescription_NullProductId_Throws() {
+        DescriptionGenerationResponse response = new DescriptionGenerationResponse();
+        response.setProductName("测试产品");
+        response.setContent("测试内容");
+
+        // 📌 以前这里是 return true —— 「保存成功」但库里什么都没有
+        BizException e = assertThrows(BizException.class,
+                () -> productDescriptionService.saveDescription(response));
+        assertTrue(e.getMessage().contains("产品ID"), "错误提示要说清是产品ID的问题：" + e.getMessage());
+        verify(recordService, never()).upsert(any(ProductDescription.class));
+    }
+
+    @Test
+    @DisplayName("保存描述：落库抛异常必须往上抛，不能吞掉")
+    void testSaveDescription_DBError_Propagates() {
+        when(recordService.upsert(any(ProductDescription.class)))
+                .thenThrow(new BizException("产品描述更新失败：未命中任何记录"));
+
+        DescriptionGenerationResponse response = new DescriptionGenerationResponse();
+        response.setProductId(1L);
+        response.setProductName("测试产品");
+        response.setContent("测试内容");
+
+        // 📌 落库失败必须让调用方知道 —— 静默失败 = 最贵的 bug
+        assertThrows(BizException.class, () -> productDescriptionService.saveDescription(response));
     }
 
     @Test
     @DisplayName("测试获取产品所有描述")
     void testGetProductDescriptions() {
         // 执行测试
-        List<DescriptionGenerationResponse> descriptions = 
+        List<DescriptionGenerationResponse> descriptions =
                 productDescriptionService.getProductDescriptions(1L);
 
-        // 验证结果
+        // 📌 **库里没有就是空列表** ——
+        //    之前的实现不管库里有没有，都返回一条写死的假数据
+        //    （"这是一个高质量的产品，具有优秀的性能和可靠性..."）。
         assertNotNull(descriptions);
-        assertTrue(descriptions.size() > 0);
+        assertTrue(descriptions.isEmpty(), "库里没有记录时必须返回空列表，不能返回假数据");
+        for (DescriptionGenerationResponse d : descriptions) {
+            assertFalse("这是一个高质量的产品".equals(d.getContent()),
+                    "不能返回写死的假内容");
+        }
     }
 
     @Test

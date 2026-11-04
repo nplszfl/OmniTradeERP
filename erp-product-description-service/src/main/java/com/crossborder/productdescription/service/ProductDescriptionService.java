@@ -4,6 +4,8 @@ import com.crossborder.productdescription.dto.DescriptionGenerationRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
 import com.crossborder.productdescription.dto.FrontendDescriptionRequest;
 import com.crossborder.productdescription.dto.FrontendDescriptionResponse;
+import com.crossborder.productdescription.dto.FrontendDescriptionSaveRequest;
+import com.crossborder.productdescription.dto.FrontendDescriptionSaveResponse;
 
 import java.util.List;
 import java.util.Map;
@@ -82,13 +84,35 @@ public interface ProductDescriptionService {
     /**
      * 保存描述到数据库
      *
+     * <p>📌 <b>真的落库</b>：按自然唯一键
+     * {@code (product_id, language, platform)} upsert，重复保存版本号递增。
+     * 落库失败会<b>抛异常</b>，不会像以前那样「只打日志还返回 true」。</p>
+     *
      * @param response 生成的描述
-     * @return 是否保存成功
+     * @return 是否保存成功（能走到返回就说明已经落库）
      */
     Boolean saveDescription(DescriptionGenerationResponse response);
 
     /**
+     * 按前端契约保存描述（用 SKU 定位商品）
+     *
+     * <p>前端 {@code erp-web/src/api/ai.ts} 的 {@code descriptionApi.save()}
+     * → {@code POST /api/description/save}（网关改写成
+     * {@code /api/v1/product-description/save}）。</p>
+     *
+     * <p>SKU 解析不到商品时<b>抛 BizException</b>，绝不静默成功。</p>
+     *
+     * @param request 前端契约请求
+     * @return 保存结果（productId 用字符串承载，避免雪花 ID 丢精度）
+     */
+    FrontendDescriptionSaveResponse saveFrontendDescription(FrontendDescriptionSaveRequest request);
+
+    /**
      * 获取产品的所有描述
+     *
+     * <p>📌 <b>真的查库</b>：按 productId 查 {@code product_description}，
+     * 按 language / platform 分组返回；<b>查不到就是空列表</b>
+     * （以前这里返回的是一条写死的假数据："这是一个高质量的产品……"）。</p>
      *
      * @param productId 产品ID
      * @return 描述列表

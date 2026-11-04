@@ -1,0 +1,55 @@
+# 产品描述服务单元测试配置（H2 内存库）
+#
+# 📌 **为什么要单独一个 application.yml**：
+# 主配置 application.yml 里的数据源走 Nacos + MySQL，
+# 单测不能依赖它们（也拿不到）→ 这里换成 H2 内存库。
+# 📌 注意：测试用的 application.yml 会**整体遮蔽**主配置（同名的 classpath 资源，
+#    test-classes 排在 classes 前面），所以这里要把单测需要的都写全。
+
+server:
+  port: 0
+
+spring:
+  application:
+    name: erp-product-description-service-test
+  datasource:
+    driver-class-name: org.h2.Driver
+    url: jdbc:h2:mem:product_description_test;DB_CLOSE_DELAY=-1;MODE=MySQL;DATABASE_TO_LOWER=TRUE
+    username: sa
+    password: ''
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+  jpa:
+    # 📌 必须显式 none：H2 属于「嵌入式库」，Spring Boot 默认给 Hibernate
+    #    ddl-auto=create-drop → Hibernate 会自己建表再删表，
+    #    跟我们的 schema.sql 打架（表结构还不是我们写的那份）。
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+        import-check:
+          enabled: false
+
+# 不调真实 LLM（否则单测会去打外网）
+llm:
+  enabled: false
+  provider: deepseek
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+
+logging:
+  level:
+    com.crossborder.productdescription: DEBUG
+    org.springframework: WARN

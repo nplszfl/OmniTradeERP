@@ -1,10 +1,17 @@
 package com.crossborder.productdescription.service.impl;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.productdescription.config.LLMConfig;
 import com.crossborder.productdescription.dto.DescriptionGenerationRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
 import com.crossborder.productdescription.dto.FrontendDescriptionRequest;
 import com.crossborder.productdescription.dto.FrontendDescriptionResponse;
+import com.crossborder.productdescription.dto.FrontendDescriptionSaveRequest;
+import com.crossborder.productdescription.dto.FrontendDescriptionSaveResponse;
+import com.crossborder.productdescription.entity.ProductBrief;
+import com.crossborder.productdescription.entity.ProductDescription;
+import com.crossborder.productdescription.service.ProductCatalogService;
+import com.crossborder.productdescription.service.ProductDescriptionRecordService;
 import com.crossborder.productdescription.service.ProductDescriptionService;
 import com.crossborder.erp.llm.LLMEndpointResolver;
 import lombok.extern.slf4j.Slf4j;
@@ -38,24 +45,40 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
      */
     private static final String MOCK_MODEL_NAME = "mock";
 
+    /** 描述状态：刚生成（未审批、未发布） */
+    private static final String STATUS_GENERATED = "GENERATED";
+
     // 模拟描述模板
     private final Map<String, String> templates = new HashMap<>();
 
     /**
      * 生成历史（内存）
      *
-     * <p>⚠️ 这个服务目前没有落库（没有 Mapper），历史只能存在内存里，
-     * 服务重启就没了。接入数据库时把这里换成 Mapper 即可。</p>
+     * <p>⚠️ 这里只用于 {@code GET /api/description/history} 的<b>本次进程内</b>回显，
+     * <b>不是</b>落库历史：真正的历史在 {@code product_description} 表里，
+     * 由 {@link ProductDescriptionRecordService} 负责读写。
+     * （服务重启后内存历史会丢，这是已知边界，不影响落库数据。）</p>
      */
     private final java.util.concurrent.CopyOnWriteArrayList<DescriptionGenerationResponse> history =
             new java.util.concurrent.CopyOnWriteArrayList<>();
 
     private final LLMConfig llmConfig;
 
+    /** 描述落库（upsert / 查询） */
+    private final ProductDescriptionRecordService productDescriptionRecordService;
+
+    /** 商品主数据（sku ↔ productId 解析） */
+    private final ProductCatalogService productCatalogService;
+
     private final RestTemplate restTemplate = new RestTemplate();
 
-    public ProductDescriptionServiceImpl(LLMConfig llmConfig) {
+    public ProductDescriptionServiceImpl(
+            LLMConfig llmConfig,
+            ProductDescriptionRecordService productDescriptionRecordService,
+            ProductCatalogService productCatalogService) {
         this.llmConfig = llmConfig;
+        this.productDescriptionRecordService = productDescriptionRecordService;
+        this.productCatalogService = productCatalogService;
         initTemplates();
     }
 
@@ -222,32 +245,127 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         return versions;
     }
 
+    /**
+     * 保存描述（内部接口，完整参数）
+     *
+     * <p>📌 <b>以前这是个假接口</b>：只打了一行 {@code log.info} 就 {@code return true}，
+     * 什么都没写进库，却告诉调用方「保存成功」——
+     * 这类「静默失败」比报错更贵：页面提示成功，数据永远不存在。</p>
+     *
+     * <p>现在真的落库：按 {@code (product_id, language, platform)} upsert，
+     * 重复保存版本号递增；<b>任何失败都抛异常</b>。</p>
+     */
     @Override
     public Boolean saveDescription(DescriptionGenerationResponse response) {
-        log.info("保存产品描述 - 产品ID: {}", response.getProductId());
+        if (response == null) {
+            throw new BizException("待保存的产品描述不能为空");
+        }
+        Long productId = response.getProductId();
+        if (productId == null) {
+            throw new BizException("产品ID不能为空，无法保存产品描述");
+        }
 
-        // TODO: 实际保存到数据库
-        log.info("产品描述保存成功");
+        // 📌 product_name 是 NOT NULL 列；调用方没给名字就去商品主数据里查，
+        //    查不到就明确报错 —— 绝不写一个编出来的名字进库。
+        String productName = response.getProductName();
+        if (productName == null || productName.isBlank()) {
+            productName = productCatalogService.findById(productId)
+                    .map(ProductBrief::getProductName)
+                    .orElseThrow(() -> new BizException("未找到商品: " + productId + "，无法保存产品描述"));
+        }
+
+        ProductDescription record = new ProductDescription();
+        record.setProductId(productId);
+        record.setProductName(truncate(productName, 200));
+        record.setContent(response.getContent());
+        record.setShortTitle(truncate(response.getShortTitle(), 100));
+        record.setLanguage(response.getLanguage());
+        record.setPlatform(response.getPlatform());
+        record.setTemplateId(truncate(response.getTemplateId(), 50));
+        record.setModel(truncate(response.getModel(), 50));
+        record.setStatus(STATUS_GENERATED);
+        record.setTokensUsed(response.getUsage() == null ? null : response.getUsage().getTotalTokens());
+        record.setGenerationTimeMs(response.getGenerationTime());
+
+        ProductDescription saved = productDescriptionRecordService.upsert(record);
+
+        log.info("产品描述保存成功 - productId: {}, language: {}, platform: {}, version: {}",
+                saved.getProductId(), saved.getLanguage(), saved.getPlatform(), saved.getVersionNumber());
         return true;
     }
 
+    /**
+     * 按前端契约保存描述（SKU → 商品）
+     *
+     * <p>前端 {@code erp-web/src/api/ai.ts} 的 {@code descriptionApi.save()}
+     * → {@code POST /api/description/save}。</p>
+     *
+     * <p>📌 SKU 解析不到商品 → <b>抛 BizException</b>，
+     * 不能「随便找个 productId 存进去」—— 那是凭空造数据，
+     * 而且前端会看到「保存成功」，下次回来查却是别的商品。</p>
+     */
+    @Override
+    public FrontendDescriptionSaveResponse saveFrontendDescription(FrontendDescriptionSaveRequest request) {
+        if (request == null) {
+            throw new BizException("请求体不能为空");
+        }
+        String sku = request.getSku() == null ? null : request.getSku().trim();
+        if (sku == null || sku.isEmpty()) {
+            throw new BizException("商品SKU不能为空");
+        }
+        String body = request.getBody();
+        if (body == null || body.isBlank()) {
+            throw new BizException("描述正文不能为空");
+        }
+
+        ProductBrief product = productCatalogService.findBySku(sku)
+                .orElseThrow(() -> new BizException("未找到 SKU 对应的商品: " + sku));
+
+        ProductDescription record = new ProductDescription();
+        record.setProductId(product.getId());
+        record.setProductName(truncate(product.getProductName(), 200));
+        record.setContent(buildContent(body, request.getBulletPoints()));
+        record.setShortTitle(truncate(firstNonBlank(request.getSubtitle(), request.getTitle()), 100));
+        record.setLanguage(request.getLanguage());
+        record.setPlatform(request.getPlatform());
+        record.setTemplateId(truncate(request.getTemplateId(), 50));
+        record.setStatus(STATUS_GENERATED);
+        record.setGenerationTimeMs(request.getGenerationTime());
+
+        ProductDescription saved = productDescriptionRecordService.upsert(record);
+
+        FrontendDescriptionSaveResponse out = new FrontendDescriptionSaveResponse();
+        // 📌 productId 用字符串承载：雪花 ID 19 位，JS Number 装不下 → 丢精度
+        out.setProductId(String.valueOf(saved.getProductId()));
+        out.setProductName(saved.getProductName());
+        out.setSaved(Boolean.TRUE);
+        out.setVersionNumber(saved.getVersionNumber());
+        return out;
+    }
+
+    /**
+     * 获取产品所有描述（真的查库）
+     *
+     * <p>📌 <b>以前返回的是一条写死的假数据</b>
+     * （"这是一个高质量的产品，具有优秀的性能和可靠性..."）——
+     * 无论库里有没有数据都返回它。现在查不到就返回<b>空列表</b>。</p>
+     */
     @Override
     public List<DescriptionGenerationResponse> getProductDescriptions(Long productId) {
+        if (productId == null) {
+            throw new BizException("产品ID不能为空");
+        }
         log.info("获取产品所有描述 - 产品ID: {}", productId);
 
-        // TODO: 实际从数据库查询
-        List<DescriptionGenerationResponse> descriptions = new ArrayList<>();
+        List<ProductDescription> records = productDescriptionRecordService.listByProductId(productId);
+        if (records.isEmpty()) {
+            log.info("商品 {} 还没有任何描述记录（返回空列表）", productId);
+            return List.of();
+        }
 
-        // 模拟返回
-        DescriptionGenerationResponse desc = new DescriptionGenerationResponse();
-        desc.setProductId(productId);
-        desc.setProductName(getProductNameById(productId));
-        desc.setContent("这是一个高质量的产品，具有优秀的性能和可靠性...");
-        desc.setCreateTime(LocalDateTime.now());
-
-        descriptions.add(desc);
-
-        return descriptions;
+        // 📌 一个 (language, platform) 组合对应库里的一行（唯一键保证），
+        //    所以列表本身就是「按语言/平台分组」的结果。
+        return records.stream().map(this::toDescriptionResponse).toList();
     }
 
     @Override
@@ -282,6 +400,73 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     }
 
     // ========== 私有方法 ==========
+
+    /**
+     * 库记录 → 对外 DTO
+     *
+     * <p>📌 {@code descriptionId} 用字符串（库里是自增 BIGINT，序列化给前端时统一成字符串，
+     * 避免前端把它当数字用）。</p>
+     */
+    private DescriptionGenerationResponse toDescriptionResponse(ProductDescription record) {
+        DescriptionGenerationResponse response = new DescriptionGenerationResponse();
+        response.setDescriptionId(record.getId() == null ? null : String.valueOf(record.getId()));
+        response.setProductId(record.getProductId());
+        response.setProductName(record.getProductName());
+        response.setContent(record.getContent());
+        response.setShortTitle(record.getShortTitle());
+        response.setLanguage(record.getLanguage());
+        response.setPlatform(record.getPlatform());
+        response.setVersionNumber(record.getVersionNumber());
+        response.setTemplateId(record.getTemplateId());
+        response.setModel(record.getModel());
+        response.setGenerationTime(record.getGenerationTimeMs());
+        response.setCreateTime(record.getCreateTime());
+        return response;
+    }
+
+    /**
+     * 正文 + 核心卖点 拼成 content
+     *
+     * <p>📌 <b>为什么拼在一起</b>：{@code product_description} 表里没有「卖点」列，
+     * 但前端契约有 {@code bulletPoints} —— 直接丢掉就等于丢数据，
+     * 而丢了数据用户还以为存下来了。所以按「- xxx」行拼进正文。</p>
+     */
+    private String buildContent(String body, List<String> bulletPoints) {
+        if (bulletPoints == null || bulletPoints.isEmpty()) {
+            return body;
+        }
+        StringBuilder sb = new StringBuilder(body);
+        for (String point : bulletPoints) {
+            if (point == null || point.isBlank()) {
+                continue;
+            }
+            sb.append("\n- ").append(point.trim());
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 按列宽截断
+     *
+     * <p>📌 MySQL 严格模式下超长会直接报错（{@code Data too long} → 500），
+     * 而短标题只有 100 字符 —— 前端随手写一段长文案就能把接口打挂。
+     * 这里先截断再入库，不静默丢内容（正文 content 是 TEXT，不截断）。</p>
+     */
+    private String truncate(String value, int maxLength) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.length() <= maxLength ? trimmed : trimmed.substring(0, maxLength);
+    }
+
+    /** 取第一个非空值 */
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        return second;
+    }
 
     /**
      * 初始化模板
@@ -815,10 +1000,29 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     // ========== 模拟数据方法 ==========
 
     /**
-     * 获取产品名称
+     * 获取产品名称（商品主数据）
+     *
+     * <p>📌 <b>以前这里是硬编码的</b> {@code "产品-" + productId} ——
+     * 也就是说不管库里是什么商品，调用的都是同一个假名字，
+     * 生成出来的文案里商品名字也是假的。现在查商品主数据（{@code t_product}）。</p>
+     *
+     * <p>⚠️ <b>为什么这里容错、而保存路径不容错</b>：
+     * 本方法只用于拼 AI 提示词（<b>不是落库字段</b>），
+     * 商品主数据暂时不可用时不应该让「AI 生成」整个挂掉；
+     * 但落库时商品必须真实存在 —— 那里查不到会直接抛 BizException。
+     * 两种路径都打 warn，不静默。</p>
      */
     private String getProductNameById(Long productId) {
-        // 模拟：返回产品名称
+        try {
+            ProductBrief product = productCatalogService.findById(productId).orElse(null);
+            if (product != null && product.getProductName() != null
+                    && !product.getProductName().isBlank()) {
+                return product.getProductName();
+            }
+            log.warn("商品主数据里没有 id={} —— 本次用占位名（仅用于提示词，不落库）", productId);
+        } catch (BizException e) {
+            log.warn("查询商品名称失败（id={}），本次用占位名（仅用于提示词，不落库）：{}", productId, e.getMessage());
+        }
         return "产品-" + productId;
     }
 

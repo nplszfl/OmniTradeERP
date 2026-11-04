@@ -29,6 +29,31 @@
             <artifactId>erp-llm-common</artifactId>
         </dependency>
 
+        <!--
+          📌 erp-common：内部模块（不是第三方依赖）
+             ① BizException —— 业务异常的统一契约（中文提示 + 400 而不是 500）
+             ② GlobalExceptionHandler —— 异常统一转 Result{code,message,data}
+             ③ MybatisPlusConfig —— 分页拦截器 + 审计字段自动填充
+             ④ CommonJacksonAutoConfiguration —— Long 型 id 序列化成字符串（雪花 ID 精度保护）
+        -->
+        <dependency>
+            <groupId>com.crossborder</groupId>
+            <artifactId>erp-common</artifactId>
+        </dependency>
+
+        <!-- MyBatis Plus：描述要**真的落库**，不能只打日志 -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+        </dependency>
+
+        <!-- H2：单元测试内存库（与本仓库其它模块一致） -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+
 
         <!-- Nacos 服务注册/发现 -->
         <!-- ⚠️ 之前这两个模块用独立父 pom（spring-boot-starter-parent 3.3.5），
