@@ -789,6 +789,246 @@ services:
       retries: 5
       start_period: 60s
 
+  # 数据分析服务
+  # 📌 2026-11-04 补齐：网关配了 lb://erp-analytics-service，但 compose 里从来没起过这个服务
+  #    → 本地开发环境这些接口必然 503
+  #    （erp-analytics-service 用 erp_order 库，没有独立建表脚本）
+  analytics-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-analytics-service
+        PORT: "8097"
+    container_name: erp-analytics-service
+    ports:
+      - "8097:8097"
+    environment:
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
+      SENTINEL_DASHBOARD: sentinel:8858
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    networks:
+      - erp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8097/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # 异常检测服务
+  # 📌 2026-11-04 补齐：网关配了 lb://erp-anomaly-detection-service，但 compose 里从来没起过这个服务
+  #    → 本地开发环境这些接口必然 503（而 database/anomaly-detection-service.sql
+  #    的建表脚本一直挂在 mysql 上，表建好了却没人连）
+  anomaly-detection-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-anomaly-detection-service
+        PORT: "8138"
+    container_name: erp-anomaly-detection-service
+    ports:
+      - "8138:8138"
+    environment:
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
+      SENTINEL_DASHBOARD: sentinel:8858
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    networks:
+      - erp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8138/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # 库存预警服务
+  # 📌 2026-11-04 补齐：网关配了 lb://erp-inventory-alert-service，但 compose 里从来没起过这个服务
+  #    → 本地开发环境这些接口必然 503（而 database/inventory-alert-service.sql
+  #    的建表脚本一直挂在 mysql 上，表建好了却没人连）
+  inventory-alert-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-inventory-alert-service
+        PORT: "8086"
+    container_name: erp-inventory-alert-service
+    ports:
+      - "8086:8086"
+    environment:
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
+      SENTINEL_DASHBOARD: sentinel:8858
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    networks:
+      - erp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # 商品推荐服务
+  # 📌 2026-11-04 补齐：网关配了 lb://erp-product-recommendation-service，但 compose 里从来没起过这个服务
+  #    → 本地开发环境这些接口必然 503（而 database/product-recommendation-service.sql
+  #    的建表脚本一直挂在 mysql 上，表建好了却没人连）
+  product-recommendation-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-product-recommendation-service
+        PORT: "8139"
+    container_name: erp-product-recommendation-service
+    ports:
+      - "8139:8139"
+    environment:
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
+      SENTINEL_DASHBOARD: sentinel:8858
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    networks:
+      - erp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8139/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # 社交电商服务
+  # 📌 2026-11-04 补齐：网关配了 lb://erp-social-commerce-service，但 compose 里从来没起过这个服务
+  #    → 本地开发环境这些接口必然 503（而 database/social-commerce-service.sql
+  #    的建表脚本一直挂在 mysql 上，表建好了却没人连）
+  social-commerce-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-social-commerce-service
+        PORT: "8096"
+    container_name: erp-social-commerce-service
+    ports:
+      - "8096:8096"
+    environment:
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
+      SENTINEL_DASHBOARD: sentinel:8858
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    networks:
+      - erp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8096/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # 租户服务
+  # 📌 2026-11-04 补齐：网关配了 lb://erp-tenant-service，但 compose 里从来没起过这个服务
+  #    → 本地开发环境这些接口必然 503（而 database/tenant-service.sql
+  #    的建表脚本一直挂在 mysql 上，表建好了却没人连）
+  tenant-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: erp-tenant-service
+        PORT: "8095"
+    container_name: erp-tenant-service
+    ports:
+      - "8095:8095"
+    environment:
+      NACOS_HOST: nacos
+      NACOS_PORT: 8848
+      SENTINEL_DASHBOARD: sentinel:8858
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    networks:
+      - erp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8095/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
   # 前端
   frontend:
     build:

@@ -164,7 +164,6 @@ def main():
     deploy_sh = os.path.join(K8S_DIR, "deploy.sh")
     if os.path.exists(deploy_sh):
         sh_text = open(deploy_sh, encoding="utf-8").read()
-        applied = set(re.findall(r"k8s/([a-z0-9\-]+\.yaml)", sh_text))
         # 服务清单 = 含 Deployment 的 yaml
         service_yamls = set()
         for fn in sorted(os.listdir(K8S_DIR)):
@@ -173,12 +172,48 @@ def main():
             txt = open(os.path.join(K8S_DIR, fn), encoding="utf-8").read()
             if re.search(r"^\s*kind:\s*Deployment\s*$", txt, re.M):
                 service_yamls.add(fn)
-        missing = service_yamls - applied
-        if missing:
-            err(f"k8s/deploy.sh **没有 apply** 这些服务清单: {sorted(missing)}")
-            errors.append(f"deploy.sh 漏了 {len(missing)} 个服务清单文件")
+
+        # 📌 **两种合法的 apply 方式**，两种都算过：
+        #    a) 显式列文件名：`for f in k8s/a.yaml k8s/b.yaml; do`
+        #    b) **自动发现**：`for f in k8s/*.yaml; do` + case 跳过基础设施
+        #    📌 (b) 才是正解 —— 手写文件名列表必然会漂移
+        #    （2026-11-04 实测：手写列表漏了 extended-services.yaml → 10 个服务的
+        #     Deployment 根本没进集群，而脚本照样打印「✅ 部署完成！」）
+        auto_discover = re.search(r"for\s+f\s+in\s+k8s/\*\.ya?ml", sh_text) is not None
+        applied = set(re.findall(r"k8s/([a-z0-9\-]+\.yaml)", sh_text))
+
+        if auto_discover:
+            # 自动发现模式：`for f in k8s/*.yaml` 覆盖了**除 case 排除项以外**的全部清单。
+            # → 只有「被 case 排除、且没在别处 apply、且确实带 Deployment」的清单
+            #    才是真的漏了。
+            excluded = set()
+            for m in re.finditer(r"case\s+\"?\$\{?base\}?\"?\s+in\s+(.*?)\besac", sh_text, re.S):
+                for w in re.findall(r"([a-z0-9\-]+\.ya?ml)", m.group(1)):
+                    excluded.add(w)
+            # 📌 被排除、但在脚本**其它地方**单独 apply 的（mysql/redis/nacos/namespace
+            #    上面已经 apply 过了）→ 不算漏
+            excluded_but_applied = excluded & applied
+            # 真正漏的 = 带 Deployment + 被排除 + 其它地方也没 apply
+            missing = set()
+            for f in service_yamls & excluded:
+                if f in excluded_but_applied:
+                    continue
+                txt = open(os.path.join(K8S_DIR, f), encoding="utf-8").read()
+                if re.search(r"^\s*kind:\s*Deployment\s*$", txt, re.M):
+                    missing.add(f)
+            if missing:
+                err(f"k8s/deploy.sh **没有 apply** 这些服务清单: {sorted(missing)}")
+                errors.append(f"deploy.sh 漏了 {len(missing)} 个服务清单文件")
+            else:
+                print(f"✅ k8s/deploy.sh 自动发现并 apply 了全部 {len(service_yamls)} 个服务清单"
+                      f"（基础设施 {len(excluded_but_applied)} 个单独 apply）")
         else:
-            print(f"✅ k8s/deploy.sh apply 了全部 {len(service_yamls)} 个服务清单")
+            missing = service_yamls - applied
+            if missing:
+                err(f"k8s/deploy.sh **没有 apply** 这些服务清单: {sorted(missing)}")
+                errors.append(f"deploy.sh 漏了 {len(missing)} 个服务清单文件")
+            else:
+                print(f"✅ k8s/deploy.sh apply 了全部 {len(service_yamls)} 个服务清单")
     else:
         errors.append("k8s/deploy.sh 不存在")
 

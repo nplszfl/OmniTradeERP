@@ -216,6 +216,14 @@ jobs:
       #    📌 「闸门不跑 = 不存在」→ 校验必须放在**永远会跑的 job** 里。
       run: python3 scripts/check-k8s-deploy-coverage.py
 
+    - name: 网关路由 ↔ 部署编排覆盖度
+      # 📌 查的是「网关配了 lb://xxx 的服务，k8s 和 compose 里是不是真的存在」——
+      #    2026-11-04 实测：22 个路由目标里有 **10 个从来没被部署过**
+      #    → 那些服务的 API 在集群和本地开发环境里**必然 503**
+      # 📌 它们都是真模块（目录在、进了 reactor、有主类和 application.yml），
+      #    不是死引用 —— 前端还有 7 个对应的 api 客户端。
+      run: python3 scripts/check-gateway-deploy-coverage.py
+
     - name: Dockerfile 与生成脚本一致
       run: python3 scripts/gen-dockerfiles.py --check
 

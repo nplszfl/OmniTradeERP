@@ -40,23 +40,35 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 K8S = os.path.join(ROOT, "k8s")
 
-# deploy.sh 应该 apply 的清单（基础设施 3 个 + 应用 4 个）
-EXPECTED_MANIFESTS = [
-    "k8s/mysql.yaml",
-    "k8s/redis.yaml",
-    "k8s/nacos.yaml",
-    "k8s/gateway.yaml",
-    "k8s/core-services.yaml",
-    "k8s/services.yaml",
-    "k8s/ai-services.yaml",
-]
+# 📌 **不要手写清单列表** ——
+# 📌 手写的清单必然漂移（2026-11-04 实测：这里写死了 7 份，
+#    新加 extended-services.yaml 之后 deploy.sh 确实 apply 了，
+#    但这个闸门因为“期望值没跟上”而误报“漏了清单”→ **假阳性**）。
+# 📌 真相来源 = **k8s/ 目录里实际有哪些 yaml**。
+#    （新增清单 → 期望值自动跟上 → 闸门永远只报真问题）
+# 📌 namespace.yaml 例外：它不是用 `apply -f` 应用的，
+#    而是 `kubectl create namespace ... | kubectl apply -f -`。
+def _manifests_in(dirpath, exclude=()):
+    if not os.path.isdir(dirpath):
+        return []
+    out = []
+    for fn in sorted(os.listdir(dirpath)):
+        if not fn.endswith((".yaml", ".yml")):
+            continue
+        if fn in exclude:
+            continue
+        out.append(f"k8s/{fn}")
+    return out
+
+
+# deploy.sh 应该 apply 的全部清单
+EXPECTED_MANIFESTS = _manifests_in(K8S, exclude=("namespace.yaml",))
 
 # 真正的部署计划覆盖的应用清单（带 Deployment 的）
 APP_MANIFESTS = [
-    "k8s/gateway.yaml",
-    "k8s/core-services.yaml",
-    "k8s/services.yaml",
-    "k8s/ai-services.yaml",
+    f for f in _manifests_in(K8S)
+    if re.search(r"^\s*kind:\s*Deployment\s*$",
+                 open(os.path.join(ROOT, f), encoding="utf-8").read(), re.M)
 ]
 
 FAKE_KUBECTL = r"""#!/bin/bash

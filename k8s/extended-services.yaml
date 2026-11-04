@@ -1,0 +1,784 @@
+---
+# 📌 **网关路由到的、但此前一直没被部署的服务**（2026-11-04 补齐）
+#
+# 🔴 背景：网关 `erp-gateway/src/main/resources/application.yml` 里配了 22 个 `lb://xxx-service`，
+#    而 k8s 清单里只有 13 个 Deployment —— **下面这 10 个服务的 API 在集群上必然 503**
+#    （网关要解析一个 Service，而 k8s 里连 Service 对象都没有）。
+#
+# 📌 它们**都是真模块**：目录在、进了 maven reactor、有 @SpringBootApplication 主类、
+#    有独立的 application.yml（各自的端口/库名）和 database/*.sql 建表脚本。
+#    不是死引用 —— 前端 erp-web/src/api/ 里就有 customer / analytics / inventory-alert /
+#    purchase / social / supplier / tenant 七个 api 客户端。
+#
+# 📌 端口是**从各模块自己的 application.yml 的 server.port 读出来**的，
+#    不是手抄的 —— 唯一事实来源永远是应用侧配置。
+
+---
+# 数据分析服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-analytics-service
+  namespace: erp
+  labels:
+    app: erp-analytics-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: erp-analytics-service
+  template:
+    metadata:
+      labels:
+        app: erp-analytics-service
+    spec:
+      containers:
+      - name: analytics-service
+        image: nplszfl/erp-analytics-service:latest
+        ports:
+        - containerPort: 8097
+          name: http
+        env:
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
+        - name: SENTINEL_DASHBOARD
+          value: "sentinel-service:8858"
+        - name: MYSQL_HOST
+          value: "mysql-service"
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: RABBITMQ_HOST
+          value: "rabbitmq-service"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: JAVA_OPTS
+          value: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8097
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8097
+          initialDelaySeconds: 30
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-analytics-service
+  namespace: erp
+  labels:
+    app: erp-analytics-service
+spec:
+  ports:
+  - port: 8097
+    targetPort: 8097
+    name: http
+  selector:
+    app: erp-analytics-service
+
+---
+# 异常检测服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-anomaly-detection-service
+  namespace: erp
+  labels:
+    app: erp-anomaly-detection-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: erp-anomaly-detection-service
+  template:
+    metadata:
+      labels:
+        app: erp-anomaly-detection-service
+    spec:
+      containers:
+      - name: anomaly-detection-service
+        image: nplszfl/erp-anomaly-detection-service:latest
+        ports:
+        - containerPort: 8138
+          name: http
+        env:
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
+        - name: SENTINEL_DASHBOARD
+          value: "sentinel-service:8858"
+        - name: MYSQL_HOST
+          value: "mysql-service"
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: RABBITMQ_HOST
+          value: "rabbitmq-service"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: JAVA_OPTS
+          value: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8138
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8138
+          initialDelaySeconds: 30
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-anomaly-detection-service
+  namespace: erp
+  labels:
+    app: erp-anomaly-detection-service
+spec:
+  ports:
+  - port: 8138
+    targetPort: 8138
+    name: http
+  selector:
+    app: erp-anomaly-detection-service
+
+---
+# 客户服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-customer-service
+  namespace: erp
+  labels:
+    app: erp-customer-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: erp-customer-service
+  template:
+    metadata:
+      labels:
+        app: erp-customer-service
+    spec:
+      containers:
+      - name: customer-service
+        image: nplszfl/erp-customer-service:latest
+        ports:
+        - containerPort: 8085
+          name: http
+        env:
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
+        - name: SENTINEL_DASHBOARD
+          value: "sentinel-service:8858"
+        - name: MYSQL_HOST
+          value: "mysql-service"
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: RABBITMQ_HOST
+          value: "rabbitmq-service"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: JAVA_OPTS
+          value: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8085
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8085
+          initialDelaySeconds: 30
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-customer-service
+  namespace: erp
+  labels:
+    app: erp-customer-service
+spec:
+  ports:
+  - port: 8085
+    targetPort: 8085
+    name: http
+  selector:
+    app: erp-customer-service
+
+---
+# 库存预警服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-inventory-alert-service
+  namespace: erp
+  labels:
+    app: erp-inventory-alert-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: erp-inventory-alert-service
+  template:
+    metadata:
+      labels:
+        app: erp-inventory-alert-service
+    spec:
+      containers:
+      - name: inventory-alert-service
+        image: nplszfl/erp-inventory-alert-service:latest
+        ports:
+        - containerPort: 8086
+          name: http
+        env:
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
+        - name: SENTINEL_DASHBOARD
+          value: "sentinel-service:8858"
+        - name: MYSQL_HOST
+          value: "mysql-service"
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: RABBITMQ_HOST
+          value: "rabbitmq-service"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: JAVA_OPTS
+          value: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8086
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8086
+          initialDelaySeconds: 30
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-inventory-alert-service
+  namespace: erp
+  labels:
+    app: erp-inventory-alert-service
+spec:
+  ports:
+  - port: 8086
+    targetPort: 8086
+    name: http
+  selector:
+    app: erp-inventory-alert-service
+
+---
+# 商品推荐服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-product-recommendation-service
+  namespace: erp
+  labels:
+    app: erp-product-recommendation-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: erp-product-recommendation-service
+  template:
+    metadata:
+      labels:
+        app: erp-product-recommendation-service
+    spec:
+      containers:
+      - name: product-recommendation-service
+        image: nplszfl/erp-product-recommendation-service:latest
+        ports:
+        - containerPort: 8139
+          name: http
+        env:
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
+        - name: SENTINEL_DASHBOARD
+          value: "sentinel-service:8858"
+        - name: MYSQL_HOST
+          value: "mysql-service"
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: RABBITMQ_HOST
+          value: "rabbitmq-service"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: JAVA_OPTS
+          value: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8139
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8139
+          initialDelaySeconds: 30
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-product-recommendation-service
+  namespace: erp
+  labels:
+    app: erp-product-recommendation-service
+spec:
+  ports:
+  - port: 8139
+    targetPort: 8139
+    name: http
+  selector:
+    app: erp-product-recommendation-service
+
+---
+# 采购服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-purchase-service
+  namespace: erp
+  labels:
+    app: erp-purchase-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: erp-purchase-service
+  template:
+    metadata:
+      labels:
+        app: erp-purchase-service
+    spec:
+      containers:
+      - name: purchase-service
+        image: nplszfl/erp-purchase-service:latest
+        ports:
+        - containerPort: 8093
+          name: http
+        env:
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
+        - name: SENTINEL_DASHBOARD
+          value: "sentinel-service:8858"
+        - name: MYSQL_HOST
+          value: "mysql-service"
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: RABBITMQ_HOST
+          value: "rabbitmq-service"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: JAVA_OPTS
+          value: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8093
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8093
+          initialDelaySeconds: 30
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-purchase-service
+  namespace: erp
+  labels:
+    app: erp-purchase-service
+spec:
+  ports:
+  - port: 8093
+    targetPort: 8093
+    name: http
+  selector:
+    app: erp-purchase-service
+
+---
+# 报表服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-reporting-service
+  namespace: erp
+  labels:
+    app: erp-reporting-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: erp-reporting-service
+  template:
+    metadata:
+      labels:
+        app: erp-reporting-service
+    spec:
+      containers:
+      - name: reporting-service
+        image: nplszfl/erp-reporting-service:latest
+        ports:
+        - containerPort: 8098
+          name: http
+        env:
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
+        - name: SENTINEL_DASHBOARD
+          value: "sentinel-service:8858"
+        - name: MYSQL_HOST
+          value: "mysql-service"
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: RABBITMQ_HOST
+          value: "rabbitmq-service"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: JAVA_OPTS
+          value: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8098
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8098
+          initialDelaySeconds: 30
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-reporting-service
+  namespace: erp
+  labels:
+    app: erp-reporting-service
+spec:
+  ports:
+  - port: 8098
+    targetPort: 8098
+    name: http
+  selector:
+    app: erp-reporting-service
+
+---
+# 社交电商服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-social-commerce-service
+  namespace: erp
+  labels:
+    app: erp-social-commerce-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: erp-social-commerce-service
+  template:
+    metadata:
+      labels:
+        app: erp-social-commerce-service
+    spec:
+      containers:
+      - name: social-commerce-service
+        image: nplszfl/erp-social-commerce-service:latest
+        ports:
+        - containerPort: 8096
+          name: http
+        env:
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
+        - name: SENTINEL_DASHBOARD
+          value: "sentinel-service:8858"
+        - name: MYSQL_HOST
+          value: "mysql-service"
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: RABBITMQ_HOST
+          value: "rabbitmq-service"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: JAVA_OPTS
+          value: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8096
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8096
+          initialDelaySeconds: 30
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-social-commerce-service
+  namespace: erp
+  labels:
+    app: erp-social-commerce-service
+spec:
+  ports:
+  - port: 8096
+    targetPort: 8096
+    name: http
+  selector:
+    app: erp-social-commerce-service
+
+---
+# 供应商服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-supplier-service
+  namespace: erp
+  labels:
+    app: erp-supplier-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: erp-supplier-service
+  template:
+    metadata:
+      labels:
+        app: erp-supplier-service
+    spec:
+      containers:
+      - name: supplier-service
+        image: nplszfl/erp-supplier-service:latest
+        ports:
+        - containerPort: 8099
+          name: http
+        env:
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
+        - name: SENTINEL_DASHBOARD
+          value: "sentinel-service:8858"
+        - name: MYSQL_HOST
+          value: "mysql-service"
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: RABBITMQ_HOST
+          value: "rabbitmq-service"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: JAVA_OPTS
+          value: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8099
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8099
+          initialDelaySeconds: 30
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-supplier-service
+  namespace: erp
+  labels:
+    app: erp-supplier-service
+spec:
+  ports:
+  - port: 8099
+    targetPort: 8099
+    name: http
+  selector:
+    app: erp-supplier-service
+
+---
+# 租户服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-tenant-service
+  namespace: erp
+  labels:
+    app: erp-tenant-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: erp-tenant-service
+  template:
+    metadata:
+      labels:
+        app: erp-tenant-service
+    spec:
+      containers:
+      - name: tenant-service
+        image: nplszfl/erp-tenant-service:latest
+        ports:
+        - containerPort: 8095
+          name: http
+        env:
+        - name: NACOS_HOST
+          value: "nacos-service"
+        - name: NACOS_PORT
+          value: "8848"
+        - name: SENTINEL_DASHBOARD
+          value: "sentinel-service:8858"
+        - name: MYSQL_HOST
+          value: "mysql-service"
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: RABBITMQ_HOST
+          value: "rabbitmq-service"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: JAVA_OPTS
+          value: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8095
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8095
+          initialDelaySeconds: 30
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-tenant-service
+  namespace: erp
+  labels:
+    app: erp-tenant-service
+spec:
+  ports:
+  - port: 8095
+    targetPort: 8095
+    name: http
+  selector:
+    app: erp-tenant-service

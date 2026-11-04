@@ -47,10 +47,18 @@ kubectl wait --for=condition=ready pod -l app=nacos -n erp --timeout=300s
 #    **core-services.yaml（6 个服务）和 ai-services.yaml（4 个服务）从没被 apply 过**
 #    → 那 10 个服务的 Deployment 在集群里**根本不存在**
 #    → 加上 CI 的 `kubectl set image` 也只覆盖 3 个 → 部署形同虚设。
-#    📌 改法：**按清单文件逐个 apply，不手写文件名列表** ——
+# 📌 改法：**自动发现 k8s/ 下的服务清单**，不手写文件名列表 ——
 #    以后往 k8s/ 加一个 yaml，脚本自动跟着部署（手写清单 = 会漂移的事实来源）。
+#    📌 基础设施（mysql / redis / nacos / namespace）**单独 apply**，不在这轮里：
+#       它们有状态，走上面的步骤才等得到健康检查。
+#       （2026-11-04 实测：手写清单漏了 extended-services.yaml → 10 个服务的
+#        Deployment 根本没进集群，而脚本照样打印「✅ 部署完成！」）
 echo "⚙️  部署微服务..."
-for f in k8s/gateway.yaml k8s/core-services.yaml k8s/services.yaml k8s/ai-services.yaml; do
+for f in k8s/*.yaml; do
+  base=$(basename "$f")
+  case "$base" in
+    mysql.yaml|redis.yaml|nacos.yaml|namespace.yaml) continue ;;
+  esac
   echo "  → apply $f"
   # 📌 apply 失败必须**立刻停下**并说清楚是哪一份清单 ——
   #    否则 `set -e` 虽然会中断，但运维只看到一句含糊的退出码。

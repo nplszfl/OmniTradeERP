@@ -90,6 +90,8 @@ jobs:
       run: |
         python3 scripts/check-k8s-images.py
         python3 scripts/check-k8s-deploy-coverage.py
+        # 📌 网关路由 ↔ 部署编排：lb://xxx 的服务必须在 k8s 和 compose 里真的存在
+        python3 scripts/check-gateway-deploy-coverage.py
         python3 scripts/gen-dockerfiles.py --check
 
   # 前端代码检查
