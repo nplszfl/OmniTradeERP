@@ -1,5 +1,10 @@
 #!/bin/bash
 
+set -e
+# 📌 **`set -e`（2026-11-04 补）**：这个脚本原来没有 → 任何一条命令失败
+#    （docker compose 起不来 / mvn 编译失败 / jar 不存在）都会被静默吞掉，
+#    脚本照样往下跑并打印「✅ 完成」→ 以为启动/停止成功了，实际什么都没发生。
+
 # 跨境电商ERP系统 - 一键启动脚本
 
 echo "🔥 跨境电商ERP系统 - 启动脚本"
@@ -37,9 +42,10 @@ echo ""
 echo "📦 开始编译打包..."
 
 # 编译打包
-mvn clean package -DskipTests
-
-if [ $? -ne 0 ]; then
+# 📌 原来写的是 `mvn ...` + `if [ $? -ne 0 ]` ——
+#    有了 `set -e` 之后，mvn 失败会**在走到 if 之前**就中止脚本，
+#    「❌ 编译失败」的提示就丢了 → 必须改成 `if ! cmd` 的写法。
+if ! mvn clean package -DskipTests; then
     echo "❌ 编译失败"
     exit 1
 fi

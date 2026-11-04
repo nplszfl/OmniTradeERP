@@ -1,6 +1,15 @@
 #!/bin/bash
-
 # 部署脚本
+#
+# 📌 **为什么必须有 `set -euo pipefail`**（2026-11-04 实测）：
+# 这个脚本原来**没有** set 选项 → 任何一条 kubectl 失败（清单语法错 / RBAC 拒绝 /
+# 配额超限 / 集群连不上）都会被**静默吞掉**，脚本继续往下跑，最后照常打印
+# **「✅ 部署完成！」** → 运维以为部署好了，实际 6 个服务的 Deployment 根本没建。
+# 📌 **失败必须让脚本死掉**，并且把「失败的到底是哪一步」打出来。
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
 
 echo "🚀 开始部署跨境电商ERP系统到K8s..."
 
@@ -43,7 +52,14 @@ kubectl wait --for=condition=ready pod -l app=nacos -n erp --timeout=300s
 echo "⚙️  部署微服务..."
 for f in k8s/gateway.yaml k8s/core-services.yaml k8s/services.yaml k8s/ai-services.yaml; do
   echo "  → apply $f"
-  kubectl apply -f "$f"
+  # 📌 apply 失败必须**立刻停下**并说清楚是哪一份清单 ——
+  #    否则 `set -e` 虽然会中断，但运维只看到一句含糊的退出码。
+  if ! kubectl apply -f "$f"; then
+    echo ""
+    echo "❌ apply 失败：$f"
+    echo "   （前面的步骤可能已经生效 —— 请用 kubectl get deploy -n erp 确认实际状态）"
+    exit 1
+  fi
 done
 
 echo ""

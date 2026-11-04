@@ -114,6 +114,18 @@ jobs:
     - name: 环境变量契约（compose/k8s 注入 ↔ 应用读取）
       run: python3 scripts/check-env-contract.py
 
+    # 📌 **部署脚本可执行冒烟测试** ——
+    #    📌 为什么必须是「执行」而不是「grep 有没有 set -e」：
+    #       `k8s/deploy.sh` 原来的缺陷是**组合**出来的 ——
+    #       相对路径 `k8s/*.yaml` + 文档教人 `cd k8s && ./deploy.sh`
+    #       → 路径解析成 `k8s/k8s/*.yaml` → 7 条 apply **全部失败**
+    #       → 又因为**没有 `set -e`** → 失败被全吞 → 照样打印「✅ 部署完成！」
+    #       静态检查（grep set -e）只能抓到一半。
+    #    📌 部署路径在 CI 里**零覆盖**（deploy-k8s 的每个 step 都带
+    #       `if: configured == 'true'`，本仓库 0 个 secret）→ 必须在这里测。
+    - name: 部署脚本可执行冒烟测试（假 kubectl / 假 docker）
+      run: python3 scripts/check-deploy-scripts.py
+
     - name: SQL 契约（Java SQL ↔ database/*.sql ↔ datasource 库名）
       run: python3 scripts/check-sql-schema.py --strict
 
