@@ -65,6 +65,9 @@ jobs:
         python3 scripts/check-response-fields.py --strict
         python3 scripts/check-feign-contract.py --strict
         python3 scripts/check-gateway-strip.py
+        # 📌 网关路由覆盖率（前端 → 网关 → 服务收到路径 → controller 接口）
+        #    补 `check-gateway-strip.py` 的盲区：**压根没这条路由**它发现不了。
+        python3 scripts/check-gateway-route-coverage.py
 
     # 📌 后续补的巡检也要进来 —— **闸门不跑 = 不存在**，
     #    之前只跑前 6 个，后 10 个的盲区就是这么活下来的。

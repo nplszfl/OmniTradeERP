@@ -161,6 +161,18 @@ jobs:
     - name: 网关路径改写 ↔ 后端 controller 根路径
       run: python3 scripts/check-gateway-strip.py
 
+    # 📌 **网关路由覆盖率**（前端 api 层 → 网关 → 服务收到路径 → controller 接口）
+    #    📌 **为什么 `check-gateway-strip.py` 不够**：
+    #       它遍历的是**网关已有的路由**，问「改写对不对」
+    #       → 只能发现「路由存在但改写错」
+    #       → **发现不了「压根没这条路由」**
+    #    📌 而 `check-dead-endpoints.py` 问的是「有没有调用方」
+    #       → 一个**有调用方但网关路由缺失**的接口，在它眼里是「活的」→ **漏报**
+    #    📌 本脚本补的就是这个**交叉盲区**：三段链路任一段断掉 → 必然 404，
+    #       而「前端没接」和「接了但 404」在监控上长得一模一样。
+    - name: 网关路由 ↔ 后端 controller 接口 覆盖率
+      run: python3 scripts/check-gateway-route-coverage.py
+
     # 📌 以下这几个是**后来补的**巡检，之前只跑前 6 个 ——
     #    「闸门不跑 = 不存在」，它们的盲区就是这么活下来的。
     - name: 主类存在性（源码层：主类在不在、是否唯一）
