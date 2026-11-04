@@ -126,6 +126,21 @@ jobs:
     - name: 部署脚本可执行冒烟测试（假 kubectl / 假 docker）
       run: python3 scripts/check-deploy-scripts.py
 
+    # 📌 **文档引用巡检**（部署类文档里提到的文件必须真实存在）——
+    #    📌 为什么需要：文档里写着一个**不存在的文件**时，
+    #       读者照着敲会得到 `no such file or directory`，
+    #       而**全绿的 CI 不会告诉他**（文档不在任何闸门的覆盖里）。
+    #    📌 实测（2026-11-05）：`docs/Deployment.md` 与 `docs/Quick-Start.md`
+    #       都写着 `kubectl apply -f deployment-production.yml`
+    #       → **该文件全仓不存在**；`docs/Deployment.md` 里还有一整段
+    #       `helm install omnitrade ./charts/omnitrade-erp -f values-production.yaml`
+    #       → **仓库里没有 charts/ 目录也没有 values-production.yaml**（整段虚构）。
+    #    📌 为什么判据要窄：全仓 .md 泛扫实测 **81 处引用 27 处「不存在」**，
+    #       绝大多数是简称 / 省略路径 / 历史报告快照 → **假红机器**，没法用。
+    #       所以只查「部署类文档 + 部署类路径家族」。
+    - name: 文档引用巡检（部署类文档 ↔ 真实文件）
+      run: python3 scripts/check-doc-references.py
+
     - name: SQL 契约（Java SQL ↔ database/*.sql ↔ datasource 库名）
       run: python3 scripts/check-sql-schema.py --strict
 

@@ -47,8 +47,15 @@ npm run dev
 
 ```bash
 cd k8s
-kubectl apply -f deployment-production.yml
+
+# 部署脚本会：建 namespace → MySQL/Redis/Nacos 并等就绪 → apply 其余全部清单
+# （任何一步失败会立刻停下并指名是哪份清单）
+./deploy.sh
 ```
+
+> 📌 **不要手写 `kubectl apply -f <某个文件>`** ——
+> 漏一份 = 那批服务永远跑旧镜像；清单会随服务增加而变，脚本自动遍历才不会漂。
+> 清单明细见 [部署文档](Deployment.md)。
 
 ## 验证部署
 
