@@ -341,8 +341,49 @@ def parse_view_api_calls():
 # ---------------------------------------------------------------- 服务间调用
 
 
+FEIGN_RE = re.compile(
+    r"@FeignClient\s*\(\s*name\s*=\s*[\"'](?P<name>[\w-]+)[\"']"
+    r"(?:\s*,\s*path\s*=\s*[\"'](?P<path>[^\"']*)[\"'])?",
+    re.S,
+)
+MAPPING_RE = re.compile(
+    r"@(Get|Post|Put|Delete|Patch)Mapping\s*\(\s*(?:value\s*=\s*)?[\"'](?P<p>[^\"']*)[\"']"
+)
+REST_TEMPLATE_RE = re.compile(
+    r"restTemplate\s*\.\s*(?:getForObject|postForObject|putForObject|deleteForObject|exchange)"
+    r"\s*\(\s*[\"'](?P<url>[^\"']+)[\"']",
+    re.S,
+)
+
+
 def collect_backend_callers(endpoints):
-    """扫描所有 Java 源码，找出哪些路径被别人（别的模块）引用过"""
+    """扫描所有 Java 源码，找出哪些路径被**别的模块**真的调用过。
+
+    📌 **2026-11-04 重写**：原来用「路径最后两段的字面量在源文件里出现过」
+    来判断谁在调谁 —— **这个判据不成立**：
+
+    1. **自身模块从来没被排除掉**（真 bug）：
+       `for _, _, http, path in endpoints:` 里 `_` 被**连续绑定两次**，
+       最终拿到的是**文件路径**（PosixPath）而不是模块名（str）
+       → `module == _` 永远是 str == PosixPath → 永远为假
+       → 任何模块自己的 javadoc 里写一句
+         「GET /api/v1/pricing/health」就会让该端点
+         **从死接口清单里消失**（假绿）。
+
+    2. **判据本身会误判**：needle 取「最后两段」太短，
+       `/{id}/confirm` 这种会到处撞；而 javadoc 里的
+       `@PostMapping("/{id}/confirm")` **不是**跨服务调用。
+
+    → 改成**只认真实的调用点**：
+       - **Feign 客户端**：`@FeignClient(name="erp-order-service", path="/order")`
+         + 接口方法上的 `@PostMapping("/create")` → 真的在调 erp-order-service 的 /order/create
+       - **RestTemplate 字面量 URL**：`restTemplate.getForObject("/xxx", ...)`
+         → 但只认**指向本仓内部服务**的路径
+    """
+    by_module_path = {}
+    for module, _java, http, path in endpoints:
+        by_module_path.setdefault(module, []).append((http, path))
+
     texts = {}
     for module_dir in sorted(ROOT.glob("erp-*")):
         if not (module_dir / "src/main/java").exists():
@@ -352,21 +393,48 @@ def collect_backend_callers(endpoints):
 
     called = set()
     for java, text in texts.items():
-        module = java.parts[len(ROOT.parts)]
-        for _, _, http, path in endpoints:
-            if module == _:
+        caller_module = java.parts[len(ROOT.parts)]
+
+        # ---- 1) Feign 客户端 ----
+        for fm in FEIGN_RE.finditer(text):
+            target_service = fm.group("name")
+            base_path = (fm.group("path") or "").rstrip("/")
+            target_module = target_service  # 服务名 = 模块名（erp-xxx-service）
+            if target_module not in by_module_path:
                 continue
-            # 只取路径的最后两段做匹配，避免长路径全匹配不上
-            parts = [p for p in path.split("/") if p]
-            if len(parts) >= 2:
-                needle = "/" + "/".join(parts[-2:])
-            elif parts:
-                needle = "/" + parts[0]
-            else:
-                continue
-            if needle in text:
-                called.add((module, http, path))
+            # 只取该 @FeignClient 之后的接口方法映射
+            tail = text[fm.end():]
+            for mm in MAPPING_RE.finditer(tail):
+                sub = mm.group("p")
+                full = f"{base_path}/{sub.lstrip('/')}" if sub else base_path
+                full = full.rstrip("/") or "/"
+                method = mm.group(1).upper()
+                for http, path in by_module_path[target_module]:
+                    if _path_matches(path, full):
+                        called.add((caller_module, http, path))
+
+        # ---- 2) RestTemplate 字面量 URL（只认指向内部服务路径的）----
+        for rm in REST_TEMPLATE_RE.finditer(text):
+            url = rm.group("url")
+            if not url.startswith("/"):
+                continue  # 外部 URL（LLM / TikTok / 亚马逊）不是内部服务
+            for module, _j, http, path in endpoints:
+                if module == caller_module:
+                    continue
+                if _path_matches(path, url):
+                    called.add((caller_module, http, path))
+
     return called
+
+
+def _path_matches(backend_path, wanted):
+    """后端路径是否与「调用的目标路径」一致（忽略 /api 前缀差异）。"""
+    def norm(p):
+        segs = [s for s in p.split("/") if s]
+        if segs and segs[0] == "api":
+            segs = segs[1:]
+        return "/" + "/".join(segs)
+    return norm(backend_path) == norm(wanted)
 
 
 def has_scheduler(module):
@@ -473,9 +541,12 @@ ANALYSIS_LINES = [
     "上一轮已经把知识库管理页做进 `views/ai/Assistant.vue` 的「知识库」tab",
     "（`knowledgeBaseApi.list/categories/add/remove` 都在调）。",
     "",
-    "现在真正还没接的是**知识库问答**的两个接口：",
+    "现在真正还没接的是**知识库问答**接口：",
     "<!-- dead: POST /api/ai/knowledge/ask -->",
-    "<!-- dead: GET /api/ai/knowledge/stats -->",
+    "",
+    "（`GET /api/ai/knowledge/stats` 2026-11-04 已接上 ——",
+    "  聊天页开场白的「基于 N 条行业知识库」改成动态取真实条数，",
+    "  原来写死「330+」而真实只有 6 条 → 界面在承诺不存在的东西。）",
     "",
     "⚠️ **api 层有个命名陷阱**（不是死接口，但容易踩）：",
     "`aiAssistantApi.knowledge.list/add/remove` 和 `knowledgeBaseApi.list/add/remove`",
@@ -495,12 +566,16 @@ ANALYSIS_LINES = [
     "",
     "### 3. 「健康检查」类接口全部未接",
     "",
-    "`/health` 在多个服务里都有，前端一个都没调 —— 缺一个「系统健康总览」页。",
+    "`/health` 在 8 个服务里都有（共 9 条声明，`/api/v1/pricing/health` 被两个 controller 各写了一遍），",
+    "前端一个都没调 —— 缺一个「系统健康总览」页。",
     "<!-- dead: GET /api/v1/ai-assistant/health -->",
     "<!-- dead: GET /api/v1/anomaly/health -->",
     "<!-- dead: GET /api/v1/inventory-prediction/health -->",
     "<!-- dead: GET /api/v1/product-description/health -->",
     "<!-- dead: GET /api/v1/recommend/health -->",
+    "<!-- dead: GET /api/v1/analytics/health -->",
+    "<!-- dead: GET /api/v1/pricing/health -->",
+    "<!-- dead: GET /logistics/health -->",
     "",
     "### 4. 死路由",
     "",
@@ -552,6 +627,33 @@ def verify_claims(claims, dead, frontend_used, backend_callers, endpoints):
                     break
             stale.append((http, path, reason))
     return stale
+
+
+def verify_exhaustive(claims, endpoints, dead):
+    """核验「这一类全部未接」的断言是否**列举完整**。
+
+    📌 **为什么要查这一项**（2026-11-04 实测）：
+    结论 #3 写着「`/health` 在多个服务里都有，前端一个都没调」，
+    并声明了 5 条 `<!-- dead: GET .../health -->` 断言。
+    但后端实际有 **8** 个 health 端点 → **漏了 3 个没声明**。
+
+    📌 **「逐条断言都对」≠「结论是完整的」** ——
+    上面那 5 条断言确实都还成立（没过期），
+    但结论本身漏了 3 个 → **闸门全绿，结论却在骗人**。
+
+    → 所以凡是带 `<!-- dead: ... -->` 的「全称型」结论，
+      必须把它覆盖的**整个类别**都列出来。
+
+    判据：以 `/health` 结尾的端点为类别（可扩展）。
+    """
+    health_claims = {c for c in claims if c[1].rstrip("/").endswith("/health")}
+    if not health_claims:
+        return []
+    all_health = {(h, p) for (_m, _j, h, p) in endpoints
+                  if p.rstrip("/").endswith("/health")}
+    missing = sorted(all_health - health_claims)
+    return [(h, p, "结论说「这一类全部未接」，但这条没在断言里列出来 → 结论不完整")
+            for h, p in missing]
 
 
 def write_markdown(dead, endpoints, frontend_used, backend_callers, routes, path):
@@ -677,26 +779,37 @@ def main():
     #      这里**当场核验**：若这些接口已经有调用方 → 结论过期 → 报告变红。
     claims = extract_claims(ANALYSIS_LINES)
     stale = verify_claims(claims, dead, frontend_used, backend_callers, endpoints)
+    # 📌 **还要查「结论是否列举完整」** ——
+    #    「逐条断言都成立」≠「结论是完整的」：
+    #    结论说「health 这类全部未接」却只列了 5 个（共 8 个）→ 闸门全绿，结论在骗人。
+    incomplete = verify_exhaustive(claims, endpoints, dead)
 
     if md:
         write_markdown(dead, endpoints, frontend_used, backend_callers, routes, ROOT / md)
 
-    if stale:
-        print(f"\n❌ 「重点结论」已过期（{len(stale)} 条断言不再成立）:")
-        for http, pth, reason in stale:
-            print(f"   - {http} {pth}")
-            print(f"       {reason}")
+    problems = stale + incomplete
+    if problems:
+        if stale:
+            print(f"\n❌ 「重点结论」已过期（{len(stale)} 条断言不再成立）:")
+            for http, pth, reason in stale:
+                print(f"   - {http} {pth}")
+                print(f"       {reason}")
+        if incomplete:
+            print(f"\n❌ 「重点结论」列举不完整（{len(incomplete)} 条没被断言覆盖）:")
+            for http, pth, reason in incomplete:
+                print(f"   - {http} {pth}")
+                print(f"       {reason}")
         print()
         print("   📌 手写结论会静默过期 —— 请同步更新 scripts/check-dead-endpoints.py")
         print("      里的「重点结论」段落（并更新它声明的 `<!-- dead: ... -->` 断言）。")
-        # 📌 **过期结论必须让脚本失败**（即使没加 --strict）——
+        # 📌 **过期/不完整的结论必须让脚本失败**（即使没加 --strict）——
         #    「疑似死接口」是**排期 backlog**（REST 接口可能给外部客户端用，
         #    脚本判断不了该不该删）→ 保持 advisory，exit 0。
         #    但「重点结论」是**提交进仓库的文档**，
         #    它说错话 = 文档在骗人 → **必须红**。
         #    📌 2026-11-04 实测：上一版结论「知识库没有任何视图调用」，
         #       而上一轮已经把页面做完了 —— 没人发现，因为没人核验。
-        print(f"\n退出码 1：{len(stale)} 条「重点结论」已过期（文档在骗人）")
+        print(f"\n退出码 1：{len(stale)} 条「重点结论」已过期、{len(incomplete)} 条列举不完整")
         return 1
 
     if strict:
