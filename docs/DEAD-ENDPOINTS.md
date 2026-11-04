@@ -5,11 +5,11 @@
 
 ## 统计
 
-- 后端 HTTP 接口：**461** 个
-- 前端视图真正调用：**116** 处
-- 服务间引用：**358** 处
-- 网关路由：**30** 条
-- 疑似死接口：**121** 个
+- 后端 HTTP 接口：**469** 个
+- 前端视图真正调用：**193** 处
+- 服务间引用：**367** 处
+- 网关路由：**34** 条
+- 疑似死接口：**75** 个
 
 ## 怎么读这份清单
 
@@ -23,33 +23,48 @@
 
 所以这份清单的价值是**排期用的 backlog**，不是删除清单。
 
-## 重点结论（人工分析，随脚本一起维护）
+## 重点结论（**每条结论都由脚本当场核验**，结论过期会自动报警）
 
-### 1. AI 知识库：后端和 api 层都齐了，但**没有任何视图调用**
+> 📌 这些结论是**手写的**，但**不能信** —— 手写结论会静默过期
+> （2026-11-04 实测：上一版写着「知识库没有任何视图调用」，
+>   结果上一轮已经把知识库管理页做完了 → 文档在骗人）。
+> 所以每条结论后面用 `<!-- dead: <路径> -->` 声明它断言为死的接口，
+> **脚本会当场核验**：这些接口若已经有调用方 → 报告变红并提示结论已过期。
 
-`erp-web/src/api/ai.ts` 里 `aiAssistantApi.knowledge.list/add/remove` 三个函数
-都写好了，对应的后端接口（`GET /api/ai/knowledge/search`、
-`POST /api/v1/ai-assistant/knowledge`、`DELETE /api/ai/knowledge/documents/{id}`）
-也都存在且网关改写正确 —— 但 `views/ai/Assistant.vue` **一个都没调**。
+### 1. 知识库：UI 已做完，剩的是 RAG 侧的 ask / stats
 
-后果：RAG 助手的知识库**永远只能靠手工灌**，页面上也看不到一条知识。
-而聊天页的开场白写着「基于 330+ 行业知识库」—— 这个承诺目前落不了地。
+上一版这里写着「知识库没有任何视图调用」—— **那已经过期了**：
+上一轮已经把知识库管理页做进 `views/ai/Assistant.vue` 的「知识库」tab
+（`knowledgeBaseApi.list/categories/add/remove` 都在调）。
 
-⚠️ 另外 `knowledge.list()` 调的是 `/search`，后端 `@RequestParam("q")` 是**必填**
-→ 不传 q 会 400。api 层的语义本身就有坑。
+现在真正还没接的是**知识库问答**的两个接口：
+<!-- dead: POST /api/ai/knowledge/ask -->
+<!-- dead: GET /api/ai/knowledge/stats -->
+
+⚠️ **api 层有个命名陷阱**（不是死接口，但容易踩）：
+`aiAssistantApi.knowledge.list/add/remove` 和 `knowledgeBaseApi.list/add/remove`
+**指向同一批 URL**，但注释声称它们是**两张不同的表**
+（`knowledge_document` vs `knowledge_base`）。
+实际后端 `addKnowledge()` 写的是 `knowledge_base` —— 注释与实现对不上。
+→ 视图里能用的只有 `knowledgeBaseApi` 那一套。
 
 ### 2. 一批「后端做完了，UI 一个页面都没有」的功能域
 
-| 域 | 死接口数 | 现状 |
-|---|---|---|
-| 客户跟进 / 分组 / 标签 | 15 | 后端 CRUD 全套，前端客户页只有列表+增删改 |
-| 仓库库存作业 | 10 | 移库/冻结/解冻/报损/盘点/批次/波次/调拨 —— 前端仓库页只有仓库+库位 |
-| 租户计费 / 用量 / 配额 | 17 | 前端租户页只有租户列表 |
-| AI 辅助（意图/情感/统计/batch/health） | 15 | 都是「进阶能力」，UI 只有最基础的聊天 |
+| 域 | 现状 |
+|---|---|
+| 客户跟进 / 分组 / 标签 | 后端 CRUD 全套，前端客户页只有列表+增删改 |
+| 仓库库存作业 | 移库/冻结/解冻/报损/盘点/批次/波次/调拨 —— 前端仓库页只有仓库+库位 |
+| 租户计费 / 用量 / 配额 | 前端租户页只有租户列表 |
+| AI 辅助（意图/情感/统计/batch/health） | 都是「进阶能力」，UI 只有最基础的聊天 |
 
 ### 3. 「健康检查」类接口全部未接
 
-`/health` 在 5 个服务里都有，前端一个都没调 —— 缺一个「系统健康总览」页。
+`/health` 在多个服务里都有，前端一个都没调 —— 缺一个「系统健康总览」页。
+<!-- dead: GET /api/v1/ai-assistant/health -->
+<!-- dead: GET /api/v1/anomaly/health -->
+<!-- dead: GET /api/v1/inventory-prediction/health -->
+<!-- dead: GET /api/v1/product-description/health -->
+<!-- dead: GET /api/v1/recommend/health -->
 
 ### 4. 死路由
 
@@ -58,7 +73,7 @@
 
 ## 清单
 
-### erp-ai-assistant-service（7 个）
+### erp-ai-assistant-service（6 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
@@ -66,7 +81,6 @@
 | GET | `/api/ai/knowledge/stats` |  |
 | GET | `/api/v1/ai-assistant/health` |  |
 | POST | `/api/v1/ai-assistant/intent` |  |
-| POST | `/api/v1/ai-assistant/knowledge` |  |
 | POST | `/api/v1/ai-assistant/sentiment` |  |
 | GET | `/api/v1/ai-assistant/statistics` |  |
 
@@ -79,27 +93,14 @@
 | GET | `/api/v1/anomaly/health` |  |
 | GET | `/api/v1/anomaly/{id}` |  |
 
-### erp-customer-service（17 个）
+### erp-customer-service（4 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
-| POST | `/customer/follow/create` |  |
-| GET | `/customer/follow/list` |  |
 | PUT | `/customer/follow/{id}` |  |
 | GET | `/customer/follow/{id}` |  |
-| DELETE | `/customer/follow/{id}` |  |
-| POST | `/customer/group/create` |  |
-| GET | `/customer/group/list` |  |
-| PUT | `/customer/group/{id}` |  |
 | GET | `/customer/group/{id}` |  |
-| DELETE | `/customer/group/{id}` |  |
-| POST | `/customer/tag/create` |  |
-| GET | `/customer/tag/list` |  |
-| PUT | `/customer/tag/{id}` |  |
 | GET | `/customer/tag/{id}` |  |
-| DELETE | `/customer/tag/{id}` |  |
-| GET | `/customer/vip` |  |
-| GET | `/customer/{id}` |  |
 
 ### erp-inventory-alert-service（1 个）
 
@@ -176,54 +177,10 @@
 | GET | `/purchase/plans` |  |
 | POST | `/purchase/quotes` |  |
 
-### erp-social-commerce-service（23 个）
-
-| 方法 | 路径 | 备注 |
-|---|---|---|
-| GET | `/api/v1/cooperations/completed` | 该模块有 `@Scheduled`，可能内部触发 |
-| GET | `/api/v1/cooperations/date-range` | 该模块有 `@Scheduled`，可能内部触发 |
-| GET | `/api/v1/cooperations/upcoming` | 该模块有 `@Scheduled`，可能内部触发 |
-| GET | `/api/v1/cooperations/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| PUT | `/api/v1/cooperations/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| DELETE | `/api/v1/cooperations/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| GET | `/api/v1/douyin-shop/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| PUT | `/api/v1/douyin-shop/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| DELETE | `/api/v1/douyin-shop/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| GET | `/api/v1/influencers/category` | 该模块有 `@Scheduled`，可能内部触发 |
-| GET | `/api/v1/influencers/top` | 该模块有 `@Scheduled`，可能内部触发 |
-| GET | `/api/v1/influencers/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| PUT | `/api/v1/influencers/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| DELETE | `/api/v1/influencers/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| GET | `/api/v1/live-streams/current-live` | 该模块有 `@Scheduled`，可能内部触发 |
-| GET | `/api/v1/live-streams/date-range` | 该模块有 `@Scheduled`，可能内部触发 |
-| GET | `/api/v1/live-streams/recent` | 该模块有 `@Scheduled`，可能内部触发 |
-| GET | `/api/v1/live-streams/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| PUT | `/api/v1/live-streams/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| DELETE | `/api/v1/live-streams/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| GET | `/api/v1/tiktok-shop/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| PUT | `/api/v1/tiktok-shop/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-| DELETE | `/api/v1/tiktok-shop/{id}` | 该模块有 `@Scheduled`，可能内部触发 |
-
-### erp-supplier-service（10 个）
-
-| 方法 | 路径 | 备注 |
-|---|---|---|
-| GET | `/purchase/suppliers` |  |
-| POST | `/supplier/evaluation/create` |  |
-| GET | `/supplier/evaluation/list` |  |
-| GET | `/supplier/evaluation/{id}` |  |
-| DELETE | `/supplier/evaluation/{id}` |  |
-| GET | `/supplier/purchase/in-transit` |  |
-| GET | `/supplier/purchase/stats` |  |
-| GET | `/supplier/top` |  |
-| GET | `/supplier/{id}` |  |
-| DELETE | `/supplier/{id}` |  |
-
 ### erp-tenant-service（15 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
-| GET | `/api/tenant/billing/bills` |  |
 | GET | `/api/tenant/billing/rules` |  |
 | POST | `/api/tenant/billing/rules` |  |
 | GET | `/api/tenant/config/features` |  |
@@ -233,7 +190,8 @@
 | GET | `/api/tenant/dashboard/trend` |  |
 | GET | `/api/tenant/usage/current` |  |
 | GET | `/api/tenant/usage/period` |  |
-| GET | `/api/v1/auth/me` |  |
+| PUT | `/api/tenant/{id}` |  |
+| DELETE | `/api/tenant/{id}` |  |
 | GET | `/api/v1/platforms/credentials` |  |
 | POST | `/api/v1/platforms/credentials` |  |
 | POST | `/api/v1/tenant/upgrade` |  |
@@ -249,12 +207,13 @@
 | POST | `/user/change-password` |  |
 | GET | `/user/{id}` |  |
 
-### erp-warehouse-service（10 个）
+### erp-warehouse-service（11 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
 | POST | `/warehouse/inventory/batches` |  |
 | POST | `/warehouse/inventory/checks` |  |
+| GET | `/warehouse/inventory/checks` |  |
 | POST | `/warehouse/inventory/damage` |  |
 | POST | `/warehouse/inventory/freeze` |  |
 | POST | `/warehouse/inventory/relocate` |  |

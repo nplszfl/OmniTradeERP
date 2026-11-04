@@ -160,8 +160,13 @@ export const aiAssistantApi = {
   chat: (data: { sessionId?: string; message: string }) => request.post<any, AiChatResponse>('/ai/assistant/chat', data),
   history: (sessionId: string) => request.get<any, any[]>(`/ai/assistant/history/${sessionId}`),
   knowledge: {
-    // 语义检索（RAG 文档侧 knowledge_document）
-    // ⚠️ 后端 /api/ai/knowledge/search 的 q 是**必填**参数，不传会 400
+    // ⚠️ **向量文档侧（RAG）** —— 目前**没有任何视图调用**这三个函数。
+    // 📌 网关把 GET /ai/assistant/knowledge 改写成 GET /api/ai/knowledge/search
+    //    （后端 @RequestParam("q") **必填**，不传 q 会 400）；
+    //    POST 改写到 /api/v1/ai-assistant/knowledge（写 **knowledge_base** 表）；
+    //    DELETE 改写到 /api/ai/knowledge/documents/{id}（删 **knowledge_document** 表）。
+    // ⚠️ **add 和 remove 打的是两张不同的表** —— 这套 API 自身就是不自洽的。
+    //    → 要管理知识库请用下面的 `knowledgeBaseApi`（那张表是自洽的）。
     list:   (params: { q: string; topK?: number }) => request.get<any, any[]>('/ai/assistant/knowledge', { params }),
     add:    (data: any)   => request.post<any, any>('/ai/assistant/knowledge', data),
     remove: (id: string)  => request.delete<any, any>(`/ai/assistant/knowledge/${id}`),
@@ -169,11 +174,13 @@ export const aiAssistantApi = {
 }
 
 /**
- * 知识库管理（问答对，knowledge_base 表）
- * ⚠️ 与上面的 knowledge（RAG 文档）是**两张不同的表**，不要混用：
- *    knowledge        → knowledge_document（向量检索用）
- *    knowledgeBase    → knowledge_base（问答对，聊天检索用的就是这张）
- * 📌 之前这套管理接口前端压根没有页面 → 知识库永远是空的。
+ * 知识库管理（问答对，knowledge_base 表）—— **前端在用的就是这一套**。
+ * 路径全部落在后端 `KnowledgeController` 的 `/api/ai/knowledge` 根下：
+ *    GET    /api/ai/knowledge/base/list        列表
+ *    GET    /api/ai/knowledge/base/categories  分类
+ *    DELETE /api/ai/knowledge/base/{id}        删除
+ *    POST   /api/v1/ai-assistant/knowledge      新增（网关改写，后端 addKnowledge() 落 knowledge_base）
+ * 📌 视图：`views/ai/Assistant.vue` 的「知识库」tab。
  */
 export const knowledgeBaseApi = {
   list: (params: { page?: number; size?: number; category?: string }) =>

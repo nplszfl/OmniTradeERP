@@ -46,6 +46,25 @@ REST 接口本来就可能给外部客户端 / Postman / 第三方调用，
 脚本判断不了「没人调」到底是死代码还是对外 API。
 真要卡，得先在报告里人工确认一遍，再把白名单写进脚本。
 
+## 📌 但「重点结论过期」**不需要** --strict 就报错
+
+上面说的是「疑似死接口」—— 那是**排期 backlog**，脚本判断不了该不该删，
+所以默认 exit 0。
+
+但报告里还有一段**手写**的「重点结论」，它是**提交进仓库的文档**，
+它说的每一句都可能被后续改动推翻。2026-11-04 实测：
+上一版写着「知识库没有任何视图调用」，而上一轮已经把知识库管理页做完了
+→ **文档在骗人，而且没有任何闸门会发现**。
+
+所以结论里用 `<!-- dead: METHOD /path -->` 声明它断言为死的接口，
+脚本**当场核验**：这些接口若已经有调用方 → **结论过期 → 退出码 1**
+（无论有没有 `--strict`）。
+
+📌 **这正是知识库里那条**：
+    「手写清单和自己新写的闸门都会犯同一个错 ——
+      真相来源必须是目录/应用配置本身，不是抄一份列表」
+→ 手写结论也一样：**让结论自己声明断言，由脚本核验**。
+
 ## 📌 这个脚本的黄金标准：能报「我什么都没查到」
 
 如果解析不出任何接口或调用方，脚本会**显式说明**，
@@ -430,6 +449,111 @@ def url_matches_backend(url, backend_path, routes=None, method=None):
 # ---------------------------------------------------------------- 主流程
 
 
+# ==============================================================
+# 「重点结论」—— 手写结论，但**每条断言都由脚本当场核验**
+#
+# 用 `<!-- dead: METHOD /path -->` 声明「我断言它是死接口」，
+# 脚本会核验这些断言是否还成立 → 结论过期会**自动报警**。
+#
+# 📌 为什么不能光靠手写：2026-11-04 实测，上一版写着
+# 「知识库没有任何视图调用」，而上一轮已经做完了 → **文档在骗人**。
+# ==============================================================
+ANALYSIS_LINES = [
+    "## 重点结论（**每条结论都由脚本当场核验**，结论过期会自动报警）",
+    "",
+    "> 📌 这些结论是**手写的**，但**不能信** —— 手写结论会静默过期",
+    "> （2026-11-04 实测：上一版写着「知识库没有任何视图调用」，",
+    ">   结果上一轮已经把知识库管理页做完了 → 文档在骗人）。",
+    "> 所以每条结论后面用 `<!-- dead: <路径> -->` 声明它断言为死的接口，",
+    "> **脚本会当场核验**：这些接口若已经有调用方 → 报告变红并提示结论已过期。",
+    "",
+    "### 1. 知识库：UI 已做完，剩的是 RAG 侧的 ask / stats",
+    "",
+    "上一版这里写着「知识库没有任何视图调用」—— **那已经过期了**：",
+    "上一轮已经把知识库管理页做进 `views/ai/Assistant.vue` 的「知识库」tab",
+    "（`knowledgeBaseApi.list/categories/add/remove` 都在调）。",
+    "",
+    "现在真正还没接的是**知识库问答**的两个接口：",
+    "<!-- dead: POST /api/ai/knowledge/ask -->",
+    "<!-- dead: GET /api/ai/knowledge/stats -->",
+    "",
+    "⚠️ **api 层有个命名陷阱**（不是死接口，但容易踩）：",
+    "`aiAssistantApi.knowledge.list/add/remove` 和 `knowledgeBaseApi.list/add/remove`",
+    "**指向同一批 URL**，但注释声称它们是**两张不同的表**",
+    "（`knowledge_document` vs `knowledge_base`）。",
+    "实际后端 `addKnowledge()` 写的是 `knowledge_base` —— 注释与实现对不上。",
+    "→ 视图里能用的只有 `knowledgeBaseApi` 那一套。",
+    "",
+    "### 2. 一批「后端做完了，UI 一个页面都没有」的功能域",
+    "",
+    "| 域 | 现状 |",
+    "|---|---|",
+    "| 客户跟进 / 分组 / 标签 | 后端 CRUD 全套，前端客户页只有列表+增删改 |",
+    "| 仓库库存作业 | 移库/冻结/解冻/报损/盘点/批次/波次/调拨 —— 前端仓库页只有仓库+库位 |",
+    "| 租户计费 / 用量 / 配额 | 前端租户页只有租户列表 |",
+    "| AI 辅助（意图/情感/统计/batch/health） | 都是「进阶能力」，UI 只有最基础的聊天 |",
+    "",
+    "### 3. 「健康检查」类接口全部未接",
+    "",
+    "`/health` 在多个服务里都有，前端一个都没调 —— 缺一个「系统健康总览」页。",
+    "<!-- dead: GET /api/v1/ai-assistant/health -->",
+    "<!-- dead: GET /api/v1/anomaly/health -->",
+    "<!-- dead: GET /api/v1/inventory-prediction/health -->",
+    "<!-- dead: GET /api/v1/product-description/health -->",
+    "<!-- dead: GET /api/v1/recommend/health -->",
+    "",
+    "### 4. 死路由",
+    "",
+    "`/order/detail/:id` 这条路由没有任何地方导航过去，",
+    "而且它指向的 `views/order/index.vue` 其实是**列表页**（详情是弹窗）。",
+    "",
+]
+
+
+def extract_claims(lines):
+    """从「重点结论」里抽出 `<!-- dead: METHOD /path -->` 形式的断言。
+
+    📌 **为什么要有这个**（2026-11-04 实测）：
+    「重点结论」是**手写的**，而上一版写着「知识库没有任何视图调用」——
+    结果上一轮已经把知识库管理页做完了 → **文档在骗人，而且没人发现**。
+
+    📌 **手写清单和自己新写的闸门都会犯同一个错** ——
+    真相来源必须是**目录/应用配置本身**，不是抄一份列表。
+    → 所以结论里声明的每个「死接口」，脚本都要**当场核验**：
+      若它其实已经有调用方 → 结论已过期 → 报告变红。
+    """
+    claims = []
+    for line in lines:
+        m = re.search(r"<!--\s*dead:\s*(GET|POST|PUT|DELETE|PATCH)\s+(\S+)\s*-->", line)
+        if m:
+            claims.append((m.group(1), m.group(2)))
+    return claims
+
+
+def verify_claims(claims, dead, frontend_used, backend_callers, endpoints):
+    """核验每条「我断言它是死接口」的结论是否还成立。
+
+    返回 [(http, path, 原因)] —— 空的表示全部成立。
+    """
+    dead_keys = {(h, p) for (_m, _j, h, p, _s) in dead}
+    all_endpoints = {(h, p) for (_m, _j, h, p) in endpoints}
+    stale = []
+    for http, path in claims:
+        # 断言的接口得**存在**（否则是凭空写的）
+        if (http, path) not in all_endpoints:
+            stale.append((http, path, "结论里引用的接口在后端已经不存在了"))
+            continue
+        # 断言「它是死的」—— 若它不在死接口清单里，说明已经有调用方了
+        if (http, path) not in dead_keys:
+            reason = "现在已经有调用方了（前端视图 / 其他服务）"
+            for m, url in frontend_used:
+                if m == http and url_matches_backend(url, path, None, m):
+                    reason = f"前端视图已经在调它了（{url}）"
+                    break
+            stale.append((http, path, reason))
+    return stale
+
+
 def write_markdown(dead, endpoints, frontend_used, backend_callers, routes, path):
     """把报告写成 Markdown（可重复生成，提交进仓库当 backlog 用）"""
     lines = [
@@ -458,39 +582,7 @@ def write_markdown(dead, endpoints, frontend_used, backend_callers, routes, path
         "",
         "所以这份清单的价值是**排期用的 backlog**，不是删除清单。",
         "",
-        "## 重点结论（人工分析，随脚本一起维护）",
-        "",
-        "### 1. AI 知识库：后端和 api 层都齐了，但**没有任何视图调用**",
-        "",
-        "`erp-web/src/api/ai.ts` 里 `aiAssistantApi.knowledge.list/add/remove` 三个函数",
-        "都写好了，对应的后端接口（`GET /api/ai/knowledge/search`、",
-        "`POST /api/v1/ai-assistant/knowledge`、`DELETE /api/ai/knowledge/documents/{id}`）",
-        "也都存在且网关改写正确 —— 但 `views/ai/Assistant.vue` **一个都没调**。",
-        "",
-        "后果：RAG 助手的知识库**永远只能靠手工灌**，页面上也看不到一条知识。",
-        "而聊天页的开场白写着「基于 330+ 行业知识库」—— 这个承诺目前落不了地。",
-        "",
-        "⚠️ 另外 `knowledge.list()` 调的是 `/search`，后端 `@RequestParam(\"q\")` 是**必填**",
-        "→ 不传 q 会 400。api 层的语义本身就有坑。",
-        "",
-        "### 2. 一批「后端做完了，UI 一个页面都没有」的功能域",
-        "",
-        "| 域 | 死接口数 | 现状 |",
-        "|---|---|---|",
-        "| 客户跟进 / 分组 / 标签 | 15 | 后端 CRUD 全套，前端客户页只有列表+增删改 |",
-        "| 仓库库存作业 | 10 | 移库/冻结/解冻/报损/盘点/批次/波次/调拨 —— 前端仓库页只有仓库+库位 |",
-        "| 租户计费 / 用量 / 配额 | 17 | 前端租户页只有租户列表 |",
-        "| AI 辅助（意图/情感/统计/batch/health） | 15 | 都是「进阶能力」，UI 只有最基础的聊天 |",
-        "",
-        "### 3. 「健康检查」类接口全部未接",
-        "",
-        "`/health` 在 5 个服务里都有，前端一个都没调 —— 缺一个「系统健康总览」页。",
-        "",
-        "### 4. 死路由",
-        "",
-        "`/order/detail/:id` 这条路由没有任何地方导航过去，",
-        "而且它指向的 `views/order/index.vue` 其实是**列表页**（详情是弹窗）。",
-        "",
+        *ANALYSIS_LINES,
         "## 清单",
         "",
     ]
@@ -509,6 +601,7 @@ def write_markdown(dead, endpoints, frontend_used, backend_callers, routes, path
         lines.append("")
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"已写入 {path}")
+    return lines
 
 
 def main():
@@ -577,8 +670,34 @@ def main():
     print("📌 说明：REST 接口也可能给外部客户端/第三方用，")
     print("   上面这批需要**人工确认**后再决定是删、是接、还是加白名单。")
 
+    # 📌 **核验「重点结论」是否已过期** ——
+    #    手写结论会静默过期（2026-11-04 实测：上一版说「知识库没有任何视图调用」，
+    #    结果上一轮已经做完了 → 文档在骗人）。
+    #    → 结论里用 `<!-- dead: METHOD /path -->` 声明它断言为死的接口，
+    #      这里**当场核验**：若这些接口已经有调用方 → 结论过期 → 报告变红。
+    claims = extract_claims(ANALYSIS_LINES)
+    stale = verify_claims(claims, dead, frontend_used, backend_callers, endpoints)
+
     if md:
         write_markdown(dead, endpoints, frontend_used, backend_callers, routes, ROOT / md)
+
+    if stale:
+        print(f"\n❌ 「重点结论」已过期（{len(stale)} 条断言不再成立）:")
+        for http, pth, reason in stale:
+            print(f"   - {http} {pth}")
+            print(f"       {reason}")
+        print()
+        print("   📌 手写结论会静默过期 —— 请同步更新 scripts/check-dead-endpoints.py")
+        print("      里的「重点结论」段落（并更新它声明的 `<!-- dead: ... -->` 断言）。")
+        # 📌 **过期结论必须让脚本失败**（即使没加 --strict）——
+        #    「疑似死接口」是**排期 backlog**（REST 接口可能给外部客户端用，
+        #    脚本判断不了该不该删）→ 保持 advisory，exit 0。
+        #    但「重点结论」是**提交进仓库的文档**，
+        #    它说错话 = 文档在骗人 → **必须红**。
+        #    📌 2026-11-04 实测：上一版结论「知识库没有任何视图调用」，
+        #       而上一轮已经把页面做完了 —— 没人发现，因为没人核验。
+        print(f"\n退出码 1：{len(stale)} 条「重点结论」已过期（文档在骗人）")
+        return 1
 
     if strict:
         print(f"\n退出码 1：{len(dead)} 个疑似死接口")
