@@ -148,7 +148,14 @@ INSERT INTO product (product_code, product_name, cost_price, selling_price, sku)
 ('PROD-002', '智能手表', 150.00, 220.00, 'SKU-WAT-002'),
 ('PROD-003', 'USB充电器', 20.00, 35.00, 'SKU-USB-003'),
 ('PROD-004', '手机支架', 15.00, 28.00, 'SKU-STN-004'),
-('PROD-005', '便携充电宝', 60.00, 95.00, 'SKU-PWB-005');
+('PROD-005', '便携充电宝', 60.00, 95.00, 'SKU-PWB-005')
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    product_name = VALUES(product_name), cost_price = VALUES(cost_price),
+    selling_price = VALUES(selling_price), sku = VALUES(sku);
 
 -- 插入示例库存数据
 INSERT INTO inventory (product_id, warehouse_id, quantity, safety_stock, available_quantity) VALUES
@@ -156,7 +163,14 @@ INSERT INTO inventory (product_id, warehouse_id, quantity, safety_stock, availab
 (2, 1, 80, 60, 80),
 (3, 1, 300, 200, 300),
 (4, 1, 250, 180, 250),
-(5, 1, 120, 90, 120);
+(5, 1, 120, 90, 120)
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    quantity = VALUES(quantity), safety_stock = VALUES(safety_stock),
+    available_quantity = VALUES(available_quantity);
 
 -- 插入示例销售历史（过去90天）
 INSERT INTO sales_history (product_id, sales_date, sales_quantity, sales_amount, order_count)
@@ -170,7 +184,16 @@ FROM (
     SELECT 0 as n UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION 
     SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9
 ) n
-WHERE DATE_SUB(CURDATE(), INTERVAL n DAY) >= DATE_SUB(CURDATE(), INTERVAL 89 DAY);
+WHERE DATE_SUB(CURDATE(), INTERVAL n DAY) >= DATE_SUB(CURDATE(), INTERVAL 89 DAY)
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    sales_quantity = VALUES(sales_quantity), sales_amount = VALUES(sales_amount),
+    order_count = VALUES(order_count);
+-- 📌 这里的数据用 RAND() 生成 → 重跑数值会变，但**行数不会翻倍**
+-- （唯一键 (product_id, sales_date) 挡住了）。
 
 -- 查看数据
 SELECT '数据库初始化完成！' AS message;

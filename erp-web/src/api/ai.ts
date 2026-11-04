@@ -193,7 +193,12 @@ export const knowledgeBaseApi = {
   /**
    * 知识库统计（总条数 / 启用条数 / 分类分布）。
    * 📌 聊天页开场白的「基于 N 条行业知识库」用的是这个 **activeCount** ——
-   *    写死数字会和真实数据脱节（曾经写死「330+」，实际只有 6 条）。
+   *    写死数字会和真实数据脱节（曾经写死「330+」，实际只有 31 条）。
+   * 📌📌 **口径必须与聊天检索一致**（2026-11-04 修）：
+   *    这个接口统计的是 **knowledge_base 表**（= 聊天检索 + 本页签管理的表）。
+   *    原来后端返回的是 knowledge_document（向量文档，5 条）→
+   *    开场白说 5、页签列 31 → **界面自相矛盾**。
+   *    向量文档侧的统计另开 `/ai/knowledge/documents/stats`，不混用。
    */
   stats: () => request.get<any, {
     totalCount: number

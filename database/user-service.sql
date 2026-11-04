@@ -155,7 +155,14 @@ INSERT INTO `t_role` (`id`, `role_code`, `role_name`, `description`, `status`, `
 (2, 'OPS_ADMIN',    '运营管理员', '负责日常运营，订单/商品/库存', 1, 2),
 (3, 'FINANCE',      '财务人员',   '查看财务报表、处理结算',      1, 3),
 (4, 'WAREHOUSE',    '仓库管理员', '负责出入库、库存盘点',        1, 4),
-(5, 'CUSTOMER_SERVICE', '客服人员', '处理客户问题与售后',      1, 5);
+(5, 'CUSTOMER_SERVICE', '客服人员', '处理客户问题与售后',      1, 5)
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    role_name = VALUES(role_name), description = VALUES(description),
+    status = VALUES(status), sort_order = VALUES(sort_order);
 
 -- 密码 admin123（BCrypt）
 INSERT INTO `t_user` (`id`, `username`, `password`, `real_name`, `email`, `phone`, `status`, `last_login_time`) VALUES
@@ -163,17 +170,46 @@ INSERT INTO `t_user` (`id`, `username`, `password`, `real_name`, `email`, `phone
 (2, 'ops001',     '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '张运营',    'ops001@crossborder.com',   '13800138001', 1, NOW()),
 (3, 'finance001', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '李财务',    'finance001@crossborder.com','13800138002', 1, NOW()),
 (4, 'wh001',      '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '王仓管',    'wh001@crossborder.com',    '13800138003', 1, NOW()),
-(5, 'cs001',      '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '赵客服',    'cs001@crossborder.com',   '13800138004', 1, NOW());
+(5, 'cs001',      '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '赵客服',    'cs001@crossborder.com',   '13800138004', 1, NOW())
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    real_name = VALUES(real_name), email = VALUES(email), phone = VALUES(phone),
+    status = VALUES(status);
+-- 📌 **password 不更新** —— 管理员改过密码后，重跑不该把它打回默认值。
+-- 📌 **last_login_time 不更新** —— 那是运行时状态。
 
 INSERT INTO `t_user_role` (`id`, `user_id`, `role_id`) VALUES
-(1, 1, 1),(2, 2, 2),(3, 3, 3),(4, 4, 4),(5, 5, 5);
+(1, 1, 1),(2, 2, 2),(3, 3, 3),(4, 4, 4),(5, 5, 5)
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    role_id = VALUES(role_id);
 
 INSERT INTO `t_department` (`id`, `dept_code`, `dept_name`, `parent_id`, `leader`, `phone`, `email`, `sort_order`, `status`) VALUES
 (1, 'HQ',       '总公司',   0, '黄辉翔', '13800138000', 'hq@crossborder.com',       1, 1),
 (2, 'OPS',      '运营部',   1, '张运营',  '13800138001', 'ops@crossborder.com',      2, 1),
 (3, 'FIN',      '财务部',   1, '李财务',  '13800138002', 'fin@crossborder.com',      3, 1),
 (4, 'WH',       '仓储部',   1, '王仓管',  '13800138003', 'wh@crossborder.com',       4, 1),
-(5, 'CS',       '客服部',   1, '赵客服',  '13800138004', 'cs@crossborder.com',       5, 1);
+(5, 'CS',       '客服部',   1, '赵客服',  '13800138004', 'cs@crossborder.com',       5, 1)
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    dept_name = VALUES(dept_name), parent_id = VALUES(parent_id),
+    leader = VALUES(leader), phone = VALUES(phone), email = VALUES(email),
+    sort_order = VALUES(sort_order), status = VALUES(status);
 
 INSERT INTO `t_user_department` (`id`, `user_id`, `department_id`) VALUES
-(1, 1, 1),(2, 2, 2),(3, 3, 3),(4, 4, 4),(5, 5, 5);
+(1, 1, 1),(2, 2, 2),(3, 3, 3),(4, 4, 4),(5, 5, 5)
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    department_id = VALUES(department_id);

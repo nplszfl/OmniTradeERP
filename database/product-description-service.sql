@@ -43,8 +43,27 @@ CREATE TABLE IF NOT EXISTS product_description (
     INDEX idx_platform (platform),
     INDEX idx_status (status),
     INDEX idx_version_number (version_number),
-    FULLTEXT idx_content (content)
+    FULLTEXT idx_content (content),
+    -- 📌 **自然唯一键**（2026-11-04 加）：
+    --    描述是**反复生成**的（A/B 测试会反复跑）→ 没有唯一键 → 每次多几行。
+    UNIQUE KEY uk_pd_product_lang_platform (product_id, language, platform)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='产品描述表';
+
+-- 📌 先删掉已有的完全重复行，再加唯一键（老库可能已攒了重复行）
+DELETE pd1 FROM product_description pd1
+  JOIN product_description pd2
+    ON pd1.product_id = pd2.product_id
+   AND pd1.language = pd2.language
+   AND pd1.platform = pd2.platform
+   AND pd1.id > pd2.id;
+
+SET @uk_pd := (SELECT COUNT(*) FROM information_schema.STATISTICS
+               WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_description'
+                 AND INDEX_NAME = 'uk_pd_product_lang_platform');
+SET @sql := IF(@uk_pd = 0,
+    'ALTER TABLE product_description ADD UNIQUE KEY uk_pd_product_lang_platform (product_id, language, platform)',
+    'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- SEO优化结果表
 CREATE TABLE IF NOT EXISTS seo_optimization (
@@ -160,13 +179,29 @@ INSERT INTO description_template (template_id, name, platform, language, templat
 
 ('general_template', '通用产品模板', 'general', 'zh',
  '产品名称：【产品名称】\n\n产品介绍：\n{产品介绍}\n\n产品特点：\n{产品特性}\n\n适用场景：\n{适用场景}',
- '["产品名称", "产品介绍", "产品特性", "适用场景"]', 2500, 1);
+ '["产品名称", "产品介绍", "产品特性", "适用场景"]', 2500, 1)
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name), platform = VALUES(platform), language = VALUES(language),
+    template_content = VALUES(template_content), variables = VALUES(variables),
+    max_length = VALUES(max_length), enabled = VALUES(enabled);
 
 -- 插入示例产品描述
 INSERT INTO product_description (product_id, product_name, content, language, platform, short_title, status) VALUES
 (1, '无线蓝牙耳机', '【无线蓝牙耳机】\n\n产品特点：\n1. 高保真音质\n2. 长续航时间\n3. 舒适佩戴体验\n4. 快速连接\n\n这是一个无线蓝牙耳机，具有优秀的音质和舒适的佩戴体验，是您日常生活和工作的理想选择。', 'zh', 'Amazon', '无线蓝牙耳机-高保真音质', 'GENERATED'),
 (2, '智能手表', '【智能手表】\n\n产品特点：\n1. 健康监测\n2. 运动追踪\n3. 消息提醒\n4. 长续航\n\n这是一款智能手表，功能全面，续航持久，是您健康生活的智能助手。', 'zh', 'Amazon', '智能手表-健康生活助手', 'GENERATED'),
-(3, '便携充电宝', '【便携充电宝】\n\n产品特点：\n1. 大容量\n2. 快速充电\n3. 多设备同时充\n4. 安全可靠\n\n这是一款便携充电宝，容量大，充电快，是您出门在外的必备神器。', 'zh', 'Amazon', '便携充电宝-随身电源', 'GENERATED');
+(3, '便携充电宝', '【便携充电宝】\n\n产品特点：\n1. 大容量\n2. 快速充电\n3. 多设备同时充\n4. 安全可靠\n\n这是一款便携充电宝，容量大，充电快，是您出门在外的必备神器。', 'zh', 'Amazon', '便携充电宝-随身电源', 'GENERATED')
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    product_name = VALUES(product_name), content = VALUES(content),
+    language = VALUES(language), platform = VALUES(platform),
+    short_title = VALUES(short_title), status = VALUES(status);
 
 -- 查看数据
 SELECT '数据库初始化完成！' AS message;

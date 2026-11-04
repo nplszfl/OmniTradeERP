@@ -317,6 +317,7 @@ erp-supplier-service、erp-tenant-service
 | `delete` | `Delete /api/ai/knowledge/documents/{id}` | `ResponseEntity<Boolean>` | ❌ **裸类型** |
 | `search` | `Get /api/ai/knowledge/search` | `ResponseEntity<List<RetrievalResult>>` | ❌ **裸类型** |
 | `stats` | `Get /api/ai/knowledge/stats` | `ResponseEntity<KnowledgeStats>` | ❌ **裸类型** |
+| `documentStats` | `Get /api/ai/knowledge/documents/stats` | `ResponseEntity<KnowledgeStats>` | ❌ **裸类型** |
 
 #### erp-analytics-service — 21 个接口（其中裸类型 **21** 个）
 

@@ -197,6 +197,8 @@ def parse_file(path):
     events = []                   # [(kind, table)] kind ∈ insert/ddl/drop
     drops = []                    # [(table, 是否有 IF EXISTS)]
     fks = []                      # [(constraint, 父表, 子表)]
+    unique_keys = {}              # 表名 -> [唯一键列]（不含自增 id）
+    unprotected = []              # [(表名, 唯一键列, 是否有保护)] —— 无保护的 INSERT
 
     for stmt in split_statements(text):
         s = stmt.strip()
@@ -234,6 +236,23 @@ def parse_file(path):
             if body:
                 key = f"{cur_db}.{cm.group(1)}" if cur_db else cm.group(1)
                 ddl_body[key] = " ".join(body.group(1).split())
+                # 📌 收集**唯一键列**（表级 UNIQUE KEY / 行内 UNIQUE / 非自增主键）
+                #    —— 用于检查「同文件重跑会不会 1062 腰斩」
+                uk = []
+                for km in re.finditer(r"UNIQUE\s+(?:KEY|INDEX)\s+`?\w+`?\s*\(([^)]*)\)",
+                                      body.group(1), re.I):
+                    uk += [c.strip().strip("`").split("(")[0].strip()
+                           for c in km.group(1).split(",")]
+                for cm2 in re.finditer(
+                        r"^\s*`?(\w+)`?\s+[\w()]+(?:\s+NOT\s+NULL)?\s+UNIQUE\b",
+                        body.group(1), re.M | re.I):
+                    uk.append(cm2.group(1))
+                # 主键：只有**不是自增**的才算（自增 id 不由 INSERT 指定 → 不会冲突）
+                for pm in re.finditer(r"PRIMARY\s+KEY\s*\(([^)]*)\)", body.group(1), re.I):
+                    pk = [c.strip().strip("`") for c in pm.group(1).split(",")]
+                    if not re.search(r"AUTO_INCREMENT", body.group(1), re.I):
+                        uk += pk
+                unique_keys[key] = list(dict.fromkeys(uk))
 
         # INSERT INTO ...
         im = re.match(r"INSERT\s+(IGNORE\s+)?INTO\s+`?([A-Za-z0-9_]+)`?\s*\(([^)]*)\)", s, re.I | re.S)
@@ -244,11 +263,25 @@ def parse_file(path):
         cols = [c.strip().strip("`") for c in im.group(3).split(",")]
         full = f"{cur_db}.{table}" if cur_db else table
         events.append(("insert", full))
+        protected = "ON DUPLICATE KEY" in s.upper() or ignore_flag
+
+        # 📌 **本文件重跑会不会腰斩**：
+        #    表上有唯一键，且这条 INSERT 会写到那些列 → 重跑必撞 1062
+        #    → **整个 init 脚本被腰斩**（后面的种子文件一个都不执行，容器却照样起来）
+        #
+        # 📌 **这段必须放在 `if "id" not in cols: continue` 之前** ——
+        #    很多表的 INSERT **根本不写 id**（自增），
+        #    放后面就会被那个 continue 跳过 → **这类表永远查不出来**（漏报）。
+        uk_cols = unique_keys.get(full, [])
+        if uk_cols and not protected:
+            # 只有当 INSERT **真的提供了**唯一键列的值时才会冲突
+            hit = [c for c in uk_cols if c in cols]
+            if hit:
+                unprotected.append((full, hit))
+
         if "id" not in cols:
             continue
         id_pos = cols.index("id")
-
-        protected = "ON DUPLICATE KEY" in s.upper() or ignore_flag
 
         # 提取所有值元组
         body = s.split("VALUES", 1)[1] if "VALUES" in s.upper() else ""
@@ -266,7 +299,7 @@ def parse_file(path):
             key = int(raw_id) if raw_id.isdigit() else raw_id.lower()
             inserts[full].append((key, protected))
 
-    return inserts, owns, events, drops, fks, ddl_body
+    return inserts, owns, events, drops, fks, ddl_body, unique_keys, unprotected
 
 
 def _ff_of(fname, all_fks, constraint):
@@ -301,7 +334,7 @@ def main():
     # 同一张表被多个文件插入 → 主键交集 → 后执行的那份必须带保护
     by_table = defaultdict(list)   # table -> [(file, {id: protected})]
     for f in files:
-        inserts, _, _, _, _, _ = parsed[f]
+        inserts, _, _, _, _, _, _, _ = parsed[f]
         for tbl, rows in inserts.items():
             ids = defaultdict(bool)
             for i, prot in rows:
@@ -339,8 +372,8 @@ def main():
     for i in range(len(files)):
         for j in range(i + 1, len(files)):
             f_early, f_late = files[i], files[j]
-            inserts_early, _, _, _, _, _ = parsed[f_early]
-            _, owns_late, _, _, _, _ = parsed[f_late]
+            inserts_early, _, _, _, _, _, _, _ = parsed[f_early]
+            _, owns_late, _, _, _, _, _, _ = parsed[f_late]
             for tbl in inserts_early:
                 if tbl in owns_late:
                     errors.append(
@@ -357,7 +390,7 @@ def main():
     #    seed-tenant.sql 开头自带 DROP TABLE tenants + CREATE TABLE tenants，
     #    如果这个 DROP+CREATE 出现在 INSERT **之后** → 刚插的数据被清空。
     for f in files:
-        _, _, events, _, _, _ = parsed[f]
+        _, _, events, _, _, _, _, _ = parsed[f]
         seen_insert = set()
         for kind, tbl in events:
             if kind == "insert":
@@ -385,12 +418,12 @@ def main():
     #         的粗判，宁可多报也不漏报。）
     all_fks = []
     for f in files:
-        _, _, _, _, fks, _ = parsed[f]
+        _, _, _, _, fks, _, _, _ = parsed[f]
         for c, parent, child in fks:
             all_fks.append((f, c, parent, child))
 
     for f in files:
-        _, _, _, drops, _, _ = parsed[f]
+        _, _, _, drops, _, _, _, _ = parsed[f]
         for tbl, has_if_exists in drops:
             refs = [(c, child) for (_ff, c, parent, child) in all_fks if parent == tbl]
             if not refs:
@@ -428,7 +461,7 @@ def main():
     #    📌 为什么巡检脚本能查出来：两份 DDL 都在 database/*.sql 里，静态可解析。
     owner_map = defaultdict(list)
     for f in files:
-        _, owns, _, _, _, _ = parsed[f]
+        _, owns, _, _, _, _, _, _ = parsed[f]
         for tbl in owns:
             owner_map[tbl].append(f)
 
@@ -489,8 +522,33 @@ def main():
             f"      → 应把两份 DDL 改成**逐字一致**（或只保留一份）"
         )
 
+    # ── 检查 3：同文件重跑会不会被 1062 腰斩 ────────────────────────────
+    # 📌 **为什么要单独查**（2026-11-04 实测踩到）：
+    #    原有检查只覆盖「**多个文件**插同一张表」的主键交集，
+    #    **完全没管「同一个文件自己重跑」** →
+    #    表上有 UNIQUE 约束、INSERT 又没写 ON DUPLICATE KEY UPDATE
+    #    → 第二次跑这个 init 文件 → ERROR 1062 → **整个文件被腰斩**
+    #    → 排在它后面的语句（这个文件里的**后面几句**）全都不执行
+    #    → 而容器照样起来 → **静默失败**（规则 37）。
+    #
+    #    实测踩到过 20 处（ai-assistant / finance / user / init /
+    #    inventory-prediction / pricing / product-description 七个文件）。
+    for f in files:
+        unprot = parsed[f][7]
+        for tbl, uk_cols in unprot:
+            errors.append(
+                f"🔴 同文件重跑会撞唯一键 → **ERROR 1062 → 这个 init 文件被腰斩**\n"
+                f"      文件：{execution_name(f)}\n"
+                f"      表  ：{tbl}\n"
+                f"      唯一键列：{', '.join(uk_cols)}\n"
+                f"      → 这条 INSERT 没写 `ON DUPLICATE KEY UPDATE`（也没写 INSERT IGNORE）\n"
+                f"      → 第二次初始化时它报错 → **这个文件后面的语句全都不执行**\n"
+                f"      → 而容器照样起来 → **静默失败**（后面那些种子表看起来是空的）\n"
+                f"      → 修法：给这条 INSERT 补 `ON DUPLICATE KEY UPDATE ...`"
+            )
+
     # ── 报告 ──────────────────────────────────────────────────────────
-    total_ins = sum(len(rows) for ins, _, _, _, _, _ in parsed.values() for rows in ins.values())
+    total_ins = sum(len(rows) for ins, _, _, _, _, _, _, _ in parsed.values() for rows in ins.values())
     print(f"📋 按实际执行顺序检查 {len(files)} 个 .sql 文件，{total_ins} 条 INSERT\n")
 
     if infos:
@@ -505,6 +563,7 @@ def main():
             print()
         print("提示：")
         print("  · 同表重复插入 → 加 ON DUPLICATE KEY UPDATE（或 INSERT IGNORE）")
+        print("  · 同文件重跑撞唯一键 → 给那条 INSERT 加 ON DUPLICATE KEY UPDATE")
         print("  · DDL 属主在种子之后 → 给种子文件加 zz- 前缀（强制排到最后）")
         print("  · 同文件内先插后建表 → 把 DROP+CREATE 提到所有 INSERT 之前")
         print("  · 改完必须用 scripts/start-audit-mysql.sh 做一次**全新初始化**验证")

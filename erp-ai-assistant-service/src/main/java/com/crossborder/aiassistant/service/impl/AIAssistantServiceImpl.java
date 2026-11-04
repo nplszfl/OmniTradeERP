@@ -76,7 +76,7 @@ public class AIAssistantServiceImpl implements AIAssistantService {
      *
      * 📌 原来是 {@code private final List<Knowledge> knowledgeBase = new ArrayList<>();}，
      *    注释直接写着「模拟知识库」。后果：
-     *    · 数据库 knowledge_base 表里的种子数据（6 条）**从来没人读**；
+     *    · 数据库 knowledge_base 表里的种子数据**从来没人读**；
      *    · 通过接口新增的知识**重启就丢**；
      *    · 前端没有管理入口 → 知识库永远只有代码里硬编码的 4 条。
      *    现在改成读写真实表，聊天检索和前端管理用的是同一份数据。

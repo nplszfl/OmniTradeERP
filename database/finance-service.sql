@@ -117,7 +117,15 @@ CREATE TABLE fin_statistics (
 INSERT INTO fin_account (account_no, name, code, account_type, currency, balance, status, remark)
 VALUES
     ('ACC202601010001', '现金账户', 'CASH001', 'CASH', 'USD', 0.00, 'ACTIVE', '默认现金账户'),
-    ('ACC202601010002', '银行账户', 'BANK001', 'BANK', 'USD', 0.00, 'ACTIVE', '默认银行账户');
+    ('ACC202601010002', '银行账户', 'BANK001', 'BANK', 'USD', 0.00, 'ACTIVE', '默认银行账户')
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    code = VALUES(code), account_type = VALUES(account_type), currency = VALUES(currency),
+    status = VALUES(status), remark = VALUES(remark);
+-- 📌 **balance 不更新** —— 那是运行时累积的余额，重跑不该把它清零。
 
 INSERT INTO fin_category (name, type, parent_id, sort_order, enabled)
 VALUES
@@ -125,4 +133,11 @@ VALUES
     ('其他收入', 'INCOME', NULL, 2, 1),
     ('采购支出', 'EXPENSE', NULL, 1, 1),
     ('物流费用', 'EXPENSE', NULL, 2, 1),
-    ('广告推广', 'EXPENSE', NULL, 3, 1);
+    ('广告推广', 'EXPENSE', NULL, 3, 1)
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    type = VALUES(type), parent_id = VALUES(parent_id),
+    sort_order = VALUES(sort_order), enabled = VALUES(enabled);

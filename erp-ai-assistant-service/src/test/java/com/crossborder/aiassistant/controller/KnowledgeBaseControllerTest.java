@@ -15,11 +15,15 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -34,11 +38,13 @@ class KnowledgeBaseControllerTest {
 
     private KnowledgeController controller;
     private KnowledgeBaseRepository repository;
+    private RAGService ragService;
 
     @BeforeEach
     void setUp() {
         repository = mock(KnowledgeBaseRepository.class);
-        controller = new KnowledgeController(mock(RAGService.class), repository);
+        ragService = mock(RAGService.class);
+        controller = new KnowledgeController(ragService, repository);
     }
 
     private KnowledgeBase item(long id, String category) {
@@ -110,5 +116,67 @@ class KnowledgeBaseControllerTest {
         Boolean ok = controller.deleteBase(404L).getBody();
 
         assertFalse(ok);
+    }
+
+    // ---------- stats ----------
+
+    /**
+     * 📌 **2026-11-04 修的口径缺陷**（界面自相矛盾）。
+     *
+     * <p>聊天页开场白写「基于 N 条行业知识库」，N 来自本接口；
+     * 而聊天实际检索走的是 {@code knowledge_base}（{@code searchKnowledge()} →
+     * {@code knowledgeBaseRepository.findByActiveTrue()}）。
+     *
+     * <p>原来本接口返回的是 {@code knowledge_document}（<b>另一张表</b>）的条数
+     * → 开场白说 5、知识库页签列 31 → <b>同一个页面上自相矛盾</b>。
+     *
+     * <p>→ 现在本接口必须统计 {@code knowledge_base}。
+     */
+    @Test
+    @DisplayName("stats 统计 knowledge_base（聊天实际检索的那张表），不是向量文档表")
+    void statsCountsKnowledgeBaseTable() {
+        when(repository.findAll()).thenReturn(List.of(
+                item(1L, "订单"), item(2L, "订单"), item(3L, "物流")));
+
+        var stats = controller.stats().getBody();
+
+        assertEquals(3L, stats.getTotalCount());
+        assertEquals(3L, stats.getActiveCount());
+        assertEquals(2L, stats.getCategoryCount().get("订单"));
+        assertEquals(1L, stats.getCategoryCount().get("物流"));
+        // 📌 **不能碰 knowledge_document**：那是向量文档表，不是「行业知识库」
+        verify(repository).findAll();
+        verifyNoMoreInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("stats 的 activeCount 只算启用条目（与检索的 findByActiveTrue 口径一致）")
+    void statsActiveCountExcludesInactive() {
+        KnowledgeBase disabled = item(9L, "物流");
+        disabled.setActive(false);
+        when(repository.findAll()).thenReturn(List.of(item(1L, "订单"), disabled));
+
+        var stats = controller.stats().getBody();
+
+        assertEquals(2L, stats.getTotalCount());
+        assertEquals(1L, stats.getActiveCount());
+        // 停用的条目不计入分类/语言分布
+        assertEquals(1L, stats.getCategoryCount().get("订单"));
+        assertNull(stats.getCategoryCount().get("物流"));
+    }
+
+    @Test
+    @DisplayName("向量文档统计是另一个接口（口径写在 URL 上，不与知识库统计混用）")
+    void documentStatsIsSeparateEndpoint() {
+        var docStats = com.crossborder.aiassistant.dto.KnowledgeStats.builder()
+                .totalCount(5L).activeCount(5L).build();
+        when(ragService.stats()).thenReturn(docStats);
+
+        var stats = controller.documentStats().getBody();
+
+        assertNotNull(stats);
+        assertEquals(5L, stats.getActiveCount());
+        // 📌 本接口走 RAGService（knowledge_document），**不碰** knowledgeBaseRepository
+        verifyNoInteractions(repository);
     }
 }

@@ -513,13 +513,25 @@ CREATE TABLE `t_platform_config` (
 INSERT INTO `t_platform_config`
 (`id`, `platform`, `shop_id`, `shop_name`, `api_key`, `api_secret`, `status`)
 VALUES
-(1, 'amazon', 'US001', '美国亚马逊店铺', 'test_api_key', 'test_api_secret', 1);
+(1, 'amazon', 'US001', '美国亚马逊店铺', 'test_api_key', 'test_api_secret', 1)
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    shop_name = VALUES(shop_name), status = VALUES(status);
 
 -- 插入测试数据 - Shopee配置
 INSERT INTO `t_platform_config`
 (`id`, `platform`, `shop_id`, `shop_name`, `api_key`, `api_secret`, `status`)
 VALUES
-(2, 'shopee', 'MY001', '马来西亚Shopee店铺', 'test_api_key', 'test_api_secret', 1);
+(2, 'shopee', 'MY001', '马来西亚Shopee店铺', 'test_api_key', 'test_api_secret', 1)
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    shop_name = VALUES(shop_name), status = VALUES(status);
 
 -- 订单同步日志表
 DROP TABLE IF EXISTS `t_sync_log`;

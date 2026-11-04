@@ -193,6 +193,22 @@ jobs:
     - name: 静默失败（catch 空 / 吞异常 / return null）
       run: python3 scripts/check-silent-failures.py
 
+    # 📌 **统计口径一致性**（同一个页面上「说 N 条」和「列出 N 条」必须同一张表）
+    #    📌 **为什么需要它**：
+    #       2026-11-04 在 AI 客服模块抓到一个真缺陷：
+    #         `GET /api/ai/knowledge/stats` 返回的是 `knowledge_document` 表的条数（5），
+    #         而**同一个页面**的知识库列表列的是 `knowledge_base` 表（31），
+    #         聊天真正检索的也是那 31 条
+    #         → 开场白说「基于 5 条行业知识库」、页签却列 31 条 → **界面自相矛盾**。
+    #       而单测全绿、接口通着、页面能开 —— **没有一道现有闸门能发现它**。
+    #    📌 判据：**前端视图文件**为功能域边界（不是 api 命名空间 ——
+    #       一个命名空间常打包多个不相干功能，按它分组会满屏假阳性）；
+    #       「条数接口数的那张表」必须在「该页面某个列表接口」里出现。
+    #    📌 已用**反向验证**确认它真的会红：
+    #       把 `stats()` 改回 `ragService.stats()` → 闸门报错 → 还原 → 变绿。
+    - name: 统计口径一致性（条数 ↔ 列表 同一张表）
+      run: python3 scripts/check-stat-source-consistency.py --strict
+
     - name: DDL 挂载（database/*.sql 有没有进 docker-compose 的 init 目录）
       run: python3 scripts/check-db-schema-provision.py
 

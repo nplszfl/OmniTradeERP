@@ -210,9 +210,23 @@ def controller_endpoints(module):
 
 
 # 每个服务：后端接口 → 是否有网关路由能把它送到
-def gateway_can_reach(service, backend_path):
-    """后端接口路径是否能被网关的某条路由送到（转发后路径要对得上）"""
+def gateway_can_reach(service, backend_path, method):
+    """后端接口路径**+方法** 是否能被网关的某条路由送到。
+
+    📌 **Method 谓词必须参与判断**（2026-11-04 修）：
+    实测漏报案例 ——
+      路由 `ai-knowledge-delete`：Method=DELETE, Path=/api/ai/assistant/knowledge/**
+        → RewritePath 到 /api/ai/knowledge/documents/${id}
+      → 它的 target prefix 是 `/api/ai/knowledge/documents`
+      → 只比 prefix 的话，`POST /api/ai/knowledge/documents` 被误判为「可达」
+      → **实际上那条路由只允许 DELETE，POST 会 405**
+    → 前端方向我已经踩过这个坑（POST 匹配到 Method=GET 那条路由），
+      后端方向**同一个坑**又踩了一次 —— 同一个语义要检查两遍，容易只改一处。
+    """
     for r in service_routes.get(service, []):
+        route_method = r.get("method")
+        if route_method and route_method != method:
+            continue
         for p in route_paths(r):
             prefix = target_prefix(r, p)
             if not prefix:
@@ -342,7 +356,7 @@ for module in sorted(service_routes.keys()):
     if not endpoints:
         continue
     for m_method, m_path in endpoints:
-        if not gateway_can_reach(module, m_path):
+        if not gateway_can_reach(module, m_path, m_method):
             unreachable_backend.append((module, m_method, m_path))
 
 if not problems:

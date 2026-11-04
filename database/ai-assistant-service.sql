@@ -70,8 +70,22 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
     INDEX idx_category (category),
     INDEX idx_language (language),
     INDEX idx_active (active),
-    FULLTEXT idx_question_answer (question, answer)
+    FULLTEXT idx_question_answer (question, answer),
+    -- 📌 **自然唯一键**（2026-11-04 加）：
+    --    没有它 → 本文件的 INSERT **重跑会静默翻倍**（知识库条数从 31 变 62、124…）
+    --    → 而聊天页开场白显示的就是这个条数 → **界面开始说假话**（规则 19）。
+    --    有了它 → `ON DUPLICATE KEY UPDATE` 才能生效 → 重跑得到同一份数据。
+    UNIQUE KEY uk_kb_category_question (category, question(191))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库表';
+
+-- 📌 **给已存在的表补唯一键**（`CREATE TABLE IF NOT EXISTS` 不会改已存在的表）
+SET @uk_kb := (SELECT COUNT(*) FROM information_schema.STATISTICS
+               WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'knowledge_base'
+                 AND INDEX_NAME = 'uk_kb_category_question');
+SET @sql := IF(@uk_kb = 0,
+    'ALTER TABLE knowledge_base ADD UNIQUE KEY uk_kb_category_question (category, question(191))',
+    'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 意图识别历史表
 CREATE TABLE IF NOT EXISTS intent_recognition_log (
@@ -151,8 +165,20 @@ CREATE TABLE IF NOT EXISTS knowledge_document (
     INDEX idx_category (category),
     INDEX idx_language (language),
     INDEX idx_active (active),
-    INDEX idx_kd_title (title)
+    INDEX idx_kd_title (title),
+    -- 📌 **自然唯一键**（2026-11-04 加）：
+    --    没有它 → 本文件的 INSERT **重跑会静默翻倍**（向量文档从 5 变 10、15…）。
+    UNIQUE KEY uk_kd_title (title)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库文档表（RAG）';
+
+-- 📌 **给已存在的表补唯一键**（`CREATE TABLE IF NOT EXISTS` 不会改已存在的表）
+SET @uk_kd := (SELECT COUNT(*) FROM information_schema.STATISTICS
+               WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'knowledge_document'
+                 AND INDEX_NAME = 'uk_kd_title');
+SET @sql := IF(@uk_kd = 0,
+    'ALTER TABLE knowledge_document ADD UNIQUE KEY uk_kd_title (title)',
+    'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 插入示例文档（让检索接口一上来就有东西可查）
 INSERT INTO knowledge_document (title, content, category, tags, language, active) VALUES
@@ -160,13 +186,21 @@ INSERT INTO knowledge_document (title, content, category, tags, language, active
 ('物流时效说明', '一般情况下国内订单 1-3 天送达，国际订单 7-15 天。具体时效取决于物流方式与承运商。', '物流', '物流,时效,配送', 'zh', 1),
 ('产品售后政策', '如果产品有质量问题，请在收到货 7 天内申请售后，我们会安排退换货。', '产品', '售后,质量,退换货', 'zh', 1),
 ('价格变动规则', '产品价格会根据市场情况动态调整，系统会自动优化定价策略。您可以在产品详情页查看价格历史。', '价格', '价格,变动,策略', 'zh', 1),
-('库存与补货', '您可以在库存管理页面查看所有产品的库存状态，包括当前库存、安全库存、预计到货时间等信息。', '库存', '库存,查询,补货', 'zh', 1);
+('库存与补货', '您可以在库存管理页面查看所有产品的库存状态，包括当前库存、安全库存、预计到货时间等信息。', '库存', '库存,查询,补货', 'zh', 1)
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    之前这里没保护 → 重跑一次多 5 条、重跑两次多 10 条
+--    → 而「向量文档条数」也是界面上的数字 → **界面说谎**（规则 19）。
+--    📌 注意：**不更新 embedding** —— 它是运行时算出来的，重跑不该把它抹成 NULL。
+ON DUPLICATE KEY UPDATE
+    content = VALUES(content), category = VALUES(category), tags = VALUES(tags),
+    language = VALUES(language), active = VALUES(active);
 
 -- 📌 **插入知识库问答数据**（聊天检索用的就是这张表 knowledge_base）
 --
 -- 📌 **2026-11-04 扩充**：原来只有 6 条，而聊天页开场白写着「基于 330+ 行业知识库」
 --    → **承诺与事实不符**（规则 19：降级/能力必须可被看见，不能写假的）。
---    现扩到 28 条，覆盖开场白承诺的 订单/物流/库存/财务/退款 五大类。
+--    现扩到 31 条，覆盖开场白承诺的 订单/物流/库存/财务/退款 五大类。
+--    📌 **不写死条数** —— 写死的数字会随种子变动而静默过期（规则 51）。
 --
 -- 📌 **这批数据必须能被检索到** —— 检索用**字符 n-gram + 同义词**，
 --    所以 question 要写成**用户真会打出来的口语**（规则 44：文档/文案别写理想化说法）。
@@ -207,14 +241,27 @@ INSERT INTO knowledge_base (category, question, answer, language, tags, priority
 ('财务', '能做经营分析吗？', '可以。在「数据分析」页面可以查看销售趋势、渠道占比、利润结构等指标，辅助经营决策。', 'zh', '["财务", "分析", "趋势", "指标"]', 6),
 -- ===== 账号 / 其他 =====
 ('账号', '忘记密码怎么办？', '在登录页面点击「忘记密码」，通过绑定的邮箱或手机号验证后即可重置密码。', 'zh', '["账号", "密码", "登录", "重置"]', 6),
-('账号', '怎么切换店铺或租户？', '在页面顶部的租户切换器中可以选择当前操作的店铺，不同租户的数据彼此隔离。', 'zh', '["账号", "租户", "店铺", "切换"]', 5),
-('产品', '产品信息在哪里维护？', '在产品管理页面可以维护商品标题、规格、价格、描述等信息，产品描述支持 AI 批量生成与 SEO 优化。', 'zh', '["产品", "商品", "维护", "描述"]', 6);
+('账号', '怎么切换店铺或租户？', '在页面顶部的租户切换器中可以选择当前操作的店铺，不同租户的数据彼此隔离。', 'zh', '["账号", "店铺", "租户", "切换"]', 5),
+('产品', '产品信息在哪里维护？', '在产品管理页面可以维护商品标题、规格、价格、描述等信息，产品描述支持 AI 批量生成与 SEO 优化。', 'zh', '["产品", "商品", "维护", "描述"]', 6)
+-- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
+--    之前这里没保护 → 重跑一次知识库从 31 条变 62 条
+--    → 而聊天页开场白显示的就是这个条数 → **界面开始说假话**（规则 19）。
+ON DUPLICATE KEY UPDATE
+    answer = VALUES(answer), language = VALUES(language), tags = VALUES(tags),
+    priority = VALUES(priority);
+-- 📌 **active 不在这里** —— 管理员手动停用的条目，重跑不该被重新激活。
 
 -- 插入示例用户
 INSERT INTO chat_session (session_id, user_id, title, status, message_count) VALUES
 ('session-001', 1, '关于订单的咨询', 'ACTIVE', 0),
 ('session-002', 2, '产品问题', 'ACTIVE', 0),
-('session-003', 3, '物流查询', 'ACTIVE', 0);
+('session-003', 3, '物流查询', 'ACTIVE', 0)
+-- 📌 **ON DUPLICATE KEY UPDATE**（2026-11-04 加）：
+--    `session_id` 上有 UNIQUE 约束，而这里没保护
+--    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**
+--    → 排在它后面的种子文件**一个都不执行**（而容器照样起来 → 静默失败）。
+ON DUPLICATE KEY UPDATE
+    title = VALUES(title), status = VALUES(status);
 
 -- 查看数据
 SELECT '数据库初始化完成！' AS message;

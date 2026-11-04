@@ -232,14 +232,29 @@ spring:
             - StripPrefix=0
         # 知识库统计（条数/分类分布）
         # 📌 2026-11-04：聊天页开场白原本写死「基于 330+ 行业知识库」，
-        #    而真实种子只有 6 条 → **承诺与事实不符**。
+        #    而真实种子只有 31 条 → **承诺与事实不符**。
         #    现在开场白改成**动态取真实条数**（activeCount）→ 永远不会再骗人。
+        # 📌 2026-11-04 修口径不一致：这个接口统计的是 **knowledge_base 表**
+        #    （聊天检索 + 前端「知识库」页签用的就是这张表）。
+        #    原来它返回的是 knowledge_document（向量文档）的条数 ——
+        #    开场白说「基于 5 条」、页签里列着 31 条 → **界面自相矛盾**。
+        #    向量文档的统计另开 /documents/stats，**口径写在 URL 上**。
         # 📌 Path 写精确路径而不是通配 —— 通配会把 /api/ai/knowledge/search
         #    也吃掉（那个要走上面的 ai-knowledge-list 路由）。
         - id: ai-knowledge-stats
           uri: lb://erp-ai-assistant-service
           predicates:
             - Path=/api/ai/knowledge/stats
+            - Method=GET
+          filters:
+            - StripPrefix=0
+        # RAG 向量文档统计（knowledge_document 表）——
+        # 📌 与上面的 knowledge_base 统计是**两个不同的概念**，
+        #    所以路径也必须分开，不能都塞进 /stats。
+        - id: ai-knowledge-document-stats
+          uri: lb://erp-ai-assistant-service
+          predicates:
+            - Path=/api/ai/knowledge/documents/stats
             - Method=GET
           filters:
             - StripPrefix=0

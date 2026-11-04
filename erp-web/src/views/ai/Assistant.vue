@@ -129,9 +129,11 @@ import { unwrapPage, unwrap } from '@/utils/response'
 
 const messages = ref<{ role: 'user' | 'bot'; content: string; mock?: boolean; mockReason?: string }[]>([
   // 📌 开场白里的知识库条数**必须来自真实数据**（2026-11-04 修）：
-  //    原来写死「基于 330+ 行业知识库」，而真实种子只有 6 条
+  //    原来写死「基于 330+ 行业知识库」，而真实种子只有 31 条
   //    → **界面在承诺一个不存在的**（规则 19：能力不能只是说说）。
   //    onMounted 里会用 /ai/knowledge/stats 的 activeCount 覆盖这个数字。
+  // 📌📌 且这个 activeCount 必须是 **knowledge_base**（聊天实际检索的那张表）
+  //    的条数 —— 原来它返回的是 knowledge_document（5 条），与检索口径不符。
   { role: 'bot', content: '您好，我是 AI 助手。正在加载行业知识库…' },
 ])
 const input = ref('')
@@ -229,10 +231,18 @@ const loadKbCategories = async () => {
  * 加载知识库统计，用**真实条数**改写开场白。
  *
  * 📌 2026-11-04：开场白原本写死「基于 330+ 行业知识库」，
- *    而 `knowledge_base` 真实种子只有 6 条（现在 31 条）
+ *    而 `knowledge_base` 真实种子只有 31 条
  *    → **界面在承诺一个不存在的东西**。
  * 📌 改成动态取数 → 以后无论加多少条、减多少条，**都不会再骗人**。
  * 📌 取不到就**降级为不说数字**（而不是编一个）—— 降级必须可见。
+ *
+ * 📌📌 **2026-11-04 修口径不一致（界面自相矛盾）**：
+ *    这个接口原来统计的是 `knowledge_document`（向量文档）表 = **5** 条，
+ *    而**聊天实际检索的是 `knowledge_base` 表 = 31 条**，
+ *    同一个页面的「知识库」页签里也列着 31 条
+ *    → 开场白说「基于 5 条」、页签里 31 条，**界面自己打自己的脸**。
+ *    → 后端已把 `/ai/knowledge/stats` 改成统计 `knowledge_base`，
+ *      现在「数字 / 文案 / 检索」三处口径一致。
  */
 const loadKbStats = async () => {
   const fallback = '您好，我是 AI 助手。可以回答订单、物流、库存、财务、退款等问题。'
