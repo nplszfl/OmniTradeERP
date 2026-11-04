@@ -6,28 +6,36 @@
         <el-card shadow="never" class="kpi-card">
           <div class="kpi-label">订单总数（近 30 天）</div>
           <div class="kpi-value">{{ data.totalOrders ?? '--' }}</div>
-          <div class="kpi-trend up">▲ 12.4%</div>
+          <div v-if="ordersTrendPct === null" class="kpi-trend none">环比 --</div>
+          <div v-else :class="['kpi-trend', ordersTrendPct >= 0 ? 'up' : 'down']">
+            {{ ordersTrendPct >= 0 ? '▲' : '▼' }} {{ Math.abs(ordersTrendPct).toFixed(1) }}%
+            <span class="kpi-trend-note">（对比昨日）</span>
+          </div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card shadow="never" class="kpi-card">
           <div class="kpi-label">营收（USD 等值）</div>
           <div class="kpi-value">$ {{ (data.totalRevenue ?? 0).toLocaleString() }}</div>
-          <div class="kpi-trend up">▲ 8.7%</div>
+          <div v-if="salesTrendPct === null" class="kpi-trend none">环比 --</div>
+          <div v-else :class="['kpi-trend', salesTrendPct >= 0 ? 'up' : 'down']">
+            {{ salesTrendPct >= 0 ? '▲' : '▼' }} {{ Math.abs(salesTrendPct).toFixed(1) }}%
+            <span class="kpi-trend-note">（今日 vs 昨日）</span>
+          </div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card shadow="never" class="kpi-card">
           <div class="kpi-label">活跃客户</div>
           <div class="kpi-value">{{ data.totalCustomers ?? '--' }}</div>
-          <div class="kpi-trend up">▲ 4.3%</div>
+          <div class="kpi-trend none">暂无同比数据</div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card shadow="never" class="kpi-card">
           <div class="kpi-label">在售 SKU</div>
           <div class="kpi-value">{{ data.totalProducts ?? '--' }}</div>
-          <div class="kpi-trend down">▼ 1.2%</div>
+          <div class="kpi-trend none">暂无同比数据</div>
         </el-card>
       </el-col>
     </el-row>
@@ -93,11 +101,36 @@ import { analyticsApi } from '@/api/analytics'
 const data = ref<any>({})
 const trend = ref<{ date: string; count: number; revenue: number }[]>([])
 const trendDays = ref(30)
+const overview = ref<any>({})
 
 const totalPlatformRevenue = computed(() => {
   if (!data.value.revenueByPlatform) return 0
   return data.value.revenueByPlatform.reduce((s: number, x: any) => s + (x.revenue || 0), 0)
 })
+
+/**
+ * 📌 **环比百分比**（2026-11-04 修）：
+ * 之前 KPI 卡上的「▲ 12.4%」是**写死的字符串** → 界面在报一个**不存在的**趋势
+ * （规则 19：事实标志不能撒谎 —— 这属于「界面在撒谎」）。
+ *
+ * → 现在用后端 `OverviewStats` 的**真实** `todaySales` / `yesterdaySales` 算。
+ * 📌 **除零 / 缺数据一律返回 null** → 模板显示「环比 --」，
+ *    **绝不显示一个编造的数字**。
+ */
+function calcTrendPct(current?: number | null, previous?: number | null): number | null {
+  if (current == null || previous == null) return null
+  if (!previous) return null // 昨日为 0 → 百分比无意义（不能写 Infinity，也不能写 0）
+  return ((current - previous) / previous) * 100
+}
+
+const salesTrendPct = computed(() =>
+  calcTrendPct(overview.value?.todaySales, overview.value?.yesterdaySales)
+)
+
+/** 📌 订单环比：后端 overview 里**只有** todayOrders（笔数），
+ *    没有 yesterdayOrders → 拿不到真实的订单环比。
+ *    → 显示 null（模板渲染「环比 --」），**不编造**。 */
+const ordersTrendPct = computed<number | null>(() => null)
 
 onMounted(async () => {
   try {
@@ -108,8 +141,20 @@ onMounted(async () => {
     ElMessage.error('看板数据加载失败，请检查分析服务状态')
     data.value = {}
   }
+  loadOverview()
   loadTrend()
 })
+
+/** 概览统计（KPI 卡的真实环比数据来源） */
+async function loadOverview() {
+  try {
+    overview.value = await analyticsApi.overview()
+  } catch {
+    // 📌 拿不到就**如实置空** → 模板显示「环比 --」
+    //    绝不能像以前那样回退到写死的 12.4%。
+    overview.value = {}
+  }
+}
 
 async function loadTrend() {
   try {
@@ -129,6 +174,10 @@ async function loadTrend() {
 .kpi-card .kpi-trend { font-size: 12px; }
 .kpi-card .kpi-trend.up { color: #67c23a; }
 .kpi-card .kpi-trend.down { color: #f56c6c; }
+/* 📌 「暂无数据」用灰色 —— 不能用 up/down 的颜色，
+      否则「没有数据」看起来像「有数据」 */
+.kpi-card .kpi-trend.none { color: #999; }
+.kpi-trend-note { color: #bbb; }
 .block { margin-bottom: 16px; }
 .card-head { display: flex; justify-content: space-between; align-items: center; }
 .chart-mock {

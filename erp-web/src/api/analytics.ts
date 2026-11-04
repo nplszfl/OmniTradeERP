@@ -104,6 +104,21 @@ export const analyticsApi = {
   /** 完整看板数据（首页 Dashboard.vue 用） */
   dashboardData: () => request.get<any, DashboardData>('/analytics/dashboard'),
 
+  /**
+   * 📌 概览统计 —— **KPI 卡的真实同比/环比数据来源**。
+   * 后端 `OverviewStats` 里有 `todaySales` / `yesterdaySales` / `monthSales`，
+   * 「今日营收环比」= (today - yesterday) / yesterday。
+   * 📌 2026-11-04：之前 KPI 卡上的「▲ 12.4%」是**写死的假数据** →
+   *    界面在报一个不存在的趋势（规则 19：事实标志不能撒谎）。
+   */
+  overview: () => request.get<any, DashboardOverview>('/analytics/dashboard/overview'),
+
+  /** 今日销售趋势（按小时） */
+  todayTrend: () => request.get<any, DashboardTimeSeries[]>('/analytics/dashboard/today-trend'),
+
+  /** 销售趋势（按天） */
+  salesTrend: () => request.get<any, DashboardTimeSeries[]>('/analytics/dashboard/sales-trend'),
+
   /** 订单趋势（近 N 天，支持 7/30/90 的周期切换） */
   ordersTrend: (days = 30) =>
     request.get<any, TrendPoint[]>('/analytics/orders/trend', { params: { days } }),

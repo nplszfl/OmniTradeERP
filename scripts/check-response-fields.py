@@ -473,68 +473,163 @@ def strip_comments(text):
     return text
 
 
+def _normalize_ref_assignments(text):
+    """保留占位：改用「双模式匹配」实现，见 scan_view()。
+
+    📌 **为什么需要支持 ref 赋值形式**（2026-11-04 实测）：
+    Vue 里最常见的写法是
+        const data = ref<any>({})
+        data.value = await analyticsApi.dashboard()
+    原来的正则只认 `const x = await ...` → **这类调用完全看不到**
+    → 全仓 14 处、9 个视图全是**盲区** → 后端改了字段名，前端读错也没人管。
+    """
+    return text
+
+
+# 📌 ref 赋值形式下的字段访问：`overview.value?.todaySales` / `overview.value.todaySales`
+REF_FIELD_ACCESS = r"\b{var}\.value\s*(?:\?\.|\.)\s*([A-Za-z_]\w*)"
+# ref 赋值形式下的分页外壳：`overview.value.records[0].xxx`
+REF_RECORDS_ACCESS = r"\b{var}\.value\.records\s*\[\s*\d*\s*\]\s*\.\s*([A-Za-z_]\w*)"
+REF_RECORDS_MAP = r"\b{var}\.value\.records\s*\.\s*map\s*\(\s*\w+\s*=>\s*\w+\.([A-Za-z_]\w*)"
+REF_INDEX_ACCESS = r"\b{var}\.value\s*\[\s*\d*\s*\]\s*\.\s*([A-Za-z_]\w*)"
+REF_MAP_ACCESS = r"\b{var}\.value\s*\.\s*map\s*\(\s*\w+\s*=>\s*\w+\.([A-Za-z_]\w*)"
+
+
+# 📌 **模板里的字段访问**：`{{ data.totalOrders }}` —— Vue 模板自动解包 ref，**不写 .value**
+#    ⚠️ 只认 `{{ ... }}` / `v-bind` / `:prop` 里的表达式，避免误伤普通文本。
+TEMPLATE_FIELD_ACCESS = r"\b{var}\.([A-Za-z_]\w*)"
+
+
+def _extract_template(text):
+    """抽出 Vue 文件的 `<template>...</template>` 部分。
+
+    📌 模板里读 ref 变量是**自动解包**的（`data.totalOrders` 而不是
+    `data.value.totalOrders`）→ 这是真实的数据读取点，
+    但在 `<script>` 里根本不存在这种写法 → 必须**单独拿模板出来扫**。
+    """
+    m = re.search(r"<template[^>]*>(.*)</template>", text, re.S)
+    return m.group(1) if m else ""
+
+
 def scan_view(text, api_methods, routes, backend, dto_fields, problems, rel_path):
     """扫描一个视图文件里「响应变量直接读了哪些字段」。"""
     text = strip_comments(text)
+    template = _extract_template(text)
     # 1) 找 `const|let x = await apiObj.method(...)`
     #    也认 `await someApi.method(...)`（无赋值）→ 直接检查 `.field` 链
+    #    ⚠️ **还要认 `ref.value = await apiObj.method(...)`**（2026-11-04 补）：
+    #       Vue 里最常见的写法是 `data.value = await api.list()`，
+    #       原来只匹配 `const x = await` → **这类调用完全看不到**
+    #       → 全仓 14 处、9 个视图（OrderList / SupplierList / Pricing /
+    #         InventoryPredict / Recommend / Anomaly / purchase / logistics /
+    #         analytics）**全是盲区** → 字段名写错也没人管。
+    #       → 两种形式都查，**字段访问的路径不一样**：
+    #           const x = await ...        → 读 x.field
+    #           x.value = await ...        → 读 x.value.field
     for m in re.finditer(
         r"(?:const|let)\s+(?:\{([^}]*)\}|(\w+))\s*=\s*await\s+(\w+(?:\.\w+)*)\s*\(",
         text,
     ):
-        destructured = m.group(1)
-        var = m.group(2)
-        call = m.group(3)
-        if call not in api_methods:
-            continue
-        path, _generic = api_methods[call]
-        full = BASE_URL + path if path.startswith("/") else path
-        method = "GET"
-        # 从 api 层拿 HTTP 方法：这里简化，用所有方法轮询解析
-        resolved = None
-        for mth in ("GET", "POST", "PUT", "DELETE"):
-            r = resolve_endpoint(full, mth, routes, backend)
-            if r:
-                resolved = r
-                break
-        if not resolved:
-            continue
-        module, dto_name, kind = resolved
-        fs = dto_field_set(module, dto_name, dto_fields)
-        if fs is None:
-            continue
-        allowed = set(fs) | PAGE_FIELDS | RESULT_FIELDS
+        _scan_one_call(text, m, m.group(1), m.group(2), m.group(3),
+                       api_methods, routes, backend, dto_fields, problems, rel_path,
+                       is_ref=False, template=template)
 
-        if destructured:
-            names = [d.split(":")[0].strip().split("=")[0].strip() for d in destructured.split(",")]
-            for nm in names:
-                if nm and nm not in allowed and nm not in JS_MEMBERS:
-                    problems.append({
-                        "file": rel_path,
-                        "call": call,
-                        "dto": f"{module}:{dto_name}",
-                        "field": nm,
-                        "where": f"解构 {nm}",
-                    })
-            continue
+    # 1b) `x.value = await apiObj.method(...)` —— ref 赋值形式
+    for m in re.finditer(
+        r"(\w+)\.value\s*=\s*await\s+(\w+(?:\.\w+)*)\s*\(",
+        text,
+    ):
+        _scan_one_call(text, m, None, m.group(1), m.group(2),
+                       api_methods, routes, backend, dto_fields, problems, rel_path,
+                       is_ref=True, template=template)
 
-        if not var:
-            continue
 
-        # 2) 该变量被直接读了哪些字段
-        #    ⚠️ **必须限定作用域**（2026-11-04 实测）：
-        #    同一个视图里可能有**多个同名变量**（如 `const stats = reactive(...)`
-        #    和 `const stats = await supplierApi.getPurchaseStats()`），
-        #    不限定作用域 → 两者混在一起 → **报一堆假问题**。
-        #    做法：只取「从声明处往后，到下一个同级 `const <var>` 声明之前」的片段。
-        scope = _variable_scope(text, m.end(), var)
+def _scan_one_call(text, m, destructured, var, call, api_methods, routes, backend,
+                   dto_fields, problems, rel_path, is_ref, template=""):
+    """检查一次 API 调用返回的字段是否与后端 DTO 对得上。"""
+    if call not in api_methods:
+        return
+    path, _generic = api_methods[call]
+    full = BASE_URL + path if path.startswith("/") else path
+    resolved = None
+    for mth in ("GET", "POST", "PUT", "DELETE"):
+        r = resolve_endpoint(full, mth, routes, backend)
+        if r:
+            resolved = r
+            break
+    if not resolved:
+        return
+    module, dto_name, kind = resolved
+    fs = dto_field_set(module, dto_name, dto_fields)
+    if fs is None:
+        return
+    allowed = set(fs) | PAGE_FIELDS | RESULT_FIELDS
 
-        # 2a) **沿着链往下追**：`const pageData = unwrapPage(res)` → pageData.records[0].x
-        #     ⚠️ 分页外壳（records/total/...）是 unwrapPage 拆出来的，
-        #        **元素字段仍然要查** —— 后端元素 DTO 没有的字段，
-        #        `pageData.records[0].xxx` 恒为 undefined。
-        for chain_var, chain_fields in _chained_element_fields(scope, var):
-            for fname in chain_fields:
+    if destructured:
+        names = [d.split(":")[0].strip().split("=")[0].strip() for d in destructured.split(",")]
+        for nm in names:
+            if nm and nm not in allowed and nm not in JS_MEMBERS:
+                problems.append({
+                    "file": rel_path,
+                    "call": call,
+                    "dto": f"{module}:{dto_name}",
+                    "field": nm,
+                    "where": f"解构 {nm}",
+                })
+        return
+
+    if not var:
+        return
+
+    # 2) 该变量被直接读了哪些字段
+    #    ⚠️ **必须限定作用域**（2026-11-04 实测）：
+    #    同一个视图里可能有**多个同名变量**（如 `const stats = reactive(...)`
+    #    和 `const stats = await supplierApi.getPurchaseStats()`），
+    #    不限定作用域 → 两者混在一起 → **报一堆假问题**。
+    #    做法：只取「从声明处往后，到下一个同级 `const <var>` 声明之前」的片段。
+    scope = _variable_scope(text, m.end(), var)
+
+    if is_ref:
+        # ref 形式：字段访问路径是 `x.value.field`
+        # ⚠️ **ref 形式的读取点分布在三个地方**（2026-11-04 实测）：
+        #    1) 赋值点**之后**的 `x.value?.field`（脚本区）
+        #    2) 赋值点**之前**的 `x.value?.field`（比如 computed 定义在 onMounted 之前）
+        #    3) **模板里**的 `x.field`（Vue 模板自动解包 ref，**不写 .value**）
+        #    原来只看「赋值点往后」→ 2) 和 3) 全是盲区。
+        #    → 这里**整个文件**都扫（ref 变量名在视图里基本唯一）。
+        for fm in re.finditer(REF_FIELD_ACCESS.format(var=re.escape(var)), text):
+            fname = fm.group(1)
+            if fname in JS_MEMBERS:
+                continue
+            if fname not in allowed:
+                problems.append({
+                    "file": rel_path,
+                    "call": call,
+                    "dto": f"{module}:{dto_name}",
+                    "field": fname,
+                    "where": f"{var}.value.{fname}",
+                })
+        # 3) **模板里的 `x.field`** —— Vue 模板自动解包 ref
+        for fm in re.finditer(TEMPLATE_FIELD_ACCESS.format(var=re.escape(var)), template):
+            fname = fm.group(1)
+            if fname in JS_MEMBERS:
+                continue
+            if fname not in allowed:
+                problems.append({
+                    "file": rel_path,
+                    "call": call,
+                    "dto": f"{module}:{dto_name}",
+                    "field": fname,
+                    "where": f"{var}.{fname}（模板）",
+                })
+        for pattern, where_tpl in (
+            (REF_RECORDS_ACCESS, "{var}.value.records[0].{f}"),
+            (REF_RECORDS_MAP, "{var}.value.records.map"),
+            (REF_INDEX_ACCESS, "{var}.value[0].{f}"),
+            (REF_MAP_ACCESS, "{var}.value.map"),
+        ):
+            for am in re.finditer(pattern.format(var=re.escape(var)), text):
+                fname = am.group(1)
                 if fname in JS_MEMBERS:
                     continue
                 if fname not in allowed:
@@ -543,15 +638,17 @@ def scan_view(text, api_methods, routes, backend, dto_fields, problems, rel_path
                         "call": call,
                         "dto": f"{module}:{dto_name}",
                         "field": fname,
-                        "where": f"{chain_var}.{fname}",
+                        "where": where_tpl.format(var=var, f=fname),
                     })
+        return
 
-        for fm in re.finditer(FIELD_ACCESS.format(var=re.escape(var)), scope):
-            fname = fm.group(1)
+    # 2a) **沿着链往下追**：`const pageData = unwrapPage(res)` → pageData.records[0].x
+    #     ⚠️ 分页外壳（records/total/...）是 unwrapPage 拆出来的，
+    #        **元素字段仍然要查** —— 后端元素 DTO 没有的字段，
+    #        `pageData.records[0].xxx` 恒为 undefined。
+    for chain_var, chain_fields in _chained_element_fields(scope, var):
+        for fname in chain_fields:
             if fname in JS_MEMBERS:
-                continue
-            # 判断这个访问是不是在「映射表达式」里 —— 那是显式映射，不算漂移
-            if _inside_explicit_mapping(scope, fm.start(), var):
                 continue
             if fname not in allowed:
                 problems.append({
@@ -559,8 +656,24 @@ def scan_view(text, api_methods, routes, backend, dto_fields, problems, rel_path
                     "call": call,
                     "dto": f"{module}:{dto_name}",
                     "field": fname,
-                    "where": f"{var}.{fname}",
+                    "where": f"{chain_var}.{fname}",
                 })
+
+    for fm in re.finditer(FIELD_ACCESS.format(var=re.escape(var)), scope):
+        fname = fm.group(1)
+        if fname in JS_MEMBERS:
+            continue
+        # 判断这个访问是不是在「映射表达式」里 —— 那是显式映射，不算漂移
+        if _inside_explicit_mapping(scope, fm.start(), var):
+            continue
+        if fname not in allowed:
+            problems.append({
+                "file": rel_path,
+                "call": call,
+                "dto": f"{module}:{dto_name}",
+                "field": fname,
+                "where": f"{var}.{fname}",
+            })
 
 
 def _chained_element_fields(scope, var):
