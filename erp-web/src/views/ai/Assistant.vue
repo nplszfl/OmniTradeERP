@@ -232,6 +232,10 @@ const loadKbCategories = async () => {
  *
  * 📌 2026-11-04：开场白原本写死「基于 330+ 行业知识库」，
  *    而 `knowledge_base` 真实种子只有 31 条
+ *    📌 这两个条数是**声明**，由 `scripts/check-seed-row-claims.py` 当场核验：
+ *    种子改了而这里没改 → 闸门报红（规则 51：手写结论会静默过期）。
+ *    rows: knowledge_base=31
+ *    rows: knowledge_document=5
  *    → **界面在承诺一个不存在的东西**。
  * 📌 改成动态取数 → 以后无论加多少条、减多少条，**都不会再骗人**。
  * 📌 取不到就**降级为不说数字**（而不是编一个）—— 降级必须可见。

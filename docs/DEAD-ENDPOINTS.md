@@ -5,10 +5,10 @@
 
 ## 统计
 
-- 后端 HTTP 接口：**469** 个
-- 前端视图真正调用：**194** 处
+- 后端 HTTP 接口：**470** 个
+- 前端视图真正调用：**195** 处
 - 服务间引用：**2** 处
-- 网关路由：**35** 条
+- 网关路由：**36** 条
 - 疑似死接口：**266** 个
 
 ## 怎么读这份清单
@@ -42,7 +42,19 @@
 
 （`GET /api/ai/knowledge/stats` 2026-11-04 已接上 ——
   聊天页开场白的「基于 N 条行业知识库」改成动态取真实条数，
-  原来写死「330+」而真实只有 6 条 → 界面在承诺不存在的东西。）
+  原来写死「330+」而真实条数远少于此 → 界面在承诺不存在的东西。）
+
+<!-- 下面是**声明**，由 `scripts/check-seed-row-claims.py` 当场核验 ——
+     种子改了而这里没改 → 闸门报红（规则 51：手写结论会静默过期）。 -->
+<!-- rows: knowledge_base=31 -->
+<!-- rows: knowledge_document=5 -->
+
+⚠️ **同日的第二个真缺陷**：这个 `stats` 接口原先返回的是
+`knowledge_document` 表的条数，而**聊天检索**和**知识库列表**用的都是
+`knowledge_base` 表 → 开场白说 5、页签列 31 → **界面自相矛盾**。
+2026-11-04 已修：`stats` 改数 `knowledge_base`，
+向量文档侧的统计另开 `GET /api/ai/knowledge/documents/stats`（两个口径用 URL 区分）。
+→ 新增闸门 `scripts/check-stat-source-consistency.py` 防止复发。
 
 ⚠️ **api 层有个命名陷阱**（不是死接口，但容易踩）：
 `aiAssistantApi.knowledge.list/add/remove` 和 `knowledgeBaseApi.list/add/remove`
@@ -80,13 +92,14 @@
 
 ## 清单
 
-### erp-ai-assistant-service（15 个）
+### erp-ai-assistant-service（16 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
 | POST | `/api/ai/knowledge/ask` |  |
 | POST | `/api/ai/knowledge/documents` |  |
 | POST | `/api/ai/knowledge/documents/batch` |  |
+| GET | `/api/ai/knowledge/documents/stats` |  |
 | DELETE | `/api/ai/knowledge/documents/{id}` |  |
 | GET | `/api/ai/knowledge/search` |  |
 | POST | `/api/v1/ai-assistant/chat/stream` |  |
@@ -100,7 +113,7 @@
 | GET | `/api/v1/ai-assistant/statistics` |  |
 | POST | `/api/v1/ai-assistant/statistics/reset` |  |
 
-### erp-analytics-service（17 个）
+### erp-analytics-service（16 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
@@ -108,7 +121,6 @@
 | GET | `/api/v1/analytics/customers/distribution` |  |
 | GET | `/api/v1/analytics/dashboard/inventory-alerts` |  |
 | GET | `/api/v1/analytics/dashboard/order-status-distribution` |  |
-| GET | `/api/v1/analytics/dashboard/overview` |  |
 | GET | `/api/v1/analytics/dashboard/platform-distribution` |  |
 | GET | `/api/v1/analytics/dashboard/sales-trend` |  |
 | GET | `/api/v1/analytics/dashboard/today-trend` |  |

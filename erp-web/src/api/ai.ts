@@ -194,6 +194,10 @@ export const knowledgeBaseApi = {
    * 知识库统计（总条数 / 启用条数 / 分类分布）。
    * 📌 聊天页开场白的「基于 N 条行业知识库」用的是这个 **activeCount** ——
    *    写死数字会和真实数据脱节（曾经写死「330+」，实际只有 31 条）。
+ *    📌 下面的条数是**声明**，由 `scripts/check-seed-row-claims.py` 当场核验：
+ *    种子改了而这里没改 → 闸门报红（规则 51：手写结论会静默过期）。
+ *    rows: knowledge_base=31
+ *    rows: knowledge_document=5
    * 📌📌 **口径必须与聊天检索一致**（2026-11-04 修）：
    *    这个接口统计的是 **knowledge_base 表**（= 聊天检索 + 本页签管理的表）。
    *    原来后端返回的是 knowledge_document（向量文档，5 条）→

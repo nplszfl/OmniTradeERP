@@ -209,6 +209,20 @@ jobs:
     - name: 统计口径一致性（条数 ↔ 列表 同一张表）
       run: python3 scripts/check-stat-source-consistency.py --strict
 
+    # 📌 **种子条数声明 ↔ 实际行数**（文档/注释里写的「N 条」必须是真的）
+    #    📌 **为什么需要它**：
+    #       2026-11-04 修 AI 客服统计口径时顺手发现：
+    #       `docs/DEAD-ENDPOINTS.md` 写着「真实只有 **6** 条」，
+    #       而 `database/ai-assistant-service.sql` 里 `knowledge_base` 是 **31** 条。
+    #       → 规则 51 已经管住了「**接口**是不是死了」，
+    #         但「**这张表有几条数据**」这一类**没人管**。
+    #    📌 判据：全仓扫「rows: <表名>=<条数>」的**自我声明**，
+    #       以及「同一句里既点了表名又给了条数」的隐式声明 → 当场核验 → 不符就红。
+    #    📌 真实行数从 `database/*.sql` **算**出来（按自然键去重），
+    #       不是抄一份清单（规则 33）。
+    - name: 种子条数声明 ↔ 实际行数
+      run: python3 scripts/check-seed-row-claims.py
+
     - name: DDL 挂载（database/*.sql 有没有进 docker-compose 的 init 目录）
       run: python3 scripts/check-db-schema-provision.py
 
