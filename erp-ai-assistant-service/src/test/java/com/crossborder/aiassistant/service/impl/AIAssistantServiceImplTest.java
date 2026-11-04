@@ -263,6 +263,65 @@ class AIAssistantServiceImplTest {
                 "❌ 无关问法「" + query + "」召回了 " + results.size() + " 条知识：" + results);
     }
 
+    /**
+     * 📌 **回归测试：检索不能污染 `priority` 字段**（2026-11-04 修的真缺陷）。
+     *
+     * <p>旧实现把相关度**塞回 {@code priority}**：
+     * <pre>{@code knowledge.setPriority((int) (similarity * 100));}</pre>
+     * → {@code priority} 在搜索结果里**含义完全变了**
+     * （用户自己设的优先级被冲掉），
+     * 对外的 {@code GET /knowledge/search} 返回的 {@code priority} 其实是相关度×100
+     * → 调用方按「优先级」读它就是读到了**垃圾**。
+     *
+     * <p>而且 {@code retrieveKnowledge} 里的 {@code k.getPriority() / 100.0}
+     * 是**依赖这个 bug** 才能算对的 → 一旦修正 priority 的语义，
+     * 那里就会**静默算错**（相关度变成 0.08 这种量级）。
+     *
+     * <p>→ 现在相关度单独放 {@code similarity} 字段，{@code priority} 保持原义。
+     */
+    @Test
+    void testSearchKnowledge_不污染priority字段() {
+        List<AIAssistantService.Knowledge> results =
+                aiAssistantService.searchKnowledge("发货", 5);
+
+        assertFalse(results.isEmpty(), "「发货」应该能召回物流那条知识");
+
+        for (AIAssistantService.Knowledge k : results) {
+            // 📌 priority 必须**原样保留**（种子数据里是 10 / 9 / 8）
+            assertTrue(k.getPriority() == null || (k.getPriority() >= 8 && k.getPriority() <= 10),
+                    "❌ priority 被检索相关度污染了，实际值 = " + k.getPriority()
+                            + "（应该还是用户设的 8~10）");
+            // 📌 相关度必须落在 similarity 字段里
+            assertNotNull(k.getSimilarity(),
+                    "❌ 检索结果必须带 similarity（相关度）");
+            assertTrue(k.getSimilarity() > 0.0 && k.getSimilarity() <= 1.0,
+                    "❌ similarity 应该在 (0,1]，实际 = " + k.getSimilarity());
+        }
+    }
+
+    /**
+     * 📌 **回归测试：相关度排序必须按相关度排，不能按 priority 排**。
+     *
+     * <p>旧实现排序用的是 {@code priority}（那时它装的是相关度）；
+     * 修正 priority 语义后如果忘了改排序，
+     * 结果就变成「按用户设的优先级排」→ **召回顺序不再按相关度**
+     * → 最相关的知识排在后面 → 回答质量下降。
+     */
+    @Test
+    void testSearchKnowledge_按相关度降序() {
+        List<AIAssistantService.Knowledge> results =
+                aiAssistantService.searchKnowledge("发货 多久", 5);
+
+        assertFalse(results.isEmpty(), "应该能召回知识");
+        for (int i = 1; i < results.size(); i++) {
+            double prev = results.get(i - 1).getSimilarity();
+            double cur = results.get(i).getSimilarity();
+            assertTrue(prev >= cur,
+                    "❌ 相关度没有降序排列：第 " + (i - 1) + " 条 = " + prev
+                            + "，第 " + i + " 条 = " + cur);
+        }
+    }
+
     @Test
     void testSearchKnowledge_EmptyQuery() {
         List<AIAssistantService.Knowledge> results = aiAssistantService.searchKnowledge("", 5);

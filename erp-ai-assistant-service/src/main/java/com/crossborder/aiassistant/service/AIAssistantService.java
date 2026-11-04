@@ -188,6 +188,21 @@ public interface AIAssistantService {
         private java.util.List<String> tags;
         private Integer priority;
         private Boolean active;
+        /**
+         * 📌 **检索命中的相关度**（0.0 ~ 1.0）。
+         *
+         * <p>⚠️ **为什么要有这个独立字段**（2026-11-04 修）：
+         * 旧实现把相关度**塞回 {@code priority}**（{@code priority = (int)(similarity*100)}）
+         * → {@code priority} 这个字段在搜索结果里**含义完全变了**：
+         * 用户自己设的优先级被冲掉，接口返回的 {@code priority} 其实是相关度×100。
+         * <p>→ 对外暴露的 {@code GET /knowledge/search} 会返回**语义错乱的 priority**，
+         * 调用方按「优先级」读它就是读到了垃圾。
+         * <p>→ 现在：{@code priority} **保持原义**（用户设的优先级），
+         * 相关度单独放 {@link #similarity}。
+         *
+         * <p>📌 只在检索结果里有值；新增知识时为 null（不落库）。
+         */
+        private Double similarity;
 
         public Long getId() { return id; }
         public void setId(Long id) { this.id = id; }
@@ -212,5 +227,8 @@ public interface AIAssistantService {
 
         public Boolean getActive() { return active; }
         public void setActive(Boolean active) { this.active = active; }
+
+        public Double getSimilarity() { return similarity; }
+        public void setSimilarity(Double similarity) { this.similarity = similarity; }
     }
 }

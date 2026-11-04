@@ -436,13 +436,21 @@ public class AIAssistantServiceImpl implements AIAssistantService {
                                     calculateSimilarity(query, knowledge.getCategory()),
                                     tagsSimilarity(query, knowledge.getTags()))));
             if (similarity > SIMILARITY_THRESHOLD) { // 相似度阈值
-                knowledge.setPriority((int) (similarity * 100));
+                // 📌 **不要再把相关度塞回 priority**（2026-11-04 修）：
+                //   旧写法 `knowledge.setPriority((int)(similarity * 100))`
+                //   → priority 在搜索结果里**含义完全变了**（用户设的优先级被冲掉），
+                //   对外的 `GET /knowledge/search` 返回的 priority 其实是相关度×100
+                //   → 调用方按「优先级」读它就是读到了垃圾。
+                //   → 相关度单独放 `similarity` 字段，priority 保持原义。
+                knowledge.setSimilarity(similarity);
                 results.add(knowledge);
             }
         }
 
-        // 按相似度排序
-        results.sort((a, b) -> Integer.compare(b.getPriority(), a.getPriority()));
+        // 按相关度排序（**不再借用 priority**）
+        results.sort((a, b) -> Double.compare(
+                b.getSimilarity() == null ? 0.0 : b.getSimilarity(),
+                a.getSimilarity() == null ? 0.0 : a.getSimilarity()));
 
         // 返回TopK
         return results.stream().limit(topK).collect(Collectors.toList());
@@ -681,7 +689,12 @@ public class AIAssistantServiceImpl implements AIAssistantService {
                     ChatResponse.KnowledgeChunk chunk = new ChatResponse.KnowledgeChunk();
                     chunk.setChunkId(String.valueOf(k.getId()));
                     chunk.setContent(k.getAnswer());
-                    chunk.setSimilarity(k.getPriority() / 100.0);
+                    // 📌 **相关度取自 similarity 字段**（2026-11-04 修）：
+                    //   旧写法 `k.getPriority() / 100.0` 是**依赖旧的那个 bug**
+                    //   （相关度被塞回 priority）才能算对 ——
+                    //   一旦修正 priority 的语义，这里就静默算错了。
+                    //   → 直接读 similarity，两边含义一致。
+                    chunk.setSimilarity(k.getSimilarity() == null ? 0.0 : k.getSimilarity());
                     chunk.setSource(k.getCategory());
                     chunk.setCategory(k.getCategory());
                     return chunk;
