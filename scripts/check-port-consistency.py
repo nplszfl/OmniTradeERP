@@ -78,6 +78,12 @@ K8S_SERVICE_MODULE = {
     # ⚠️ 之前漏了 → erp-logistics-service 的 containerPort / 探针 / Service 端口
     #    从来没被校验过（k8s/core-services.yaml 里确实有它的 Deployment + Service）。
     "erp-logistics-service": "erp-logistics-service",
+    # ⚠️ 2026-11-04 漏了 → erp-supplier-service 同上。
+    #    🔴 危害实测：把它在 extended-services.yaml 里的
+    #    containerPort / 探针 / Service port+targetPort 全改成 7777（真值 8099），
+    #    闸门依然打印「✓ 端口一致性检查通过」并 exit 0
+    #    → **巡检说「查过了」，其实这一项一个字都没查**。
+    "erp-supplier-service": "erp-supplier-service",
 }
 
 # docker/Dockerfile.<x> → 模块目录
@@ -397,10 +403,18 @@ def report_coverage(ports):
                 continue  # gateway 的别名 Service，与 erp-gateway 重复
             uncovered.append(f"k8s/{name} 的 Service {svc} 不在 K8S_SERVICE_MODULE 里 → 端口未校验")
 
+    # 📌 **这一段必须让闸门失败（不能只是 WARN）** ——
+    #    「端口未校验」= 巡检在这一项上**什么都没查**，
+    #    而报告却显示「✓ 检查通过」→ **给出了虚假的安全感**。
+    #    📌 实测（2026-11-04）：erp-supplier-service 缺映射时，
+    #    把它的端口全改成 7777，闸门依然 exit 0 + 「检查通过」。
+    #    → 下一次真的挂掉时，反而没人能提前发现。
+    #    📌 本函数自己的 docstring 也写了这条：「静默跳过比报错更危险」——
+    #    之前实现降级成了 warn()，**与作者本意相反**，这里改回来。
     for u in uncovered:
-        warn(u)
+        err(u)
     if uncovered:
-        warn(f"共 {len(uncovered)} 处「未被校验」的条目 —— 请补映射表，否则这些端口错了也不会被发现")
+        err(f"共 {len(uncovered)} 处「未被校验」的条目 —— 请补映射表，否则这些端口错了也不会被发现")
     return uncovered
 
 
@@ -424,7 +438,7 @@ def main():
     for e in errors:
         print(f"ERROR {e}")
     if errors:
-        print(f"\n✗ {len(errors)} 处端口不一致")
+        print(f"\n✗ {len(errors)} 处问题（端口不一致 / 未被校验）")
         return 1
     print("✓ 端口一致性检查通过")
     return 0
