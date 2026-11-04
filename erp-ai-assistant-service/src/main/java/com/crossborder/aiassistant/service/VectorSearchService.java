@@ -57,7 +57,13 @@ public class VectorSearchService {
         log.info("向量检索开始 query='{}' topK={} threshold={}", query, topK, threshold);
         long start = System.currentTimeMillis();
 
-        List<Double> queryVec = embeddingService.embed(query);
+        // 📌 **查询向量要把同义词扩展一起算进去**（2026-11-04 修）
+        //   「多久能收到货」字面上匹配不上「物流时效说明」
+        //   → 加上同义词（多久/时效/送达/物流）后，特征会重合 → 相似度升高
+        //   → 而「同义词表」本身是**共享**的（DomainSynonyms），
+        //     不再是「关键词路径能用、向量路径不能用」的两套知识
+        List<Double> queryVec = embeddingService.embed(
+                DomainSynonyms.expandForEmbedding(query));
         List<KnowledgeDocument> docs = repository.findByActiveTrue();
         if (docs.isEmpty()) {
             log.info("知识库为空，无可检索文档");

@@ -8,6 +8,7 @@ import com.crossborder.aiassistant.dto.ServiceStatistics;
 import com.crossborder.aiassistant.entity.KnowledgeBase;
 import com.crossborder.aiassistant.repository.KnowledgeBaseRepository;
 import com.crossborder.aiassistant.service.AIAssistantService;
+import com.crossborder.aiassistant.service.DomainSynonyms;
 import com.crossborder.erp.llm.LLMEndpointResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -788,28 +789,6 @@ public class AIAssistantServiceImpl implements AIAssistantService {
      * <p>这里是**关键词检索**（不是向量检索），所以用一份**领域词表**补齐
      * 最常见的口语↔术语映射。词表小而准，优先覆盖客服高频问法。
      */
-    private static final Map<String, List<String>> DOMAIN_SYNONYMS = Map.ofEntries(
-            Map.entry("退钱", List.of("退款", "退货")),
-            Map.entry("退货", List.of("退款", "售后")),
-            Map.entry("查订单", List.of("查询订单", "订单查询")),
-            Map.entry("订单号", List.of("订单编号")),
-            Map.entry("几天", List.of("多久", "时效")),
-            Map.entry("什么时候到", List.of("多久", "时效", "送达")),
-            Map.entry("收到货", List.of("签收", "收到")),
-            Map.entry("多少钱", List.of("价格", "费用")),
-            Map.entry("价格", List.of("多少钱", "费用")),
-            Map.entry("库存不足", List.of("缺货", "补货")),
-            Map.entry("没货", List.of("缺货", "库存不足")),
-            Map.entry("怎么取消", List.of("取消订单", "撤销")),
-            Map.entry("开发票", List.of("发票", "开票")),
-            Map.entry("邮费", List.of("运费", "shipping")),
-            Map.entry("运费", List.of("邮费", "shipping")),
-            Map.entry("优惠", List.of("折扣", "促销")),
-            Map.entry("尺寸", List.of("规格", "尺码")),
-            Map.entry("尺码", List.of("尺寸", "规格")),
-            Map.entry("上门", List.of("取货", "自提")),
-            Map.entry("自提", List.of("上门", "取货"))
-    );
 
     /**
      * 查询与**标签列表**的最大相似度。
@@ -843,26 +822,21 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         List<String> variants = new ArrayList<>();
         variants.add(text);
         String lower = text.toLowerCase();
-        for (Map.Entry<String, List<String>> entry : DOMAIN_SYNONYMS.entrySet()) {
-            String key = entry.getKey().toLowerCase();
-            List<String> alts = entry.getValue();
-            if (lower.contains(key)) {
-                for (String alt : alts) {
+        // 📌 **同义词表的唯一事实来源 = DomainSynonyms**（2026-11-04）
+        //   之前这里是 private 静态字段 → 关键词路径一套、向量路径另一套
+        //   → 两套知识会漂移（改一边忘另一边 → 同一个问题两条路径表现不一致）
+        for (List<String> group : DomainSynonyms.groups()) {
+            for (String member : group) {
+                if (!lower.contains(member.toLowerCase())) continue;
+                for (String other : group) {
+                    if (other.equals(member)) continue;
                     // 替换成同义词，得到一个「变体文本」
-                    String replaced = text.replace(entry.getKey(), alt);
+                    String replaced = text.replace(member, other);
                     if (!replaced.equals(text)) {
                         variants.add(replaced);
                     }
                 }
-            }
-            // 反向：文本里出现的是同义词，本身也带上 key
-            for (String alt : alts) {
-                if (lower.contains(alt.toLowerCase()) && !text.contains(entry.getKey())) {
-                    String replaced = text.replace(alt, entry.getKey());
-                    if (!replaced.equals(text)) {
-                        variants.add(replaced);
-                    }
-                }
+                break; // 一个组只处理一次
             }
         }
         return variants;
