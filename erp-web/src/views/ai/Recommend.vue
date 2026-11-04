@@ -81,14 +81,16 @@ async function load() {
   loading.value = true
   try {
     list.value = await recommendApi.list({})
-  } catch {
-    list.value = [
-      { sku: 'SKU-BTY-010',     productName: '精华液 30ml - 玻尿酸烟酰胺', category: '美妆个护', score: 92, expectedMargin: 65, reason: '近 90 天平台搜索量上涨 320%，TikTok 标签 #GlowUp 累计 1.2 亿播放' },
-      { sku: 'SKU-PWB-005-BLK', productName: '20000mAh 充电宝',          category: '数码',     score: 88, expectedMargin: 58, reason: '夏季旅行季 + 跨境充电刚需，亚马逊 BSR 排名上涨 28 位' },
-      { sku: 'SKU-WOM-009-L',   productName: '女士瑜伽裤',              category: '服饰',     score: 85, expectedMargin: 64, reason: 'Lululemon 平替讨论热度高，客单价提升 12%' },
-      { sku: 'SKU-MEN-008-XL',  productName: '男士速干 T 恤',            category: '服饰',     score: 80, expectedMargin: 66, reason: '健身场景季节性需求，回购率 35%' },
-      { sku: 'SKU-STG-007',     productName: '真空收纳袋 10 件',         category: '家居',     score: 78, expectedMargin: 64, reason: '收纳整理赛道蓝海，欧洲市场 CAGR 18%' },
-    ]
+  } catch (e) {
+    // ⚠️ **不要用 mock 数据兜底**（2026-11-04 修）——
+    //    这里原来在接口失败时填 5 条**看起来完全像真的**的选品推荐
+    //    （连「近 90 天搜索量上涨 320%」这种细节都编好了）。
+    //    → 接口挂了页面看着「有推荐」，实则**全是假的**（规则 12 / 19）。
+    //    → 而且这些推荐**没有真实依据**，用户照着选品会亏钱。
+    //    失败就**如实置空 + 报错**。
+    console.error('选品推荐加载失败', e)
+    list.value = []
+    ElMessage.error('选品推荐加载失败')
   } finally {
     loading.value = false
     lastRefresh.value = new Date().toLocaleTimeString()

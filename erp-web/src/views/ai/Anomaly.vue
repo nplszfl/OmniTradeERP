@@ -73,16 +73,16 @@ async function load() {
   try {
     list.value = await anomalyApi.list(filter.value)
     stats.value = await anomalyApi.stats()
-  } catch {
-    list.value = [
-      { orderNo: 'IO-202607-0004', platform: 'amazon',  amount: 89,  anomalyScore: 92, anomalyType: '金额异常 - 远低于同类订单', detectedAt: '2026-07-08 10:32', status: 'PENDING'  },
-      { orderNo: 'IO-202607-0006', platform: 'amazon',  amount: 49,  anomalyScore: 78, anomalyType: '收货地址高风险地区',    detectedAt: '2026-07-08 11:00', status: 'PENDING'  },
-      { orderNo: 'IO-202606-0008', platform: 'tiktok',  amount: 89,  anomalyScore: 65, anomalyType: '买家首次下单 + 偏僻国家', detectedAt: '2026-07-01 09:15', status: 'CONFIRMED' },
-      { orderNo: 'IO-202606-0007', platform: 'shopee',  amount: 89,  anomalyScore: 54, anomalyType: '买家邮箱异常',           detectedAt: '2026-06-30 14:00', status: 'REJECTED'  },
-      { orderNo: 'IO-202606-0002', platform: 'amazon',  amount: 89,  anomalyScore: 12, anomalyType: '正常',                    detectedAt: '2026-06-25 16:00', status: 'REJECTED'  },
-      { orderNo: 'IO-202605-0006', platform: 'amazon',  amount: 89,  anomalyScore: 8,  anomalyType: '正常',                    detectedAt: '2026-05-28 09:30', status: 'REJECTED'  },
-    ]
-    stats.value = { total: 1247, normal: 1198, anomaly: 49, rate: 3.93 }
+  } catch (e) {
+    // ⚠️ **不要用 mock 数据兜底**（2026-11-04 修）——
+    //    这里原来在接口失败时填 6 条**看起来完全像真的**的异常订单，
+    //    外加一组写死的 KPI（total: 1247 / anomaly: 49 / rate: 3.93）。
+    //    → 接口 500 时页面看着「有数据」，实则**全是假的**（规则 12 / 19 / 56）。
+    //    → 用户可能照着假数据做判断。失败就**如实置空 + 报错**。
+    console.error('异常订单加载失败', e)
+    list.value = []
+    stats.value = { total: 0, normal: 0, anomaly: 0, rate: 0 }
+    ElMessage.error('异常订单加载失败')
   } finally { loading.value = false }
 }
 

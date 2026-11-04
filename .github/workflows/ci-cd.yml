@@ -223,6 +223,21 @@ jobs:
     - name: 种子条数声明 ↔ 实际行数
       run: python3 scripts/check-seed-row-claims.py
 
+    # 📌 **前端假数据兜底**（接口失败不许拿编的数据冒充真数据）
+    #    📌 **为什么需要它**：
+    #       2026-11-04 扫 `catch` 块时逮到 3 个真缺陷：
+    #       `purchase/index.vue` 接口失败时填 6 条**看起来完全像真的**的采购单
+    #       （PO 编号/供应商/金额/日期一应俱全），
+    #       `ai/Anomaly.vue` 填 6 条假异常订单 + **写死的 KPI**（total: 1247），
+    #       `ai/Recommend.vue` 填 5 条假选品推荐。
+    #       → 后端 500 时页面看着有数据，实则全是编的 → 用户分辨不出来
+    #       → 可能照着假数据审批/收货/选品 → **真出事**（规则 12 / 19 / 56）。
+    #    📌 讽刺的是项目里**早就有正确范式**（tenant/InventoryPredict/Pricing/Dashboard
+    #       都改成「失败就如实置空 + 报错」）—— **只是漏了 3 个页面**
+    #       → 说明「靠人记得改」这条路走不通 → 必须有闸门。
+    - name: 前端假数据兜底（catch 里不许填编出来的数据）
+      run: python3 scripts/check-frontend-fake-fallback.py --strict
+
     - name: DDL 挂载（database/*.sql 有没有进 docker-compose 的 init 目录）
       run: python3 scripts/check-db-schema-provision.py
 

@@ -168,10 +168,21 @@ async function send() {
       mockReason: r.mockReason,
     })
     sessionId.value = r.sessionId
-  } catch {
-    // 后端无响应时降级到 FAQ 或模板回答
+  } catch (e) {
+    // ⚠️ **前端自己降级也必须打标**（2026-11-04 修）——
+    //    后端降级时会返回 mock=true → 模板里会显示「模拟回复」标签；
+    //    但**前端这层降级**（后端挂了/网络断了）原来**没设 mock** →
+    //    → 用户看到一段 FAQ 模板，却以为是真 AI 的回答（规则 19）。
+    //    → 后端那套 mock/mockReason 的努力，被前端这一行抵消了。
+    //    现在前端降级**同样打标** → 用户一眼能看出「这不是真 AI 答的」。
+    console.error('AI 对话请求失败，已降级为模板回答', e)
     const fallback = FAQ[text] || '抱歉，AI 服务暂不可用。请稍后再试，或在左侧菜单「报表中心」查看数据。'
-    messages.value.push({ role: 'bot', content: fallback })
+    messages.value.push({
+      role: 'bot',
+      content: fallback,
+      mock: true,
+      mockReason: 'AI 服务暂时不可用，以下是模板回答',
+    })
   } finally {
     loading.value = false
     await nextTick(); scrollBottom()

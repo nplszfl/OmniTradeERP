@@ -88,30 +88,30 @@ async function load() {
   loading.value = true
   try {
     list.value = await purchaseApi.list(filter.value)
-  } catch {
-    // mock
-    list.value = [
-      { id: 1, poNo: 'PO-2026-0001', supplierName: 'AcmeSound',   totalAmount:  38400.00, currencyCode: 'CNY', status: 'COMPLETED', expectedDate: '2026-04-15', createdAt: '2026-04-01 10:00' },
-      { id: 2, poNo: 'PO-2026-0002', supplierName: 'TechWear',    totalAmount:  56000.00, currencyCode: 'CNY', status: 'COMPLETED', expectedDate: '2026-04-20', createdAt: '2026-04-05 11:00' },
-      { id: 3, poNo: 'PO-2026-0003', supplierName: 'ChargeMax',   totalAmount:  35000.00, currencyCode: 'CNY', status: 'APPROVED',  expectedDate: '2026-07-15', createdAt: '2026-07-01 14:00' },
-      { id: 4, poNo: 'PO-2026-0004', supplierName: 'HomePlus',    totalAmount:  22500.00, currencyCode: 'CNY', status: 'PENDING',   expectedDate: '2026-07-25', createdAt: '2026-07-08 09:00' },
-      { id: 5, poNo: 'PO-2026-0005', supplierName: 'FitWear',     totalAmount:  18000.00, currencyCode: 'CNY', status: 'DRAFT',     expectedDate: '2026-08-01', createdAt: '2026-07-09 09:30' },
-      { id: 6, poNo: 'PO-2026-0006', supplierName: 'GlowLab',     totalAmount:  14000.00, currencyCode: 'CNY', status: 'PENDING',   expectedDate: '2026-07-30', createdAt: '2026-07-09 10:00' },
-    ]
+  } catch (e) {
+    // ⚠️ **不要用 mock 数据兜底**（2026-11-04 修）——
+    //    这里原来在接口失败时填 6 条**看起来完全像真的**的采购单
+    //    （PO 编号、供应商、金额、日期一应俱全）。
+    //    → 接口 500 时采购列表**看着有数据**，实则一条都不存在（规则 12 / 19）。
+    //    → 用户会以为这些单子真的存在 → 照着审批/收货 → **真出事**。
+    //    失败就**如实置空 + 报错**。
+    console.error('采购单加载失败', e)
+    list.value = []
+    ElMessage.error('采购单加载失败')
   } finally { loading.value = false }
 }
 
 async function view(row: any) {
   try {
     detail.value = await purchaseApi.detail(row.id)
-  } catch {
-    detail.value = {
-      ...row,
-      items: [
-        { sku: 'SKU-BLU-001-BLK', productName: '蓝牙耳机-黑色', quantity: 320, unitPrice: 120.00 },
-        { sku: 'SKU-BLU-001-WHT', productName: '蓝牙耳机-白色', quantity: 200, unitPrice: 120.00 },
-      ],
-    }
+  } catch (e) {
+    // ⚠️ 详情失败**不要编行项**（2026-11-04 修）——
+    //    原来这里凭空造 2 条明细（320 个 / 200 个，120.00 单价）→
+    //    用户会照着这些**不存在的数量**去收货 → 账实不符。
+    //    失败就**如实报错**，明细留空。
+    console.error('采购单详情加载失败', e)
+    detail.value = { ...row, items: [] }
+    ElMessage.error('采购单详情加载失败')
   }
   detailVisible.value = true
 }
