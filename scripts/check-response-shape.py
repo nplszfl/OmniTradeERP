@@ -288,7 +288,15 @@ def consumption_of(window, var):
         return req, agnostic
 
     # 形状无关：unwrap / unwrapPage 包了一层
-    if re.search(rf"\bunwrap(Page)?\s*\(\s*{re.escape(var)}\b", window):
+    # 📌 **必须允许 TS 泛型参数**（2026-11-05 修）：
+    #    `unwrapPage<any>(res)` 的泛型插在函数名和左括号**之间** →
+    #    `\bunwrap(Page)?\s*\(` **匹配不上** → 这个调用点被当成「按裸数组消费」
+    #    → **假红**（实际 unwrapPage 两种形状都吃）。
+    #    📌 这正是规则 76 的**同一个坑**：泛型参数让正则失明。
+    #    → 正则统一写成 `\bunwrap(Page)?\s*(<[^>]*>)?\s*\(`。
+    #    📌 双向风险：写成 `<[^>]*>` 是**贪婪的**，`unwrapPage<Record<string, number>>(res)`
+    #    这种嵌套泛型仍可能截断 → 但至少不再漏掉**最常见**的 `<any>` / `<T>`。
+    if re.search(rf"\bunwrap(Page)?\s*(<[^>\n]*>)?\s*\(\s*{re.escape(var)}\b", window):
         agnostic = True
 
     candidates = {var}
