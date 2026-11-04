@@ -13,6 +13,20 @@ spring:
     nacos:
       discovery:
         server-addr: ${NACOS_HOST:mse-d5a70466-nacos-ans.mse.aliyuncs.com}:${NACOS_PORT:8848}
+        namespace: erp-dev
+        group: DEFAULT_GROUP
+      config:
+        # ⚠️ **必须配 config.server-addr**（2026-11-04 实测）：
+        #    上面 `spring.config.import: optional:nacos:` 要从 Nacos **拉配置**，
+        #    而 Nacos **config 客户端**和 **discovery 客户端**是**两套独立的配置** ——
+        #    只配了 discovery.server-addr，config 客户端拿不到地址 →
+        #    启动直接炸：`NacosException: endpoint is blank`。
+        #    → 表现是**服务根本起不来**（连 optional 兜底都救不了：
+        #      endpoint 为空是硬失败，不是「拉不到就跳过」）。
+        #    📌 本仓库 **24 个服务里只有本服务漏了这一项** → 单测起不来上下文才发现。
+        server-addr: ${NACOS_HOST:mse-d5a70466-nacos-ans.mse.aliyuncs.com}:${NACOS_PORT:8848}
+        namespace: erp-dev
+        group: DEFAULT_GROUP
   # ⚠️ 必须显式配 datasource：
   # 本模块用 JPA（@Entity KnowledgeDocument + JpaRepository），
   # 统一继承根 pom 后 erp-common 的 DataSource 自动配置被激活，

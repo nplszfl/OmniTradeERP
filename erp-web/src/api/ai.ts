@@ -190,4 +190,15 @@ export const knowledgeBaseApi = {
   add: (data: { category: string; question: string; answer: string; tags?: string[]; priority?: number }) =>
     request.post<any, any>('/ai/assistant/knowledge', data),
   remove: (id: string) => request.delete<any, boolean>(`/ai/knowledge/base/${id}`),
+  /**
+   * 知识库统计（总条数 / 启用条数 / 分类分布）。
+   * 📌 聊天页开场白的「基于 N 条行业知识库」用的是这个 **activeCount** ——
+   *    写死数字会和真实数据脱节（曾经写死「330+」，实际只有 6 条）。
+   */
+  stats: () => request.get<any, {
+    totalCount: number
+    activeCount: number
+    categoryCount: Record<string, number>
+    languageCount: Record<string, number>
+  }>('/ai/knowledge/stats'),
 }

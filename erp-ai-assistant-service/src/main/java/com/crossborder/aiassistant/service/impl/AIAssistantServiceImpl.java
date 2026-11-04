@@ -42,6 +42,31 @@ public class AIAssistantServiceImpl implements AIAssistantService {
      */
     private static final String MOCK_MODEL_NAME = "mock";
 
+    /**
+     * 拉丁词（连续英文字母）—— 用于在相似度计算里把英文单独切词。
+     * 📌 中文没有空格，必须靠字符 n-gram；英文靠词根，切成 bigram 会误匹配。
+     */
+    private static final java.util.regex.Pattern LATIN_WORD =
+            java.util.regex.Pattern.compile("[a-z]+");
+
+    /**
+     * 相似度阈值。
+     *
+     * 📌 **不能拿 0.3**：字符 n-gram 下「4 字查询」对「9 字问题」的 Dice 上限
+     *    大约只有 0.17（算上同义词展开才勉强到 0.2 上下）→ 真实问法全部落空。
+     * 📌 **也不能调太低**：会引入误召回（「今天天气怎么样」这种无关问法）。
+     *    0.2 是实测下来「真实问法能召回 + 无关问法不召回」的平衡点。
+     */
+    private static final double SIMILARITY_THRESHOLD = 0.2;
+
+    /**
+     * 包含度的权重（包含度 = |A∩B| / min(|A|,|B|)）。
+     *
+     * 📌 乘 0.9 而不是 1.0：包含度天然偏高（短查询只要命中就接近 1），
+     *    留一点折扣，避免「只命中一个词」就压过「整体很像」的那条。
+     */
+    private static final double CONTAINMENT_WEIGHT = 0.9;
+
     // 模拟对话历史存储
     private final Map<String, List<ChatMessage>> sessionHistory = new ConcurrentHashMap<>();
 
@@ -399,8 +424,18 @@ public class AIAssistantServiceImpl implements AIAssistantService {
             }
 
             // 简单的关键词匹配
-            double similarity = calculateSimilarity(query, knowledge.getQuestion());
-            if (similarity > 0.3) { // 相似度阈值
+            // 📌 **要匹配多个字段，不能只匹配 question**（2026-11-04 实测）：
+            //   用户问「退钱流程是什么」→ question「如何申请退款？」一个共同字都没有，
+            //   但**标签**是「退款」→ 命中标签才能召回。
+            //   → FAQ 检索应该把 问题/答案/分类/标签 一起参与匹配，取最高分。
+            double similarity = Math.max(
+                    calculateSimilarity(query, knowledge.getQuestion()),
+                    Math.max(
+                            calculateSimilarity(query, knowledge.getAnswer()),
+                            Math.max(
+                                    calculateSimilarity(query, knowledge.getCategory()),
+                                    tagsSimilarity(query, knowledge.getTags()))));
+            if (similarity > SIMILARITY_THRESHOLD) { // 相似度阈值
                 knowledge.setPriority((int) (similarity * 100));
                 results.add(knowledge);
             }
@@ -655,19 +690,301 @@ public class AIAssistantServiceImpl implements AIAssistantService {
     }
 
     /**
-     * 计算相似度（简化版）
+     * **低信息量 token**（停用词）—— 匹配时要忽略。
+     *
+     * <p>📌 **实测踩到的坑**（2026-11-04）：
+     * 「如何退款」和「如何查询我的订单？」**都含「如何」** →
+     * 包含度 = 1/3 = 0.33 → **退款问题被订单知识抢走**（排第一的居然是错的）。
+     *
+     * <p>「如何」「怎么」「什么」这类**疑问句式**不含任何领域信息，
+     * 却因为是两个字的 bigram 而在短查询里占很大权重 → 必须滤掉。
+     *
+     * <p>📌 用**显式清单**而不是「按组成字符判断」——
+     * 否则「查询」会因为含「询」被误杀（查+询），「退货」会因为含「退」…
+     * 显式清单只杀真正没信息量的那些。
+     */
+    private static final Set<String> STOPWORD_TOKENS = Set.copyOf(List.of(
+            "如何",
+            "怎么",
+            "怎办",
+            "咋办",
+            "什么",
+            "哪些",
+            "哪种",
+            "哪样",
+            "是否",
+            "可以",
+            "能否",
+            "需要",
+            "请问",
+            "咨询",
+            "一下",
+            "我想",
+            "我的",
+            "您的",
+            "这个",
+            "那个",
+            "一个",
+            "一次",
+            "为什么",
+            "怎样",
+            "哪里",
+            "哪儿",
+            "的话",
+            "而且",
+            "但是",
+            "因为",
+            "所以",
+            "如果",
+            "麻烦",
+            "谢谢",
+            "您好",
+            "你好",
+            "现在",
+            "之后",
+            "之前",
+            "关于",
+            "对于",
+            "多少",
+            "几个",
+            "一直",
+            "还有",
+            "已经",
+            "是",
+            "的",
+            "了",
+            "吗",
+            "呢",
+            "吧",
+            "啊",
+            "呀",
+            "哦",
+            "嗯",
+            "流程",
+            "方式",
+            "方法"
+    ));
+
+    /**
+     * 领域同义词（双向展开）。
+     *
+     * <p>📌 **纯字面匹配处理不了同义表达**：
+     * 「退钱流程是什么」和「如何申请退款？」**一个共同字都没有** →
+     * 任何 n-gram 方案都是 0 分 → 用户永远问不到那条知识。
+     *
+     * <p>这里是**关键词检索**（不是向量检索），所以用一份**领域词表**补齐
+     * 最常见的口语↔术语映射。词表小而准，优先覆盖客服高频问法。
+     */
+    private static final Map<String, List<String>> DOMAIN_SYNONYMS = Map.ofEntries(
+            Map.entry("退钱", List.of("退款", "退货")),
+            Map.entry("退货", List.of("退款", "售后")),
+            Map.entry("查订单", List.of("查询订单", "订单查询")),
+            Map.entry("订单号", List.of("订单编号")),
+            Map.entry("几天", List.of("多久", "时效")),
+            Map.entry("什么时候到", List.of("多久", "时效", "送达")),
+            Map.entry("收到货", List.of("签收", "收到")),
+            Map.entry("多少钱", List.of("价格", "费用")),
+            Map.entry("价格", List.of("多少钱", "费用")),
+            Map.entry("库存不足", List.of("缺货", "补货")),
+            Map.entry("没货", List.of("缺货", "库存不足")),
+            Map.entry("怎么取消", List.of("取消订单", "撤销")),
+            Map.entry("开发票", List.of("发票", "开票")),
+            Map.entry("邮费", List.of("运费", "shipping")),
+            Map.entry("运费", List.of("邮费", "shipping")),
+            Map.entry("优惠", List.of("折扣", "促销")),
+            Map.entry("尺寸", List.of("规格", "尺码")),
+            Map.entry("尺码", List.of("尺寸", "规格")),
+            Map.entry("上门", List.of("取货", "自提")),
+            Map.entry("自提", List.of("上门", "取货"))
+    );
+
+    /**
+     * 查询与**标签列表**的最大相似度。
+     *
+     * <p>📌 标签是很强的召回信号：用户问「退钱流程是什么」，
+     * 问题文本里没有共同字，但标签「退款」能把它拉回来。
+     *
+     * @param tags 知识条目的标签（可能为 null / 空）
+     * @return 与所有标签的最大相似度，没有标签时返回 0
+     */
+    private double tagsSimilarity(String query, List<String> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return 0;
+        }
+        double best = 0;
+        for (String tag : tags) {
+            if (tag != null && !tag.isBlank()) {
+                best = Math.max(best, calculateSimilarity(query, tag));
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 把文本里的同义词展开成多个变体。
+     *
+     * <p>📌 同义词是**双向**的：知识库写「退款」，用户问「退钱」也要能匹配上，
+     * 所以**双方都展开**。
+     */
+    private List<String> expandSynonyms(String text) {
+        List<String> variants = new ArrayList<>();
+        variants.add(text);
+        String lower = text.toLowerCase();
+        for (Map.Entry<String, List<String>> entry : DOMAIN_SYNONYMS.entrySet()) {
+            String key = entry.getKey().toLowerCase();
+            List<String> alts = entry.getValue();
+            if (lower.contains(key)) {
+                for (String alt : alts) {
+                    // 替换成同义词，得到一个「变体文本」
+                    String replaced = text.replace(entry.getKey(), alt);
+                    if (!replaced.equals(text)) {
+                        variants.add(replaced);
+                    }
+                }
+            }
+            // 反向：文本里出现的是同义词，本身也带上 key
+            for (String alt : alts) {
+                if (lower.contains(alt.toLowerCase()) && !text.contains(entry.getKey())) {
+                    String replaced = text.replace(alt, entry.getKey());
+                    if (!replaced.equals(text)) {
+                        variants.add(replaced);
+                    }
+                }
+            }
+        }
+        return variants;
+    }
+
+    /**
+     * 计算相似度（字符级 n-gram 相似度）。
+     *
+     * 📌 **为什么不能用「按空格切词 + Jaccard」**（2026-11-04 实测踩坑）：
+     *
+     * <pre>
+     *   query = "订单怎么查"          text = "如何查询我的订单？"
+     *   split("\\s+") → ["订单怎么查"] vs ["如何查询我的订单？"]
+     *   交集 = ∅  → 相似度 = 0.000  → 永远检索不到
+     * </pre>
+     *
+     * <b>中文没有空格</b> —— 按空白切词对中文完全失效：
+     * 只要用户的问法跟种子里那条不完全一致（几乎必然），
+     * 相似度就是 0 → **RAG 检索永远返回空** → 助手退化成纯 LLM 闲聊。
+     *
+     * 📌 实测（真实 Java 代码跑的）：
+     * <pre>
+     *   "如何查询我的订单？"        → 命中 1   （逐字相同）
+     *   "订单怎么查"                → 命中 0   ❌
+     *   "退款怎么申请"              → 命中 0   ❌
+     *   "发货 多久"                 → 命中 0   ❌（就算手动加空格也不行）
+     * </pre>
+     *
+     * <p>📌 **现在改成字符级 n-gram**：
+     * <ul>
+     *   <li><b>中日韩</b>：取**相邻两字**的 bigram（「订单怎么查」→「订单/单怎/怎么/么查」）</li>
+     *   <li><b>拉丁文</b>：仍按空格切词（英文靠词根，bigram 会误匹配）</li>
+     *   <li>其余字符（数字/符号）归入「其他 token」</li>
+     * </ul>
+     * 分数取 **Dice 与包含度的较大值**：
+     * <ul>
+     *   <li>Dice = 2|A∩B|/(|A|+|B|) —— 整体相似度</li>
+     *   <li>包含度 = |A∩B|/min(|A|,|B|) —— 「短查询被长文本覆盖」的程度
+     *       （用户只问「退款」两个字，应该能命中那条很长的答案）</li>
+     * </ul>
      */
     private double calculateSimilarity(String query, String text) {
-        Set<String> queryWords = new HashSet<>(Arrays.asList(query.toLowerCase().split("\\s+")));
-        Set<String> textWords = new HashSet<>(Arrays.asList(text.toLowerCase().split("\\s+")));
+        if (query == null || text == null) {
+            return 0;
+        }
+        double best = 0;
+        for (String qVariant : expandSynonyms(query)) {
+            for (String tVariant : expandSynonyms(text)) {
+                best = Math.max(best, similarityOf(qVariant, tVariant));
+            }
+        }
+        return best;
+    }
 
-        Set<String> intersection = new HashSet<>(queryWords);
-        intersection.retainAll(textWords);
+    /** Dice 与包含度取大 */
+    private double similarityOf(String query, String text) {
+        Set<String> queryTokens = tokenize(query);
+        Set<String> textTokens = tokenize(text);
+        if (queryTokens.isEmpty() || textTokens.isEmpty()) {
+            return 0;
+        }
+        Set<String> intersection = new HashSet<>(queryTokens);
+        intersection.retainAll(textTokens);
+        if (intersection.isEmpty()) {
+            return 0;
+        }
+        double dice = 2.0 * intersection.size() / (queryTokens.size() + textTokens.size());
+        // 📌 **覆盖度必须按「查询侧」算**（|A∩B| / |A|），不能用 min(|A|,|B|)：
+        //    min 版会把「长查询只命中一个泛用词」也算成满分 ——
+        //    实测「退钱流程是什么」命中标签「流程」→ min 版给 0.9，
+        //    把真正该答的「如何申请退款？」挤到第二。
+        //    按查询侧算：长查询只命中 1 个词 → 1/5 = 0.2 → 排不上去 ✅
+        //    而「退款」这种短查询整串命中 → 1/1 = 1 → 仍然强力命中 ✅
+        double coverage = (double) intersection.size() / queryTokens.size();
+        return Math.max(dice, coverage * CONTAINMENT_WEIGHT);
+    }
 
-        Set<String> union = new HashSet<>(queryWords);
-        union.addAll(textWords);
+    /**
+     * 把文本切成用于相似度比较的 token 集合。
+     *
+     * <p>中文/日文/韩文 → **相邻两字的 bigram**；拉丁字母 → **按空格/标点切词**；
+     * 其余（数字、符号）→ 归为单字符 token。
+     *
+     * <p>📌 单字（unigram）会太宽松（「退」能匹配「退款」也能匹配「退货退款」），
+     * 所以中文用 **bigram**——既能识别「退款」也能识别「怎么申请」。
+     */
+    private Set<String> tokenize(String text) {
+        Set<String> tokens = new HashSet<>();
+        String normalized = text.toLowerCase().trim();
+        if (normalized.isEmpty()) {
+            return tokens;
+        }
 
-        return union.isEmpty() ? 0 : (double) intersection.size() / union.size();
+        // 拉丁词（连续字母）单独处理
+        java.util.regex.Matcher matcher = LATIN_WORD.matcher(normalized);
+        while (matcher.find()) {
+            tokens.add(matcher.group());
+        }
+        // 去掉拉丁词之后剩下的部分 —— 中文、数字、标点
+        String rest = LATIN_WORD.matcher(normalized).replaceAll(" ");
+
+        // 逐字符扫描：**空白是分隔符** → 每个「连续非拉丁段」各自做 bigram
+        // 📌 必须在扫描过程中**即时**产出 bigram ——
+        //    如果先扫完再统一切，空白前面的段会被后面的段覆盖掉
+        //    （「发货 多久」只剩「多久」）
+        int segStart = -1;
+        for (int i = 0; i <= rest.length(); i++) {
+            boolean isSep = (i == rest.length()) || Character.isWhitespace(rest.charAt(i));
+            if (!isSep) {
+                if (segStart < 0) {
+                    segStart = i;
+                }
+                continue;
+            }
+            if (segStart >= 0) {
+                int len = i - segStart;
+                if (len == 1) {
+                    tokens.add(rest.substring(segStart, segStart + 1));
+                } else {
+                    for (int j = segStart; j + 1 < i; j++) {
+                        tokens.add(rest.substring(j, j + 2));
+                    }
+                }
+                segStart = -1;
+            }
+        }
+
+        // 📌 滤掉低信息量 token（疑问句式等）—— 否则短查询会被「如何」带偏
+        tokens.removeIf(STOPWORD_TOKENS::contains);
+
+        // 兜底：完全没切出任何东西（如纯符号）→ 退化成整串
+        if (tokens.isEmpty()) {
+            tokens.add(normalized);
+        }
+        return tokens;
     }
 
     /**

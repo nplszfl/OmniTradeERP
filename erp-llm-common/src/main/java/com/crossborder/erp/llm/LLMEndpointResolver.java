@@ -152,6 +152,14 @@ public final class LLMEndpointResolver {
      * 于是 Azure 会被拼出一个<b>必然 404 的 URL</b>，然后静默降级成 mock。
      * <p>→ 现在 azure 有真正的分支；<b>其余未知的 provider 明确按 OpenAI 兼容处理</b>
      * （绝大多数自建网关都是这个协议），并在这里给出可读的错误而不是 404。
+     *
+     * <p>🔴 <b>但这个方法本身也曾经是死代码</b>（2026-11-04 实测）：
+     * 它<b>只被单测调用过，运行期没有任何地方调它</b> →
+     * provider 拼错（比如 {@code deepseel}）依然能一路畅通，
+     * 拼出一个必然 404 的 URL → 静默降级成 mock。
+     * <p>→ 现在它被 {@link #validateProvider} 调用，而后者被两个 AI 服务的
+     * {@code LLMConfig} 在<b>启动时</b>调用 → 拼错 provider 会<b>启动即失败</b>，
+     * 而不是等到用户提问才发现「AI 一直在骗我」。
      */
     public static boolean isSupportedProvider(String provider) {
         if (isBlank(provider)) {
@@ -162,6 +170,39 @@ public final class LLMEndpointResolver {
                 || "ollama".equals(p) || "qwen".equals(p) || "moonshot".equals(p)
                 || "zhipu".equals(p) || "openai-compatible".equals(p);
     }
+
+    /**
+     * 校验 provider 是否受支持，<b>不受支持就抛异常</b>。
+     *
+     * <p>📌 <b>为什么要在启动时抛，而不是运行时降级</b>：
+     * provider 拼错是一个**配置错误**，不是运行时故障。
+     * <ul>
+     *   <li>启动时抛 → 容器直接起不来 → 部署流水线立刻发现问题（改对配置重跑就行）</li>
+     *   <li>运行时降级 → 用户问了一句才拿到一段 canned 文本，
+     *       而且 {@code model} 字段写着真实模型名 → <b>看起来完全正常</b>，
+     *       可能上线几个月都没人发现 AI 根本没工作过</li>
+     * </ul>
+     * → <b>宁可起不来，也不要假装能工作</b>。
+     *
+     * @param provider provider 名
+     * @throws IllegalArgumentException provider 不受支持时
+     */
+    public static void validateProvider(String provider) {
+        if (isSupportedProvider(provider)) {
+            return;
+        }
+        String shown = isBlank(provider) ? "(空)" : provider.trim();
+        throw new IllegalArgumentException(
+                "不支持的 LLM provider: '" + shown + "'。受支持的取值: "
+                        + String.join(", ", SUPPORTED_PROVIDERS)
+                        + "（大小写不敏感）。"
+                        + "若你用的是自建 OpenAI 兼容网关，请把 provider 设为 'openai-compatible'。");
+    }
+
+    /** 受支持的 provider 列表（唯一事实来源） */
+    public static final java.util.List<String> SUPPORTED_PROVIDERS = java.util.List.of(
+            "deepseek", "openai", "azure", "ollama", "qwen", "moonshot",
+            "zhipu", "openai-compatible");
 
     private static String stripTrailingSlash(String s) {
         String r = s;

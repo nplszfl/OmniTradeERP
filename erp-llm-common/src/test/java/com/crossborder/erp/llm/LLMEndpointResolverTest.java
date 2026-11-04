@@ -3,6 +3,7 @@ package com.crossborder.erp.llm;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -120,6 +121,54 @@ class LLMEndpointResolverTest {
     void blankProviderIsNotSupported() {
         assertTrue(!LLMEndpointResolver.isSupportedProvider(""));
         assertTrue(!LLMEndpointResolver.isSupportedProvider(null));
+    }
+
+    // ---------------------------------------------------------------- validateProvider
+
+    @Test
+    @DisplayName("validateProvider 对受支持的 provider 不报错")
+    void validateProviderAcceptsSupportedOnes() {
+        for (String p : LLMEndpointResolver.SUPPORTED_PROVIDERS) {
+            assertDoesNotThrow(() -> LLMEndpointResolver.validateProvider(p), p + " 应当通过校验");
+        }
+        // 大小写不敏感
+        assertDoesNotThrow(() -> LLMEndpointResolver.validateProvider("DEEPSEEK"));
+        assertDoesNotThrow(() -> LLMEndpointResolver.validateProvider("  Azure  "));
+    }
+
+    @Test
+    @DisplayName("provider 拼错要立刻报错，且错误信息要说清怎么改")
+    void validateProviderRejectsTypoWithActionableMessage() {
+        // 🔴 这正是 2026-11-04 的真实缺陷：isSupportedProvider 只被单测调过，
+        //    运行期没人调 → provider 拼错 → 拼出必然 404 的 URL → 静默降级成 mock
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> LLMEndpointResolver.validateProvider("deepseel"));
+        String msg = e.getMessage();
+        assertTrue(msg.contains("deepseel"), "错误信息要带上错的值：" + msg);
+        assertTrue(msg.contains("openai-compatible"), "错误信息要告诉用户该怎么改：" + msg);
+    }
+
+    @Test
+    @DisplayName("空 provider 也要报错 —— 不能默默按默认处理")
+    void validateProviderRejectsBlank() {
+        assertThrows(IllegalArgumentException.class,
+                () -> LLMEndpointResolver.validateProvider(""));
+        assertThrows(IllegalArgumentException.class,
+                () -> LLMEndpointResolver.validateProvider(null));
+    }
+
+    @Test
+    @DisplayName("SUPPORTED_PROVIDERS 与 isSupportedProvider 必须一致 —— 单一事实来源")
+    void supportedProvidersListMatchesPredicate() {
+        for (String p : LLMEndpointResolver.SUPPORTED_PROVIDERS) {
+            assertTrue(LLMEndpointResolver.isSupportedProvider(p),
+                    p + " 在列表里就该被 isSupportedProvider 认可");
+        }
+        // 反向：常见拼法不能漏
+        for (String p : new String[]{"deepseek", "openai", "azure", "openai-compatible"}) {
+            assertTrue(LLMEndpointResolver.SUPPORTED_PROVIDERS.contains(p),
+                    p + " 应当出现在 SUPPORTED_PROVIDERS 里");
+        }
     }
 
     // ---------------------------------------------------------------- 参数校验

@@ -125,10 +125,14 @@ import { ref, nextTick, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { aiAssistantApi, knowledgeBaseApi, type KnowledgeBaseItem } from '@/api/ai'
 import { MagicStick, Collection, Plus, Refresh, Search } from '@element-plus/icons-vue'
-import { unwrapPage } from '@/utils/response'
+import { unwrapPage, unwrap } from '@/utils/response'
 
 const messages = ref<{ role: 'user' | 'bot'; content: string; mock?: boolean; mockReason?: string }[]>([
-  { role: 'bot', content: '您好，我是 AI 助手。基于 330+ 行业知识库，可以回答订单、物流、库存、财务、退款等问题。' },
+  // 📌 开场白里的知识库条数**必须来自真实数据**（2026-11-04 修）：
+  //    原来写死「基于 330+ 行业知识库」，而真实种子只有 6 条
+  //    → **界面在承诺一个不存在的**（规则 19：能力不能只是说说）。
+  //    onMounted 里会用 /ai/knowledge/stats 的 activeCount 覆盖这个数字。
+  { role: 'bot', content: '您好，我是 AI 助手。正在加载行业知识库…' },
 ])
 const input = ref('')
 const loading = ref(false)
@@ -221,6 +225,29 @@ const loadKbCategories = async () => {
   }
 }
 
+/**
+ * 加载知识库统计，用**真实条数**改写开场白。
+ *
+ * 📌 2026-11-04：开场白原本写死「基于 330+ 行业知识库」，
+ *    而 `knowledge_base` 真实种子只有 6 条（现在 31 条）
+ *    → **界面在承诺一个不存在的东西**。
+ * 📌 改成动态取数 → 以后无论加多少条、减多少条，**都不会再骗人**。
+ * 📌 取不到就**降级为不说数字**（而不是编一个）—— 降级必须可见。
+ */
+const loadKbStats = async () => {
+  const fallback = '您好，我是 AI 助手。可以回答订单、物流、库存、财务、退款等问题。'
+  try {
+    const res = unwrap<{ activeCount?: number }>(await knowledgeBaseApi.stats())
+    const activeCount = res?.activeCount ?? 0
+    messages.value[0].content = activeCount > 0
+      ? `您好，我是 AI 助手。基于 ${activeCount} 条行业知识库，可以回答订单、物流、库存、财务、退款等问题。`
+      : fallback
+  } catch (error) {
+    console.error('加载知识库统计失败', error)
+    messages.value[0].content = fallback
+  }
+}
+
 const handleKbSearch = () => {
   kbPage.value = 1
   loadKnowledge()
@@ -279,6 +306,7 @@ const handleDeleteKb = async (row: KnowledgeBaseItem) => {
 onMounted(() => {
   loadKnowledge()
   loadKbCategories()
+  loadKbStats()
 })
 </script>
 

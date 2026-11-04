@@ -10,6 +10,9 @@ import com.crossborder.aiassistant.service.AIAssistantService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -57,7 +60,11 @@ class AIAssistantServiceImplTest {
                 .id(2L).category("物流").question("订单发货后多久能收到？")
                 .answer("国内1-3天，国际7-15天").language("zh")
                 .tags(List.of("物流")).priority(9).active(true).build();
-        lenient().when(knowledgeBaseRepository.findByActiveTrue()).thenReturn(List.of(k1, k2));
+        KnowledgeBase k3 = KnowledgeBase.builder()
+                .id(3L).category("售后").question("如何申请退款？")
+                .answer("在订单详情页点击申请售后").language("zh")
+                .tags(List.of("退款")).priority(8).active(true).build();
+        lenient().when(knowledgeBaseRepository.findByActiveTrue()).thenReturn(List.of(k1, k2, k3));
         lenient().when(knowledgeBaseRepository.countByActiveTrue()).thenReturn(2L);
         lenient().when(knowledgeBaseRepository.save(any(KnowledgeBase.class)))
                 .thenAnswer(inv -> {
@@ -202,7 +209,58 @@ class AIAssistantServiceImplTest {
 
         List<AIAssistantService.Knowledge> results = aiAssistantService.searchKnowledge(query, 5);
 
+        // 📌 **不能只 assertNotNull** —— 旧的写法只要不抛异常就绿，
+        //    而「检索返回空列表」是最典型的失败，却完全测不出来。
+        //    （2026-11-04 实测：中文检索恒为空，这些测试一直绿着）
         assertNotNull(results);
+        assertFalse(results.isEmpty(), "「发货」应该能召回物流那条知识");
+        assertEquals("订单发货后多久能收到？", results.get(0).getQuestion());
+    }
+
+    /**
+     * 📌 **回归测试：中文检索不能是空的**（2026-11-04 修的真缺陷）。
+     *
+     * <p>旧实现用「按空格切词 + Jaccard」算相似度，
+     * 而**中文没有空格** → `"订单怎么查"` 被当成**一个** token，
+     * 与 `"如何查询我的订单？"` 交集为空 → 相似度 0 → **永远检索不到**。
+     *
+     * <p>这类缺陷单靠「断言不抛异常」的测试永远发现不了。
+     */
+    @ParameterizedTest
+    @CsvSource({
+            "订单怎么查,       如何查询我的订单？",
+            "怎么查订单,       如何查询我的订单？",
+            "我要查订单,       如何查询我的订单？",
+            "退款怎么申请,     如何申请退款？",
+            "如何退款,         如何申请退款？",
+            "退钱流程是什么,   如何申请退款？",
+            "发货 多久,        订单发货后多久能收到？",
+            "什么时候能收到货, 订单发货后多久能收到？",
+            "物流要几天,       订单发货后多久能收到？"
+    })
+    void testSearchKnowledge_中文问法能召回(String query, String expectedQuestion) {
+        List<AIAssistantService.Knowledge> results = aiAssistantService.searchKnowledge(query, 5);
+
+        assertNotNull(results, "查询词不应返回 null");
+        assertFalse(results.isEmpty(),
+                "❌ 中文问法「" + query + "」一条都没召回 —— 检索对中文失效了");
+        assertEquals(expectedQuestion, results.get(0).getQuestion(),
+                "❌「" + query + "」应该优先召回「" + expectedQuestion + "」");
+    }
+
+    /**
+     * 📌 **反向用例：无关问法不能误召回**。
+     *
+     * <p>📌 调低相似度阈值很容易换来「什么都能匹配上」——
+     * 那等于把「检索不到」换成了「乱检索」，同样是错的。
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"今天天气怎么样", "你好", "在吗", "讲个笑话", "1+1等于几"})
+    void testSearchKnowledge_无关问法不误召回(String query) {
+        List<AIAssistantService.Knowledge> results = aiAssistantService.searchKnowledge(query, 5);
+
+        assertTrue(results.isEmpty(),
+                "❌ 无关问法「" + query + "」召回了 " + results.size() + " 条知识：" + results);
     }
 
     @Test
@@ -210,6 +268,62 @@ class AIAssistantServiceImplTest {
         List<AIAssistantService.Knowledge> results = aiAssistantService.searchKnowledge("", 5);
 
         assertNotNull(results);
+        // 📌 空查询不应该召回任何东西（否则每次闲聊都塞一堆无关知识进 prompt）
+        assertTrue(results.isEmpty(), "空查询不应召回知识");
+    }
+
+    /**
+     * 📌 **回归测试：标签也要参与匹配**（2026-11-04 真实库里发现）。
+     *
+     * <p>用户问「退钱流程是什么」→ 知识的问题写的是「如何申请退款？」→
+     * **一个问题里一个共同字都没有** → 只匹配 question 根本召不回来。
+     * 但那条知识的**标签**是「退款」→ 靠标签能召回。
+     *
+     * <p>📌 真实库验证（31 条真实种子）：这句话的 top-1 就是「退钱流程是什么」。
+     */
+    @Test
+    void testSearchKnowledge_标签也能召回() {
+        // 造一条「问题与问法毫无共同字、但标签对得上」的知识
+        KnowledgeBase tagged = KnowledgeBase.builder()
+                .id(9L).category("售后").question("如何申请退款？")
+                .answer("在订单详情页点击申请售后").language("zh")
+                .tags(List.of("退款", "售后")).priority(8).active(true).build();
+        List<KnowledgeBase> rows = List.of(tagged);
+        when(knowledgeBaseRepository.findByActiveTrue()).thenReturn(rows);
+
+        List<AIAssistantService.Knowledge> results = aiAssistantService.searchKnowledge("退钱流程是什么", 5);
+
+        assertFalse(results.isEmpty(),
+                "❌「退钱流程是什么」没召回 —— 标签没参与匹配，同义表达召不回来");
+        assertEquals("如何申请退款？", results.get(0).getQuestion());
+    }
+
+    /**
+     * 📌 **回归测试：泛用词不能压过真正的答案**（2026-11-04 真实库里发现）。
+     *
+     * <p>「退钱流程是什么」如果只匹配 tag「流程」，得分会和 tag「退款」一样高
+     * → **排序错** → 把「订单状态有哪些？」排在「如何申请退款？」前面。
+     *
+     * <p>📌 根因：覆盖度不能按 min(|A|,|B|) 算 ——
+     * 长查询只命中一个泛用词也算满分。必须按**查询侧**算（|A∩B|/|A|）。
+     */
+    @Test
+    void testSearchKnowledge_泛用词不能压过真答案() {
+        KnowledgeBase refund = KnowledgeBase.builder()
+                .id(9L).category("售后").question("如何申请退款？")
+                .answer("在订单详情页点击申请售后").language("zh")
+                .tags(List.of("退款")).priority(8).active(true).build();
+        KnowledgeBase order = KnowledgeBase.builder()
+                .id(10L).category("订单").question("订单状态有哪些？")
+                .answer("包含待付款、待发货等状态").language("zh")
+                .tags(List.of("订单", "状态", "流程")).priority(7).active(true).build();
+        when(knowledgeBaseRepository.findByActiveTrue()).thenReturn(List.of(order, refund));
+
+        List<AIAssistantService.Knowledge> results = aiAssistantService.searchKnowledge("退钱流程是什么", 5);
+
+        assertFalse(results.isEmpty(), "应该召回退款那条");
+        assertEquals("如何申请退款？", results.get(0).getQuestion(),
+                "❌ 泛用词「流程」抢了第一 —— 真答案应该在最前面");
     }
 
     @Test

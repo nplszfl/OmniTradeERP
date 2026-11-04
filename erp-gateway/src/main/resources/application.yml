@@ -230,6 +230,19 @@ spring:
             - Path=/api/ai/knowledge/base/**
           filters:
             - StripPrefix=0
+        # 知识库统计（条数/分类分布）
+        # 📌 2026-11-04：聊天页开场白原本写死「基于 330+ 行业知识库」，
+        #    而真实种子只有 6 条 → **承诺与事实不符**。
+        #    现在开场白改成**动态取真实条数**（activeCount）→ 永远不会再骗人。
+        # 📌 Path 写精确路径而不是通配 —— 通配会把 /api/ai/knowledge/search
+        #    也吃掉（那个要走上面的 ai-knowledge-list 路由）。
+        - id: ai-knowledge-stats
+          uri: lb://erp-ai-assistant-service
+          predicates:
+            - Path=/api/ai/knowledge/stats
+            - Method=GET
+          filters:
+            - StripPrefix=0
 
         - id: ai-assistant-service
           uri: lb://erp-ai-assistant-service

@@ -202,6 +202,68 @@ def app_config(module):
     return reads, infra
 
 
+def check_nacos_config_addr(module):
+    """🔴 **用了 spring.config.import 拉 Nacos 配置，就必须配 config.server-addr**。
+
+    📌 **这个缺陷在 2026-11-04 真的发生过**：
+    erp-ai-assistant-service 里只配了
+        spring.cloud.nacos.discovery.server-addr
+    却没配
+        spring.cloud.nacos.config.server-addr
+    而它的 application.yml 里有
+        spring.config.import: optional:nacos:${spring.application.name}.yml
+
+    → 启动直接炸：`NacosException: endpoint is blank`。
+    📌 **连 `optional:` 兼底都救不了** —— endpoint 为空是**硬失败**，
+    不是「拉不到就跳过」→ **服务根本起不来**。
+
+    📌 **为什么现有检查发现不了**：
+    上面那几道检查都是「配了某个地址 → 里面的变量有没有被注入」。
+    而这里的缺陷是「**某个地址根本没配**」 → 压根不进检查 1/2 的视野。
+
+    📌 **为什么必须查全仓库**：
+    本仓库 24 个服务里**只有这一个**漏了 → 单靠人眼看不出来，
+    只能靠一道闸门把所有服务扫一遍。
+
+    :return: 错误信息列表（空 = 没问题）
+    """
+    yml = os.path.join(ROOT, module, "src", "main", "resources", "application.yml")
+    if not os.path.exists(yml):
+        return []
+    text = open(yml, encoding="utf-8").read()
+    merged = {}
+    for d in yaml.safe_load_all(text):
+        if isinstance(d, dict):
+            merged = deep_merge(merged, d)
+
+    # 1) 这个服务真的要从 Nacos **拉配置**吗？
+    imports = dig(merged, ("spring", "config", "import")) or []
+    if isinstance(imports, str):
+        imports = [imports]
+    uses_nacos_config = any("nacos:" in str(i) for i in imports)
+    if not uses_nacos_config:
+        return []
+
+    # 2) 配了 config.server-addr 吗？
+    cfg_addr = dig(merged, ("spring", "cloud", "nacos", "config", "server-addr"))
+    if cfg_addr is not None and str(cfg_addr).strip():
+        return []
+
+    return [
+        f"[{module}] 用了 `spring.config.import` 拉 Nacos 配置，"
+        f"但**没配 `spring.cloud.nacos.config.server-addr`**\n"
+        f"      → 启动直接炸：`NacosException: endpoint is blank`\n"
+        f"      → 连 `optional:` 兼底都救不了（endpoint 为空是硬失败）→ **服务根本起不来**\n"
+        f"      → 📌 Nacos 的 **config 客户端**和 **discovery 客户端**是两套独立配置，\n"
+        f"         只配 discovery.server-addr 是不够的\n"
+        f"      → 修法：照兄弟服务补上\n"
+        f"           spring.cloud.nacos.config:\n"
+        f"             server-addr: ${{NACOS_HOST:...}}:${{NACOS_PORT:8848}}\n"
+        f"             namespace: erp-dev\n"
+        f"             group: DEFAULT_GROUP"
+    ]
+
+
 # compose 文件 → 该文件实际部署了哪些基础设施
 COMPOSE_DEPLOYED = {}
 
@@ -310,6 +372,18 @@ def main():
 
     # 📌 每个**部署目标**独立校验（compose 文件 × 服务 / k8s 文件 × Deployment）
     targets = compose_targets() + k8s_targets()
+
+    # ── 检查 0：**结构完整性** —— 用了 Nacos config 就必须配 config.server-addr ──
+    # 📌 这一条**不能**放到下面的「每个部署目标」循环里 ——
+    #    它是**应用自身配置**的缺陷，跟部署到哪个 compose / k8s 无关。
+    #    放进去就只会报 N 次同样的错。
+    # 📌 去重：同一个模块只查一次。
+    seen_modules = set()
+    for _target, module, _injected, _filename in targets:
+        if module in seen_modules:
+            continue
+        seen_modules.add(module)
+        errors.extend(check_nacos_config_addr(module))
 
     k8s_kinds = k8s_deployed()
 
