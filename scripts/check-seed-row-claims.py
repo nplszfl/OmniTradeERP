@@ -60,7 +60,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DB_DIR = ROOT / "database"
 
-SCAN_GLOBS = ["*.md", "*.java", "*.ts", "*.vue", "*.yml", "*.yaml"]
+SCAN_GLOBS = ["*.md", "*.java", "*.ts", "*.vue", "*.yml", "*.yaml", "*.py"]
 SCAN_DIRS = [
     ROOT / "docs",
     ROOT / "erp-web/src",
@@ -309,17 +309,29 @@ def count_seed_rows():
 # ══════════════════════════════════════════════════════════════════════
 
 def iter_scannable_files():
+    """可扫描的文件。
+
+    📌 **排除本脚本自己**：
+    闸门源码里的 docstring 会写「…31 条…」这类例子
+    → 自己扫自己 → 改个注释就可能把自己报红 → **莫名其妙的假红**。
+    → 闸门不扫自己（但**其它**闸门脚本要扫 —— 它们的 ANALYSIS_LINES 里也有声明）。
+    """
+    self_path = Path(__file__).resolve()
     seen = set()
     for f in SCAN_FILES:
         if f.exists():
-            seen.add(f)
+            seen.add(f.resolve())
     for d in SCAN_DIRS:
         if not d.exists():
             continue
         for pat in SCAN_GLOBS:
             for f in d.rglob(pat):
-                if f.is_file() and ".git" not in f.parts:
-                    seen.add(f)
+                if not f.is_file() or ".git" in f.parts:
+                    continue
+                r = f.resolve()
+                if r == self_path:
+                    continue
+                seen.add(r)
     return sorted(seen)
 
 
@@ -344,6 +356,9 @@ def find_claims():
                     out.append((f, lineno, table, int(m.group(1)), line.strip(),
                                 "句中带表名"))
     return out
+
+
+KNOWN_TABLES: set = set()
 
 
 def known_tables(counts):
