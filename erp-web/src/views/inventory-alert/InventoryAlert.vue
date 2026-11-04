@@ -256,12 +256,18 @@
           <template #header>
             <span>系统预警设置</span>
           </template>
+          <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px"
+            title="这些是本机的个人偏好（保存在浏览器本地），新建预警规则时会用来预填默认值。"
+            description="需要全租户共享的规则配置，请到「预警规则」里维护。" />
           <el-form label-width="150px">
             <el-form-item label="启用库存预警">
               <el-switch v-model="systemSettings.enableAlert" />
             </el-form-item>
-            <el-form-item label="默认预警提前天数">
-              <el-input-number v-model="systemSettings.defaultAdvanceDays" :min="1" :max="30" />
+            <el-form-item label="默认预警库存">
+              <!-- 📌 原来叫「默认预警提前天数」，但规则的预警字段是**数量**（alertStock），
+                   没有「天数」这个维度 → 名字和实际用途对不上。
+                   → 统一成「默认预警库存」，新建规则时直接预填到 alertStock。 -->
+              <el-input-number v-model="systemSettings.defaultAdvanceDays" :min="0" :max="9999" />
             </el-form-item>
             <el-form-item label="默认通知方式">
               <el-checkbox-group v-model="systemSettings.defaultNotifyTypes">
@@ -411,13 +417,47 @@ const replenishmentList = ref<ReplenishmentSuggestion[]>([])
 const replenishSearchForm = reactive({ warehouseId: '', status: '' })
 const replenishPagination = reactive({ current: 1, size: 20, total: 0 })
 
-// 系统设置
+/**
+ * 系统预警设置（**本地偏好**，持久化到 localStorage）
+ *
+ * ⚠️ 原来这里是一个**纯装饰**的设置面板：
+ *    `handleSaveSettings()` 只弹了个「设置已保存」，**什么都没存**，
+ *    而且这 4 个值**从头到尾没有任何地方读过**（连新建规则都没用它们做默认值）。
+ *    → 用户改了半天，刷新页面全没了 → **界面在骗人**（规则 51 / 72）。
+ *
+ * 📌 **为什么存 localStorage 而不是后端**：
+ *    「默认通知方式 / 默认通知人 / 是否启用 / 默认预警库存」是**个人偏好**，
+ *    不是全租户共享的业务数据；
+ *    而 erp-inventory-alert-service 的后端**只有规则 CRUD**，
+ *    没有「系统设置」实体（加一个库表属于过度设计）。
+ *    → 存本地 = **真保存**（刷新还在），且语义诚实。
+ *
+ * 📌 这些默认值会**真的用上**：新建规则时预填（见 handleAddRule）。
+ */
+const SETTINGS_KEY = 'erp:inventory-alert:settings'
+
 const systemSettings = reactive({
   enableAlert: true,
   defaultAdvanceDays: 3,
   defaultNotifyTypes: ['SYSTEM'] as string[],
   defaultNotifyTo: ''
 })
+
+/** 从 localStorage 恢复设置（刷新后还在 → 证明是真保存） */
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY)
+    if (!raw) return
+    const saved = JSON.parse(raw)
+    if (typeof saved.enableAlert === 'boolean') systemSettings.enableAlert = saved.enableAlert
+    if (typeof saved.defaultAdvanceDays === 'number') systemSettings.defaultAdvanceDays = saved.defaultAdvanceDays
+    if (Array.isArray(saved.defaultNotifyTypes)) systemSettings.defaultNotifyTypes = saved.defaultNotifyTypes
+    if (typeof saved.defaultNotifyTo === 'string') systemSettings.defaultNotifyTo = saved.defaultNotifyTo
+  } catch (e) {
+    // 📌 本地数据坏了就**回落到默认值**，不让整个页面白屏
+    console.error('读取本地预警设置失败，回落到默认值', e)
+  }
+}
 
 // 加载统计数据
 const loadStats = async () => {
@@ -509,11 +549,18 @@ const loadReplenishments = async () => {
 // 新增规则
 const handleAddRule = () => {
   isEditRule.value = false
+  // 📌 预填**系统设置里的默认值** —— 这样「默认通知方式 / 默认通知人 / 预警库存 /
+  //    是否启用」才真的有意义（之前这 4 个设置从头到尾没有任何地方读过）。
   Object.assign(ruleForm, {
     id: '',sku: '', productName: '', warehouseId: '', warehouseName: '',
-    safeStock: 10, alertStock: 5, minStock: 0, alertType: 'LOW',
-    notifyType: 'SYSTEM', notifyTo: '', enabled: true, remark: '',
-    notifyTypes: ['SYSTEM']
+    safeStock: 10,
+    alertStock: systemSettings.defaultAdvanceDays,
+    minStock: 0, alertType: 'LOW',
+    notifyType: systemSettings.defaultNotifyTypes[0] || 'SYSTEM',
+    notifyTo: systemSettings.defaultNotifyTo,
+    enabled: systemSettings.enableAlert,
+    remark: '',
+    notifyTypes: [...systemSettings.defaultNotifyTypes]
   })
   ruleFormVisible.value = true
 }
@@ -636,7 +683,20 @@ const handleCancelReplenishment = async (item: ReplenishmentSuggestion) => {
 
 // 保存设置
 const handleSaveSettings = () => {
-  ElMessage.success('设置已保存')
+  // ⚠️ 原来只弹「设置已保存」，**什么都没存** → 刷新全丢（规则 51 / 72）
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      enableAlert: systemSettings.enableAlert,
+      defaultAdvanceDays: systemSettings.defaultAdvanceDays,
+      defaultNotifyTypes: systemSettings.defaultNotifyTypes,
+      defaultNotifyTo: systemSettings.defaultNotifyTo
+    }))
+    ElMessage.success('设置已保存')
+  } catch (e) {
+    // ⚠️ 存失败（隐私模式 / 配额满）→ **如实报错**，不弹「已保存」
+    console.error('保存预警设置失败', e)
+    ElMessage.error('设置保存失败')
+  }
 }
 
 // 工具函数
@@ -678,6 +738,8 @@ const getReplenishStatusType = (status: string) => {
 const formatTime = (time: string) => time ? dayjs(time).format('YYYY-MM-DD HH:mm') : '-'
 
 onMounted(() => {
+  // 📌 先恢复本地设置 → 面板显示的是**保存过的值**（不是每次都重置）
+  loadSettings()
   loadStats()
   loadRules()
   loadAlerts()

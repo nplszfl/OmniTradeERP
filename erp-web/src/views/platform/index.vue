@@ -274,22 +274,26 @@ const handleSync = async (row: PlatformConfig) => {
 }
 
 // 同步商品
+//
+// ⚠️ 原来这里是个**纯模拟**（2026-11-05 修）：
+//    `await new Promise(resolve => setTimeout(resolve, 1000))` —— 一个请求都没发，
+//    然后弹「商品同步已开始，请稍后刷新查看」。
+//    → 用户以为同步在跑，**其实什么都没发生**（规则 51 / 72 / 82）。
+//    → 阴险的是它**长得像**一次真实调用（有 await、有 loading、有 try/catch）→ 极难察觉。
+//
+// 📌 **后端确实没有商品同步接口**：
+//    erp-platform-service 只有 `POST /platform/sync/orders`（订单），
+//    PlatformOrderSync 接口也只有订单相关方法，没有商品同步。
+//    （订单同步那侧 AmazonOrderSync 等实现目前也是 `throw notImplemented`，
+//      后端是**如实报错**的 —— 撒谎的是前端。）
+//
+// → 所以这里**如实告诉用户「暂未开放」**，不假装成功。
+//   等后端真的加了 `POST /platform/sync/products`，再改成真调用。
 const handleSyncProduct = async (row: PlatformConfig) => {
-  ElMessageBox.confirm(`确定同步 ${row.shopName} 的商品吗？`, '提示', {
-    type: 'info'
-  }).then(async () => {
-    const loading = ElLoading.service({ text: '正在同步商品...' })
-    try {
-      // 模拟商品同步API调用
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      ElMessage.success('商品同步已开始，请稍后刷新查看')
-    } catch (error) {
-      ElMessage.error('同步失败')
-      console.error('同步失败:', error)
-    } finally {
-      loading.close()
-    }
-  }).catch(() => {})
+  ElMessage.info(
+    `「同步商品」尚未开放：后端还没有商品同步接口（当前只有订单同步 /platform/sync/orders）。`
+    + `店铺「${row.shopName}」的商品需要手工在商品中心维护。`
+  )
 }
 
 // 工具函数

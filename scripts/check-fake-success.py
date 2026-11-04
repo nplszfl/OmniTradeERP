@@ -75,10 +75,48 @@ WEB_SRC = ROOT / "erp-web/src"
 
 FUNC_RE = re.compile(
     r"(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{")
+# 📌 **箭头函数**（2026-11-05 补）——
+#    Vue <script setup> 里 `const handleX = async () => { ... }` 是**主流写法**，
+#    只认 `function` 声明 → 大半个文件都是盲区。
+#    实测漏掉的真缺陷：`InventoryAlert.vue` 的 `handleSaveSettings`
+#    （箭头函数 → 闸门看不见 → 「设置已保存」其实什么都没存）。
+ARROW_RE = re.compile(
+    r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?"
+    r"\([^)]*\)\s*=>\s*\{")
 API_CALL_RE = re.compile(r"\b[A-Za-z_$][\w$]*Api\s*\.\s*[\w$]+\s*\(")
 REQUEST_RE = re.compile(r"\brequest\s*\.\s*(get|post|put|delete|patch)\s*\(")
+# 📌 **裸 axios**（2026-11-05 补）——
+#    Login.vue / Register.vue 用的是 `axios.post(...)`（不走拦截器），
+#    不认它 → 改完箭头函数支持后会**误报**。
+AXIOS_RE = re.compile(r"\baxios\s*\.\s*(get|post|put|delete|patch)\s*\(")
 SUCCESS_RE = re.compile(r"ElMessage\s*\.\s*success\s*\(")
 LOCAL_CALL_RE = re.compile(r"(?<![\w.$])([A-Za-z_$][\w$]*)\s*\(")
+
+# 📌 **假 await**（2026-11-05 补）——
+#    `await new Promise(resolve => setTimeout(resolve, 1000))`
+#    **长得极像一次真实调用**：有 await、有 loading、有 try/catch，
+#    但一个请求都没发。
+#    实测漏掉的真缺陷：`platform/index.vue` 的 `handleSyncProduct`
+#    —— 等 1 秒后弹「商品同步已开始，请稍后刷新查看」，**同步从未发生**。
+FAKE_AWAIT_RE = re.compile(
+    r"new\s+Promise\s*\(\s*(?:resolve\s*=>)?\s*(?:\{)?\s*(?:\(\)\s*=>\s*)?"
+    r"(?:setTimeout|delay|sleep)\s*\(")
+
+# 📌 **真实的本地效果**（2026-11-05 补）——
+#    「弹了成功」不一定要有**后端**调用才算真：
+#    · `localStorage.setItem(...)` → **真持久化**（刷新还在）
+#    · `xxx.value = ...` / `Object.assign(...)` → **真状态变更**（选择、切换、重置）
+#    这些都是**货真价实**的用户可见效果，「已保存 / 已选择」是**如实的**。
+#    📌 反过来：只有一句 `ElMessage.success(...)`、**什么效果都没有** → 才是骗人。
+#    实测漏掉的两个真缺陷都是「一句 success + 零效果」：
+#      · `InventoryAlert.vue` 的 `handleSaveSettings`（原版：只弹 toast）
+#      · `Logistics.vue` 的 `selectChannel`（原版：选完当场丢掉）
+LOCAL_EFFECT_RE = re.compile(
+    r"localStorage\s*\.\s*setItem"
+    r"|sessionStorage\s*\.\s*setItem"
+    r"|\.\s*value\s*=[^=]"
+    r"|Object\s*\.\s*assign\s*\("
+)
 
 # 纯本地、不需要后端的成功场景
 LOCAL_ONLY_RE = re.compile(
@@ -123,19 +161,29 @@ def extract_body(src, brace_pos):
 
 
 def collect_functions(src):
-    """{函数名: (起始行, 函数体)}"""
+    """{函数名: (起始行, 函数体)}
+
+    📌 同时收集**函数声明**和**箭头函数**（2026-11-05）——
+    只认声明式 → Vue <script setup> 里的箭头函数全成盲区。
+    """
     out = {}
     for m in FUNC_RE.finditer(src):
         name = m.group(1)
         body = extract_body(src, m.end() - 1)
         line = src[:m.start()].count("\n") + 1
-        # 同名函数保留第一个
+        out.setdefault(name, (line, body))
+    for m in ARROW_RE.finditer(src):
+        name = m.group(1)
+        body = extract_body(src, m.end() - 1)
+        line = src[:m.start()].count("\n") + 1
         out.setdefault(name, (line, body))
     return out
 
 
 def has_backend_call(body):
-    return bool(API_CALL_RE.search(body) or REQUEST_RE.search(body))
+    return bool(API_CALL_RE.search(body)
+                or REQUEST_RE.search(body)
+                or AXIOS_RE.search(body))
 
 
 def calls_local_function(body, funcs, depth=0):
@@ -147,7 +195,15 @@ def calls_local_function(body, funcs, depth=0):
         if name in ("if", "for", "while", "switch", "catch", "return", "function",
                     "typeof", "await", "String", "Number", "Boolean", "Array",
                     "Object", "JSON", "Math", "Date", "Promise", "console",
-                    "Error", "parseInt", "parseFloat", "setTimeout", "encodeURIComponent"):
+                    "Error", "parseInt", "parseFloat", "setTimeout", "encodeURIComponent",
+                    # 📌 关键字（2026-11-05 补）：
+                    #    `async (` 会被 LOCAL_CALL_RE 当成「调用名为 async 的函数」
+                    #    → funcs['async'] → **KeyError 直接崩掉整个闸门**。
+                    #    ⚠️ 闸门自己崩 = 静默失效（CI 里会红，但本地跑不出来）。
+                    "async", "new", "of", "in", "do", "else", "try", "case",
+                    "void", "delete", "this", "super", "yield", "instanceof"):
+            continue
+        if name not in funcs:
             continue
         if name in funcs:
             return True
@@ -181,9 +237,14 @@ def main():
                 continue
             if has_backend_call(body):
                 continue
+            # 📌 **本地真实效果**也算数（本地持久化 / 状态变更）
+            #    → 「已保存 / 已选择」是如实的，不算骗人
+            if LOCAL_EFFECT_RE.search(body):
+                continue
             if calls_local_function(body, funcs):
                 continue
-            problems.append((f.relative_to(ROOT), line, name))
+            fake_await = bool(FAKE_AWAIT_RE.search(body))
+            problems.append((f.relative_to(ROOT), line, name, fake_await))
 
     print("=" * 72)
     print("「假成功」巡检（弹了「已xxx」就必须真有后端调用）")
@@ -193,9 +254,13 @@ def main():
 
     if problems:
         print(f"🔴 发现 {len(problems)} 处「假成功」：\n")
-        for rel, line, name in problems:
+        for rel, line, name, fake_await in problems:
             print(f"  ❌ {rel}:{line}  {name}()")
             print(f"       弹了 ElMessage.success，但**没有后端调用**")
+            if fake_await:
+                print(f"       ⚠️ 里面还有**假 await**（new Promise + setTimeout）")
+                print(f"          → 它**长得极像**一次真实调用（有 await/loading/try-catch）")
+                print(f"          → 但一个请求都没发 → 同步/提交**从未发生**")
             print(f"       → 用户以为动作生效了，**其实什么都没发生**")
             print(f"       → 后续动作（入库/释放库存/落库/通知）全都没发生（规则 51 / 72）")
             print(f"       → 正确做法：**真调后端**，失败就**不弹成功**")

@@ -82,11 +82,24 @@
         <el-radio label="price">按价格</el-radio>
         <el-radio label="days">按时效</el-radio>
       </el-radio-group>
-      
+
+      <!-- 📌 展示**当前选中的渠道**（原来点「选择」只弹了个 toast，
+           选择结果**当场就被丢掉** → 用户以为选好了，其实什么都没发生） -->
+      <el-alert v-if="selectedRate" type="success" :closable="false" show-icon
+        style="margin-bottom: 12px"
+        :title="`已选择渠道：${selectedRate.channelName}（${selectedRate.carrier}）`"
+        :description="`运费 $${selectedRate.totalPrice?.toFixed(2)} ${selectedRate.currency} · 时效 ${selectedRate.transitTime}`" />
+
       <el-table :data="sortedResults" stripe>
         <el-table-column label="推荐" width="70">
           <template #default="{ row }">
             <el-tag v-if="row.isRecommended" type="success" size="small">推荐</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag v-if="selectedRate && selectedRate.channelCode === row.channelCode"
+                    type="primary" size="small">已选</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="channelName" label="物流渠道" min-width="150" />
@@ -393,6 +406,8 @@ const calculateRates = async () => {
   try {
     const res = await logisticsApi.calculateRate(calculator)
     rateResults.value = res
+    // 📌 重新计算后旧的选择**不再成立**（运费/时效都变了）→ 清掉
+    selectedRate.value = null
   } catch (error) {
     console.error('计算运费失败', error)
     // ⚠️ 之前这里回退到 mock 数据，把后端的 404/500 全部掩盖了。
@@ -410,10 +425,29 @@ const resetCalculator = () => {
   calculator.fromPostalCode = ''
   calculator.toPostalCode = ''
   rateResults.value = []
+  // 📌 结果清空了，之前选的渠道**不再成立** → 必须一起清掉
+  selectedRate.value = null
 }
+
+/**
+ * 当前选中的物流渠道
+ *
+ * ⚠️ 原来 `selectChannel` 只弹了个「已选择 X」，
+ *    **但选择结果当场就被丢掉** —— 页面上没有任何地方记着它
+ *    → 用户以为选好了渠道，**其实什么都没发生**（规则 51 / 72 / 82）。
+ *    → 现在真的记住选择（`selectedRate`），
+ *      表格里标「已选」，上方摘要显示渠道/运费/时效 → **「已选择」这句话才是真的**。
+ *
+ * 📌 后端 erp-logistics-service **没有「创建物流单」接口**
+ *    （只有 channels / calculate / recommend / rates 的 CRUD），
+ *    所以这里做到「选择真实生效且可见」为止；
+ *    后续接了发货流程，直接用 `selectedRate` 即可。
+ */
+const selectedRate = ref<ShippingRateResult | null>(null)
 
 // 选择渠道
 const selectChannel = (rate: ShippingRateResult) => {
+  selectedRate.value = rate
   ElMessage.success(`已选择 ${rate.channelName}，运费 $${rate.totalPrice.toFixed(2)}`)
 }
 
