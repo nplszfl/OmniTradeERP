@@ -38,8 +38,17 @@ public class TenantConfigController {
 
     @Operation(summary = "变更套餐")
     @PostMapping("/plan/change")
-    public ResponseEntity<TenantDTO> changePlan(@RequestBody PlanChangeRequest request) {
-        return ResponseEntity.ok(tenantConfigService.changePlan(request));
+    public ResponseEntity<TenantDTO> changePlan(
+            @RequestBody PlanChangeRequest request,
+            @RequestParam(required = false) String tenantId) {
+        // 📌 **加上 tenantId**（2026-11-04）：本 controller 的其它 GET
+        //    （getCurrentPlan / getBills …）都带 tenantId，只有 changePlan 没有
+        //    → 管理端「租户管理」页给**别的**租户改套餐时，改的其实是**当前登录租户**
+        //    → **改错了对象还提示成功**（规则 51 / 72）。
+        //    → 现在和其它接口保持一致：传了就用传的，不传就用当前上下文。
+        try (TenantContext.Scope ignored = TenantContext.scope(TenantContext.resolve(tenantId))) {
+            return ResponseEntity.ok(tenantConfigService.changePlan(request));
+        }
     }
 
     @Operation(summary = "获取可用套餐列表")

@@ -10,7 +10,7 @@
               <el-option label="已确认" value="CONFIRMED" />
               <el-option label="已驳回" value="REJECTED" />
             </el-select>
-            <el-button type="primary" @click="runAll">对所有未审核订单重新检测</el-button>
+            <el-button type="primary" :loading="running" @click="runAll">对所有未审核订单重新检测</el-button>
           </div>
         </div>
       </template>
@@ -61,6 +61,8 @@ import { anomalyApi } from '@/api/ai'
 
 const list = ref<any[]>([])
 const loading = ref(false)
+/** 「重新检测」逐单跑，别让用户以为没反应 */
+const running = ref(false)
 const stats = ref({ total: 0, normal: 0, anomaly: 0, rate: 0 })
 const filter = ref({ status: '' })
 
@@ -88,11 +90,49 @@ async function load() {
 
 async function confirm(row: any, status: string) {
   await ElMessageBox.confirm(`确认将订单 ${row.orderNo} 标记为${status === 'CONFIRMED' ? '异常' : '正常'}？`, '提示')
-  row.status = status
-  ElMessage.success('已处理')
+  // ⚠️ 原来只改本地 `row.status` 就弹「已处理」→ **后端没收到任何请求**
+  //    → 审核结果没落库 → 刷新页面又变回 PENDING（规则 51 / 72）。
+  //    → 后端有 `POST /api/v1/anomaly/{id}/confirm`（anomalyApi.confirm）→ 真调。
+  try {
+    await anomalyApi.confirm(row.id, status)
+    ElMessage.success('已处理')
+    await load()          // 📌 状态以服务端为准
+  } catch (e) {
+    console.error('异常订单处理失败', e)
+    ElMessage.error('处理失败')
+  }
 }
 
-async function runAll() { ElMessage.success('已对所有 30 单未审核订单重新检测') }
+async function runAll() {
+  // ⚠️ 原来直接弹「已对所有 30 单未审核订单重新检测」——**30 这个数字也是写死的**
+  //    （实际待审核数可能不是 30）→ 双重骗人（规则 56）。
+  //    → 后端有 `POST /api/v1/anomaly/detect/{orderId}`（按订单 ID 重新检测）
+  //    → 现在按**真实列表**里 PENDING 的订单逐个重跑，并如实报告实际条数。
+  const pending = list.value.filter((r: any) => r.status === 'PENDING')
+  if (!pending.length) {
+    ElMessage.info('没有待审核的订单')
+    return
+  }
+  running.value = true
+  let ok = 0
+  const failed: string[] = []
+  for (const r of pending) {
+    try {
+      await anomalyApi.detect(r.orderNo)
+      ok++
+    } catch (e) {
+      console.error('重新检测失败', r.orderNo, e)
+      failed.push(r.orderNo)
+    }
+  }
+  running.value = false
+  if (failed.length) {
+    ElMessage.warning(`重新检测完成：成功 ${ok} 单，失败 ${failed.length} 单（${failed.join('、')}）`)
+  } else {
+    ElMessage.success(`已重新检测 ${ok} 单未审核订单`)
+  }
+  await load()
+}
 </script>
 
 <style scoped>

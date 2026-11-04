@@ -108,7 +108,20 @@ async function refresh() {
 }
 
 function viewDetail(row: any) { detail.value = row; detailVisible.value = true }
-function addToShelf(row: any) { ElMessage.success(`已加入选品库：${row.sku}`) }
+// ⚠️ 原来只弹「已加入选品库：xxx」——**什么都没做**，推荐结果状态也没变
+//    → 用户以为采纳了，选品库里其实没有（规则 51 / 72）。
+//    → 后端 `PUT /api/v1/recommend/results/{id}/adoption?status=ACCEPTED`
+//    → 现在真调，采纳状态落库。
+async function addToShelf(row: any) {
+  try {
+    await recommendApi.adopt(row.id, 'ACCEPTED')
+    ElMessage.success(`已加入选品库：${row.sku}`)
+    await load()          // 📌 重新拉一次：adoptionStatus 以服务端为准
+  } catch (e) {
+    console.error('加入选品库失败', e)
+    ElMessage.error('加入选品库失败')
+  }
+}
 </script>
 
 <style scoped>

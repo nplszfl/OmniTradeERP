@@ -250,6 +250,20 @@ jobs:
     - name: 假删除（点了删除不许只改本地数组）
       run: python3 scripts/check-fake-delete.py --strict
 
+    # 📌 **假成功**（弹了「已xxx」就必须真有后端调用）
+    #    📌 2026-11-04 一次扫出 **12 处真缺陷**：
+    #       `purchase/index.vue` 的 approve/receive/cancel（后端接口全都有，前端从没调过）、
+    #       `ai/Anomaly.vue` 的 confirm/runAll（runAll 连「30 单」都是写死的）、
+    #       `ai/Pricing.vue` 的 apply、`ai/Recommend.vue` 的 addToShelf、
+    #       `ai/InventoryPredict.vue` 的 createPO/refresh、
+    #       `ai/Description.vue` 的 saveToProduct、
+    #       `tenant/index.vue` 的 goDashboard/goBilling/goConfig/onPlanSelected。
+    #    📌 **讽刺**：这些后端接口**全都存在**，只是前端自己编了个「假成功」。
+    #    📌 判据会**追一层本地函数调用**（refresh → load → API），
+    #       否则会把正确写法误报成假成功。
+    - name: 假成功（弹了「已xxx」就必须真有后端调用）
+      run: python3 scripts/check-fake-success.py --strict
+
     - name: DDL 挂载（database/*.sql 有没有进 docker-compose 的 init 目录）
       run: python3 scripts/check-db-schema-provision.py
 

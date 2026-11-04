@@ -42,7 +42,7 @@
           <template #header>
             <span>生成结果</span>
             <el-button v-if="result" link type="primary" size="small" style="margin-left: 8px" @click="copy">复制</el-button>
-            <el-button v-if="result" link type="success" size="small" @click="saveToProduct">保存到商品</el-button>
+            <el-button v-if="result" link type="success" size="small" :loading="saving" @click="saveToProduct">保存到商品</el-button>
           </template>
           <div v-if="generating" class="placeholder">AI 正在生成高质量商品描述...</div>
           <div v-else-if="result" class="result">
@@ -77,9 +77,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { descriptionApi } from '@/api/ai'
+import { productApi } from '@/api/product'
+import { unwrapPage } from '@/utils/response'
 
 const form = reactive({
   sku: 'SKU-BLU-001-BLK',
@@ -88,16 +90,41 @@ const form = reactive({
   keywordsText: '',
 })
 
-const products = [
-  { sku: 'SKU-BLU-001-BLK', name: '无线蓝牙耳机 Pro' },
-  { sku: 'SKU-WAT-002-BLK', name: '智能手表 X1' },
-  { sku: 'SKU-USB-003-US',  name: '65W GaN 充电器' },
-  { sku: 'SKU-PWB-005-BLK', name: '20000mAh 充电宝' },
-  { sku: 'SKU-BTY-010',     name: '精华液 30ml' },
-]
+/**
+ * 可选商品（**从 erp-product-service 真加载**）
+ *
+ * ⚠️ 原来这里是**写死的 5 个 SKU**（2026-11-04 修）——
+ *    → 用户只能给这 5 个「不存在的商品」写描述，
+ *    → 而且保存接口要 sku → productId，**写死的 SKU 里 4 个是变体 SKU**
+ *       （SKU-BLU-001-BLK 在 t_product_sku 里，商品级 internal_sku 是 SKU-BLU-001）
+ *    → 口径本来就对不上。
+ * → 现在真加载商品列表（返回的是**商品级 SKU**，与 internal_sku 同口径）。
+ */
+const products = ref<{ sku: string; name: string }[]>([])
+const productsLoading = ref(false)
+
+async function loadProducts() {
+  productsLoading.value = true
+  try {
+    const res = await productApi.getProducts({ current: 1, size: 200 } as any)
+    const page = unwrapPage<any>(res)
+    products.value = (page.records || [])
+      .map((p: any) => ({ sku: p.sku, name: p.name }))
+      .filter((p: any) => !!p.sku)
+  } catch (e) {
+    // ⚠️ 失败就**如实置空** + 报错，别拿假数据兜底（规则 12 / 19）
+    console.error('商品列表加载失败', e)
+    products.value = []
+    ElMessage.error('商品列表加载失败')
+  } finally {
+    productsLoading.value = false
+  }
+}
 
 const generating = ref(false)
 const result = ref<any>(null)
+/** 保存中（防重复点击） */
+const saving = ref(false)
 
 async function generate() {
   generating.value = true
@@ -127,9 +154,36 @@ function copy() {
   ElMessage.success('已复制')
 }
 
-function saveToProduct() {
-  ElMessage.success('已保存到商品描述（demo）')
+// ⚠️ 原来直接弹「已保存到商品描述（demo）」——**什么都没保存**
+//    → 用户以为文案存进商品库了，实际一条没写（规则 51 / 72）。
+//    → 后端 `POST /api/v1/product-description/save`（前端契约，按 sku 存）
+//    → 现在真调；后端落库失败会抛错，这里如实报错。
+async function saveToProduct() {
+  if (!result.value) return
+  saving.value = true
+  try {
+    await descriptionApi.save({
+      sku: form.sku,
+      title: result.value.title,
+      subtitle: result.value.subtitle,
+      body: result.value.body,
+      bulletPoints: result.value.bulletPoints,
+      language: form.language,
+      platform: 'general',
+      templateId: result.value.templateId,
+      generationTime: result.value.generationTime,
+    })
+    ElMessage.success('已保存到商品描述')
+  } catch (e) {
+    console.error('保存商品描述失败', e)
+    ElMessage.error('保存失败')
+  } finally {
+    saving.value = false
+  }
 }
+
+// 📌 进页面就把真实商品拉出来（不再用写死的 SKU 列表）
+onMounted(loadProducts)
 </script>
 
 <style scoped>

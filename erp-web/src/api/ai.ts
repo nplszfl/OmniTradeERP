@@ -13,12 +13,16 @@ export interface AnomalyOrder {
 }
 
 export interface ProductRecommend {
+  /** 采纳状态要用它调 PUT /v1/recommend/results/{id}/adoption */
+  id: string
   sku: string
   productName: string
   score: number
   reason: string
   expectedMargin: number
   category: string
+  /** ACCEPTED / REJECTED / PENDING */
+  adoptionStatus?: string
 }
 
 export interface PriceSuggest {
@@ -74,6 +78,14 @@ export const recommendApi = {
   list: (params: any) => request.get<any, ProductRecommend[]>('/v1/recommend', { params }),
   detail: (sku: string) => request.get<any, ProductRecommend>(`/v1/recommend/${sku}`),
   refresh: () => request.post<any, any>('/v1/recommend/refresh'),
+  /**
+   * 更新推荐采纳状态（ACCEPTED / REJECTED / PENDING）
+   *
+   * 📌 后端 `PUT /api/v1/recommend/results/{id}/adoption?status=...`
+   *    （网关 /api/v1/recommend/** → StripPrefix=0 → 原样转发）
+   */
+  adopt: (id: string, status: 'ACCEPTED' | 'REJECTED' | 'PENDING') =>
+    request.put(`/v1/recommend/results/${id}/adoption`, null, { params: { status } }),
 }
 
 export const pricingApi = {
@@ -105,6 +117,23 @@ export const descriptionApi = {
   generate: (data: DescriptionRequest) => request.post<any, DescriptionResult>('/description/generate', data),
   templates: () => request.get<any, any[]>('/description/templates'),
   history: (params: any) => request.get<any, any[]>('/description/history', { params }),
+  /**
+   * 保存生成好的描述到商品
+   *
+   * 📌 走**前端契约**（用 sku 而不是 productId）——
+   *    后端负责 sku → productId 的解析，解析不到就**明确报错**，不静默成功。
+   */
+  save: (data: {
+    sku: string
+    title?: string
+    subtitle?: string
+    body: string
+    bulletPoints?: string[]
+    language?: string
+    platform?: string
+    templateId?: string
+    generationTime?: number
+  }) => request.post<any, any>('/description/save', data),
 }
 
 export const inventoryPredictApi = {

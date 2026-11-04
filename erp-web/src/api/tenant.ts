@@ -29,14 +29,42 @@ export interface ResultLike {
 export const tenantApi = {
   /** 租户列表（裸数组，不包 Result） */
   list:        () => request.get<any, any[]>('/tenant/list'),
-  /** 租户看板：/tenant/dashboard/trend */
-  dashboard:   () => request.get<any, any>('/tenant/dashboard/trend'),
+  /**
+   * 租户看板：/tenant/dashboard/trend
+   *
+   * 📌 后端这些接口都接受可选的 `tenantId`：
+   *    管理端要能看**指定租户**的数据，就得把它传下去，
+   *    否则后端按**当前登录租户**解析 → 看到的是别人的数据。
+   */
+  dashboard:   (tenantId?: string) =>
+    request.get<any, any>('/tenant/dashboard/trend', { params: tenantId ? { tenantId } : {} }),
   /** 账单：/tenant/billing/bills */
-  billing:     () => request.get<any, any>('/tenant/billing/bills'),
+  billing:     (tenantId?: string) =>
+    request.get<any, any>('/tenant/billing/bills', { params: tenantId ? { tenantId } : {} }),
   /** 用量：/tenant/usage/current */
-  usage:       () => request.get<any, any>('/tenant/usage/current'),
+  usage:       (tenantId?: string) =>
+    request.get<any, any>('/tenant/usage/current', { params: tenantId ? { tenantId } : {} }),
   /** 套餐与功能开关：/tenant/config/plan */
-  config:      () => request.get<any, any>('/tenant/config/plan'),
+  config:      (tenantId?: string) =>
+    request.get<any, any>('/tenant/config/plan', { params: tenantId ? { tenantId } : {} }),
+  /**
+   * 可用套餐列表（真实价格 / 单量上限 / AI 配额）
+   *
+   * 📌 之前前端**把套餐价格和限额写死**在数组里
+   *    （而且 STARTER 的单量写的是 1000，后端实际是 3000）→ **数字在骗人**（规则 56）。
+   *    → 现在从后端取，后端改价格前端自动跟着变。
+   */
+  plans:       () => request.get<any, any[]>('/tenant/config/plans'),
+  /**
+   * 变更租户套餐
+   *
+   * 📌 必须带 tenantId —— 后端 changePlan 原本**只按当前登录租户**改
+   *    （而其它接口都带 tenantId）→ 管理端改别人的套餐 = **改错对象还提示成功**。
+   */
+  changePlan:  (targetPlan: string, tenantId?: string) =>
+    request.post('/tenant/config/plan/change',
+                 { targetPlan, changeType: 'UPGRADE' },
+                 { params: tenantId ? { tenantId } : {} }),
   /**
    * 删除租户（软删，后端置 status=DELETED）
    *

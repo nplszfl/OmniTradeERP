@@ -116,22 +116,39 @@ async function view(row: any) {
   detailVisible.value = true
 }
 
+// ⚠️ 这三个动作原来都只改本地 `row.status` 然后弹「已处理」，
+//    **后端一个请求都没发** → 刷新页面状态原样回来（规则 51 / 72）。
+//    → 后端其实**全都有**：PurchaseOrderRestController 的
+//      POST /purchase/orders/{id}/approve | /receive | /cancel
+//      （网关 /api/purchase/orders/** → erp-supplier-service，StripPrefix=1）
+//    → 而且后端还带**状态机校验**（「只有待审核的可以审核通过」等），
+//      前端伪造状态反而绕过了这些校验。
+//    → 现在真调后端，失败就**不弹成功**。
 async function approve(row: any) {
   await ElMessageBox.confirm(`审核通过采购单 ${row.poNo}？`, '提示')
-  row.status = 'APPROVED'
-  ElMessage.success('已审核')
+  await runPurchaseAction(row, () => purchaseApi.approve(row.id), '已审核')
 }
 
 async function receive(row: any) {
   await ElMessageBox.confirm(`确认收货 ${row.poNo}？`, '提示')
-  row.status = 'COMPLETED'
-  ElMessage.success('已收货入库')
+  await runPurchaseAction(row, () => purchaseApi.receive(row.id), '已收货入库')
 }
 
 async function cancel(row: any) {
   const { value } = await ElMessageBox.prompt('取消原因', '提示')
-  row.status = 'CANCELLED'
-  ElMessage.success(`已取消：${value}`)
+  await runPurchaseAction(row, () => purchaseApi.cancel(row.id, value), `已取消：${value}`)
+}
+
+/** 采购单动作统一出口：** 调后端 → 成功后**重新拉列表**（状态以服务端为准）→ 失败报错 */
+async function runPurchaseAction(row: any, action: () => Promise<any>, okMsg: string) {
+  try {
+    await action()
+    ElMessage.success(okMsg)
+    await load()          // 📌 **重新拉一次**：状态字段由后端决定，不在前端瞎编
+  } catch (e) {
+    console.error('采购单操作失败', e)
+    ElMessage.error('操作失败')
+  }
 }
 
 function newPo() {

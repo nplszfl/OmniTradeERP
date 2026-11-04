@@ -78,7 +78,21 @@ async function load() {
 // ⚠️ 之前这里用 Math.random() 现场造竞品均价和预期利润 —— 每次点开都不一样，纯属假数据。
 //    现在直接展示后端返回的字段。
 function showDetail(row: any) { current.value = row }
-function apply(row: any) { row.applied = true; ElMessage.success(`已采纳 ${row.sku} 的建议价`) }
+// ⚠️ 原来只改本地 `row.applied = true` 就弹「已采纳」→ **后端没收到任何请求**
+//    → 建议其实**没被采纳**，价格历史里也不会多一条（规则 51 / 72）。
+//    → 后端 `POST /api/v1/pricing/apply/{sku}` 是**真实现**：
+//    置建议的 applied + 写一条 price_history 变更记录。
+async function apply(row: any) {
+  try {
+    await pricingApi.apply(row.sku, row.suggestedPrice)
+    ElMessage.success(`已采纳 ${row.sku} 的建议价`)
+    await load()          // 📌 重新拉一次：applied 状态以服务端为准
+  } catch (e) {
+    // ⚠️ 后端会拒绝「重复采纳」等情形 → 如实把错误显示出来，**不要假装成功**
+    console.error('采纳定价建议失败', e)
+    ElMessage.error('采纳失败')
+  }
+}
 </script>
 
 <style scoped>
