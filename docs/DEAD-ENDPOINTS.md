@@ -5,11 +5,11 @@
 
 ## 统计
 
-- 后端 HTTP 接口：**470** 个
-- 前端视图真正调用：**195** 处
+- 后端 HTTP 接口：**472** 个
+- 前端视图真正调用：**205** 处
 - 服务间引用：**2** 处
 - 网关路由：**36** 条
-- 疑似死接口：**266** 个
+- 疑似死接口：**259** 个
 
 ## 怎么读这份清单
 
@@ -134,13 +134,12 @@
 | GET | `/api/v1/analytics/roi/platform` |  |
 | GET | `/api/v1/analytics/roi/product` |  |
 
-### erp-anomaly-detection-service（5 个）
+### erp-anomaly-detection-service（4 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
 | POST | `/api/v1/anomaly/detect` |  |
 | POST | `/api/v1/anomaly/detect-batch` |  |
-| POST | `/api/v1/anomaly/detect/{orderId}` |  |
 | GET | `/api/v1/anomaly/health` |  |
 | GET | `/api/v1/anomaly/{id}` |  |
 
@@ -256,7 +255,7 @@
 | GET | `/platform/sync/platforms` | 该模块有 `@Scheduled`，可能内部触发 |
 | POST | `/platform/sync/test` | 该模块有 `@Scheduled`，可能内部触发 |
 
-### erp-pricing-service（20 个）
+### erp-pricing-service（19 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
@@ -271,7 +270,6 @@
 | GET | `/api/v1/price-history/recent/{productId}` | 该模块有 `@Scheduled`，可能内部触发 |
 | GET | `/api/v1/price-history/trend/{productId}` | 该模块有 `@Scheduled`，可能内部触发 |
 | POST | `/api/v1/pricing/adjust-by-competitors/{productId}` | 该模块有 `@Scheduled`，可能内部触发 |
-| POST | `/api/v1/pricing/apply/{sku}` | 该模块有 `@Scheduled`，可能内部触发 |
 | POST | `/api/v1/pricing/batch-calculate` | 该模块有 `@Scheduled`，可能内部触发 |
 | POST | `/api/v1/pricing/calculate` | 该模块有 `@Scheduled`，可能内部触发 |
 | GET | `/api/v1/pricing/health` | 该模块有 `@Scheduled`，可能内部触发 |
@@ -294,11 +292,11 @@
 | GET | `/api/v1/product-description/history` |  |
 | GET | `/api/v1/product-description/list/{productId}` |  |
 | POST | `/api/v1/product-description/multi-language` |  |
-| POST | `/api/v1/product-description/save` |  |
+| POST | `/api/v1/product-description/save/internal` |  |
 | POST | `/api/v1/product-description/seo-optimize` |  |
 | GET | `/api/v1/product-description/templates` |  |
 
-### erp-product-recommendation-service（8 个）
+### erp-product-recommendation-service（7 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
@@ -307,7 +305,6 @@
 | GET | `/api/v1/feedback/weights` |  |
 | GET | `/api/v1/recommend/health` |  |
 | GET | `/api/v1/recommend/results` |  |
-| PUT | `/api/v1/recommend/results/{id}/adoption` |  |
 | POST | `/api/v1/recommend/run` |  |
 | GET | `/api/v1/recommend/{sku}` |  |
 
@@ -360,11 +357,10 @@
 | GET | `/api/v1/live-streams/stream/{streamId}` | 该模块有 `@Scheduled`，可能内部触发 |
 | GET | `/api/v1/tiktok-shop/shop/{shopId}` | 该模块有 `@Scheduled`，可能内部触发 |
 
-### erp-supplier-service（7 个）
+### erp-supplier-service（6 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
-| POST | `/purchase/orders` |  |
 | POST | `/purchase/orders/{id}/receive` |  |
 | DELETE | `/supplier/purchase/item/{itemId}` |  |
 | PUT | `/supplier/purchase/{id}` |  |
@@ -372,7 +368,7 @@
 | POST | `/supplier/purchase/{id}/item` |  |
 | POST | `/supplier/purchase/{id}/payment` |  |
 
-### erp-tenant-service（29 个）
+### erp-tenant-service（26 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
@@ -386,8 +382,6 @@
 | PUT | `/api/tenant/config/features/{featureKey}` |  |
 | GET | `/api/tenant/config/features/{featureKey}/enabled` |  |
 | GET | `/api/tenant/config/plan` |  |
-| POST | `/api/tenant/config/plan/change` |  |
-| GET | `/api/tenant/config/plans` |  |
 | GET | `/api/tenant/dashboard/quota` |  |
 | GET | `/api/tenant/dashboard/trend` |  |
 | GET | `/api/tenant/usage/current` |  |
@@ -396,7 +390,6 @@
 | POST | `/api/tenant/usage/record/api` |  |
 | POST | `/api/tenant/usage/record/storage` |  |
 | PUT | `/api/tenant/{id}` |  |
-| DELETE | `/api/tenant/{id}` |  |
 | GET | `/api/v1/auth/me` |  |
 | GET | `/api/v1/platforms/credentials` |  |
 | POST | `/api/v1/platforms/credentials` |  |

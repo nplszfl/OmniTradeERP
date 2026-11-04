@@ -668,6 +668,84 @@ def verify_exhaustive(claims, endpoints, dead):
             for h, p in missing]
 
 
+# 📌 文档头部「统计」块的字段 → 文档里的声明格式
+DOC_STAT_PATTERNS = [
+    ("后端 HTTP 接口", r"^- 后端 HTTP 接口：\*\*(\d+)\*\* 个", "endpoints"),
+    ("前端视图真正调用", r"^- 前端视图真正调用：\*\*(\d+)\*\* 处", "frontend_used"),
+    ("服务间引用", r"^- 服务间引用：\*\*(\d+)\*\* 处", "backend_callers"),
+    ("网关路由", r"^- 网关路由：\*\*(\d+)\*\* 条", "routes"),
+    ("疑似死接口", r"^- 疑似死接口：\*\*(\d+)\*\* 个", "dead"),
+]
+
+
+def verify_doc_freshness(dead, endpoints, frontend_used, backend_callers, routes, doc_path):
+    """核验「文档里声明的数字」==「本次实算的数字」。
+
+    ## 为什么需要这道检查（规则 51 + 规则 79 的合体）
+
+    `docs/DEAD-ENDPOINTS.md` 是**自动生成**的（`--markdown`），但**没人保证它被重新生成过**：
+
+      → 代码一改 → 接口数量变了 → 文档还写着上一次的数量
+      → **文档开始说假话**，而且**没有任何闸门会发现** ——
+        因为闸门只管「哪些接口是死的」，从来没管过「我关于这些接口的结论还对不对」。
+
+    实测（2026-11-05）：文档写「后端 470 / 前端调用 195 / 疑似死接口 **266**」，
+    实算是「472 / 205 / **259**」—— 差 7 个接口，**闸门全绿**。
+
+    → 做法就是规则 51 的做法：**让结论自己声明断言，脚本当场核验**。
+      这里「断言」就是文档头部那 5 个统计数字，以及每个模块的 `（N 个）` 标题。
+
+    ⚠️ **已过期 ≠ 「疑似死接口」**：
+       「疑似死接口」是**排期 backlog**（REST 接口可能给外部客户端用）→ 保持 advisory；
+       但「文档里的数字和实算对不上」= **提交进仓库的文档在骗人** → **必须红**。
+    """
+    p = Path(doc_path)
+    if not p.exists():
+        print(f"\nℹ️  {p} 不存在 → 跳过「文档新鲜度」核验")
+        return []
+
+    text = p.read_text(encoding="utf-8")
+    computed = {
+        "endpoints": len(endpoints),
+        "frontend_used": len(frontend_used),
+        "backend_callers": len(backend_callers),
+        "routes": len(routes),
+        "dead": len(dead),
+    }
+
+    problems = []
+    for label, pattern, key in DOC_STAT_PATTERNS:
+        m = re.search(pattern, text, re.M)
+        if not m:
+            problems.append(f"{label}：文档里找不到声明（没匹配上 {pattern}）")
+            continue
+        declared = int(m.group(1))
+        actual = computed[key]
+        if declared != actual:
+            problems.append(f"{label}：文档写 {declared}，实算 {actual}")
+
+    # 📌 每个模块的条数也要对得上 ——
+    #    光看总数不够：两个模块一增一减可能总数不变，但清单已经错了。
+    by_module = {}
+    for module, _java, _http, _path, _sched in dead:
+        by_module[module] = by_module.get(module, 0) + 1
+    declared_modules = {
+        m.group(1): int(m.group(2))
+        for m in re.finditer(r"^### (erp-[a-z0-9-]+-service)（(\d+) 个）$", text, re.M)
+    }
+    for module, count in sorted(declared_modules.items()):
+        actual = by_module.get(module)
+        if actual is None:
+            problems.append(f"模块 {module}：文档写 {count} 个，实算 **0** 个（模块已没有死接口）")
+        elif actual != count:
+            problems.append(f"模块 {module}：文档写 {count} 个，实算 {actual} 个")
+    for module, count in sorted(by_module.items()):
+        if module not in declared_modules:
+            problems.append(f"模块 {module}：实算 {count} 个，但文档里**没这个模块**")
+
+    return problems
+
+
 def write_markdown(dead, endpoints, frontend_used, backend_callers, routes, path):
     """把报告写成 Markdown（可重复生成，提交进仓库当 backlog 用）"""
     lines = [
@@ -798,6 +876,23 @@ def main():
 
     if md:
         write_markdown(dead, endpoints, frontend_used, backend_callers, routes, ROOT / md)
+        doc_target = ROOT / md
+    else:
+        doc_target = ROOT / "docs/DEAD-ENDPOINTS.md"
+
+    # 📌 **文档新鲜度核验**（规则 51 + 79）——
+    #    自动生成的文档没人保证被重新生成过 → 数字过期 → 文档在骗人 → 必须红。
+    stale_doc = verify_doc_freshness(
+        dead, endpoints, frontend_used, backend_callers, routes, doc_target)
+    if stale_doc:
+        print(f"\n❌ 文档统计数字已过期（{len(stale_doc)} 项对不上）:")
+        for msg in stale_doc:
+            print(f"   - {msg}")
+        print()
+        print("   📌 文档是**自动生成**的 —— 代码改了数字就变，必须重新生成：")
+        print("      python3 scripts/check-dead-endpoints.py --markdown")
+        print(f"\n退出码 1：文档 {doc_target} 的 {len(stale_doc)} 个统计数字与实算不一致")
+        return 1
 
     problems = stale + incomplete
     if problems:
