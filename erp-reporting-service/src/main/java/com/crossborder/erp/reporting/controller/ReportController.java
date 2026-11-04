@@ -206,4 +206,20 @@ public class ReportController {
     public Result<List<Map<String, Object>>> templates() {
         return Result.success(reportTaskService.templates());
     }
+
+    /**
+     * 删除一条报表台账记录
+     *
+     * <p>📌 这个接口之前**不存在** → 前端的「删除」按钮只改本地数组
+     * 并弹「已删除」→ **后端数据一条没动**，刷新页面原样回来（规则 51 / 72）。</p>
+     *
+     * <p>⚠️ 口径写在 **URL 上**（{@code /report/{type}/{id}}）：
+     * 报表分属 sales / inventory / finance 三张表，id 在三张表里各自自增
+     * → 光给 id 不知道该删哪张表 → 必须带 type。</p>
+     */
+    @DeleteMapping("/{type}/{id}")
+    public Result<Void> deleteReport(@PathVariable String type, @PathVariable Long id) {
+        reportTaskService.delete(type, id);
+        return Result.success();
+    }
 }

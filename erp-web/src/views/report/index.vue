@@ -105,8 +105,17 @@ function download(row: any) {
 
 async function remove(row: any) {
   await ElMessageBox.confirm(`确认删除 ${row.name}？`, '提示', { type: 'warning' })
-  list.value = list.value.filter(r => r.id !== row.id)
-  ElMessage.success('已删除')
+  // ⚠️ 原来这里**只改本地数组**然后弹「已删除」→ **后端数据一条没动**
+  //    → 刷新页面报表又回来了（规则 51 / 72：界面在骗人）。
+  //    → 现在真正调后端 DELETE /report/{type}/{id}，失败就**不假装成功**。
+  try {
+    await reportApi.remove(row.type, row.id)
+    list.value = list.value.filter(r => r.id !== row.id)
+    ElMessage.success('已删除')
+  } catch (e) {
+    console.error('删除报表失败', e)
+    ElMessage.error('删除报表失败')
+  }
 }
 </script>
 

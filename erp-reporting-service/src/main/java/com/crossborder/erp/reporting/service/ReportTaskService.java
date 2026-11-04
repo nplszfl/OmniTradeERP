@@ -35,4 +35,18 @@ public interface ReportTaskService {
      * 可用的报表模板
      */
     List<Map<String, Object>> templates();
+
+    /**
+     * 删除一条报表台账记录
+     *
+     * <p>📌 前端 erp-web/src/views/report/index.vue 的「删除」按钮
+     * 原来**只改本地数组**（{@code list.value = list.value.filter(...)}）
+     * 然后弹「已删除」→ **后端数据一条没动** → 刷新页面又回来了。
+     * → 这就是「界面在骗人」（规则 51 / 72）。</p>
+     *
+     * @param type 报表类型：sales / inventory / finance
+     * @param id   报表 ID
+     * @throws IllegalArgumentException 类型不合法
+     */
+    void delete(String type, Long id);
 }

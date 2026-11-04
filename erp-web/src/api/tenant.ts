@@ -37,6 +37,14 @@ export const tenantApi = {
   usage:       () => request.get<any, any>('/tenant/usage/current'),
   /** 套餐与功能开关：/tenant/config/plan */
   config:      () => request.get<any, any>('/tenant/config/plan'),
+  /**
+   * 删除租户（软删，后端置 status=DELETED）
+   *
+   * 📌 后端 erp-tenant-service 的 TenantListController 有
+   *    `DELETE /{id}`（网关 /api/tenant/** → StripPrefix=0 → 原样转发）。
+   *    ⚠️ 之前前端**没有这个方法**，页面的删除按钮只改本地数组 → 数据没删。
+   */
+  remove:      (id: string) => request.delete(`/tenant/${encodeURIComponent(id)}`),
 }
 
 /**
@@ -53,6 +61,18 @@ export const reportApi = {
   generate: (data: any) => request.post<any, ResultLike>('/report/generate', data),
   /** 可用报表模板 */
   templates: () => request.get<any, any[]>('/report/templates'),
+  /**
+   * 删除一条报表台账记录
+   *
+   * 📌 后端 `DELETE /report/{type}/{id}` —— **type 必须带上**：
+   *    报表分属 sales / inventory / finance 三张表，id 各自自增
+   *    → 只给 id 不知道该删哪张表。
+   *
+   * 📌 **id 必须是 string**：后端 erp-common 的 CommonJacksonAutoConfiguration
+   *    把 Long 序列化成字符串（雪花 id 19 位 → JS Number 会截断 → 删错行）。
+   */
+  remove:     (type: string, id: string) =>
+    request.delete(`/report/${encodeURIComponent(type)}/${id}`),
   /**
    * 导出 Excel
    *

@@ -131,6 +131,78 @@ class ReportTaskServiceTest {
                 ReportGenerateRequest.builder().type("  ").build()));
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // 删除报表台账（2026-11-04 补）
+    //
+    // 📌 前端 erp-web/src/views/report/index.vue 的「删除」按钮原来
+    //    **只改本地数组**然后弹「已删除」→ 后端一条没删 → 刷新又回来。
+    //    → 这是「操作没生效却显示成功」→ 必须有后端接口 + 真实删除的测试。
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    @DisplayName("删除销售报表 → 台账里真的没有了")
+    void deleteRemovesSalesReport() {
+        jdbcTemplate.update(
+                "INSERT INTO t_report_sales (id, tenant_id, report_type, report_date, status, create_time, update_time) "
+                        + "VALUES (7, 't1', 'DAILY', DATE '2026-11-03', 'GENERATED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+
+        assertEquals(1, service.list().size());
+
+        service.delete("sales", 7L);
+
+        // 📌 断言**数据库里真的没了**，而不是只断言返回值为 true
+        Integer cnt = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM t_report_sales WHERE id = 7", Integer.class);
+        assertEquals(0, cnt);
+        assertTrue(service.list().isEmpty());
+    }
+
+    @Test
+    @DisplayName("删除库存报表")
+    void deleteRemovesInventoryReport() {
+        jdbcTemplate.update(
+                "INSERT INTO t_report_inventory (id, tenant_id, report_type, report_date, status, create_time, update_time) "
+                        + "VALUES (8, 't1', 'DAILY', DATE '2026-11-04', 'GENERATED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+
+        service.delete("inventory", 8L);
+
+        Integer cnt = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM t_report_inventory WHERE id = 8", Integer.class);
+        assertEquals(0, cnt);
+    }
+
+    @Test
+    @DisplayName("删除财务报表")
+    void deleteRemovesFinanceReport() {
+        jdbcTemplate.update(
+                "INSERT INTO t_report_finance (id, tenant_id, report_type, report_date, status, create_time, update_time) "
+                        + "VALUES (9, 't1', 'DAILY', DATE '2026-11-05', 'GENERATED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+
+        service.delete("finance", 9L);
+
+        Integer cnt = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM t_report_finance WHERE id = 9", Integer.class);
+        assertEquals(0, cnt);
+    }
+
+    @Test
+    @DisplayName("不支持的报表类型 → 明确报错（不能静默删错表）")
+    void deleteRejectsUnknownType() {
+        assertThrows(IllegalArgumentException.class, () -> service.delete("customer", 1L));
+    }
+
+    @Test
+    @DisplayName("删除不存在的报表 → 明确报错（不能假装成功）")
+    void deleteRejectsMissingReport() {
+        assertThrows(IllegalArgumentException.class, () -> service.delete("sales", 999999L));
+    }
+
+    @Test
+    @DisplayName("报表 ID 为空 → 明确报错")
+    void deleteRejectsNullId() {
+        assertThrows(IllegalArgumentException.class, () -> service.delete("sales", null));
+    }
+
     @Test
     @DisplayName("报表模板：三种类型都返回")
     void templatesCoverAllTypes() {

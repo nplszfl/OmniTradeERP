@@ -238,6 +238,18 @@ jobs:
     - name: 前端假数据兜底（catch 里不许填编出来的数据）
       run: python3 scripts/check-frontend-fake-fallback.py --strict
 
+    # 📌 **假删除**（点了删除不能只改本地数组）
+    #    📌 2026-11-04 抓到 2 个真缺陷：
+    #       `views/report/index.vue` 和 `views/tenant/index.vue` 的删除按钮
+    #       都只做 `list.value = list.value.filter(...)` 然后弹「已删除」
+    #       → **后端一个 DELETE 都没发** → 刷新页面东西原样回来
+    #       → 用户以为删掉了 → 后续动作（释放库存/停用/通知）全都没发生
+    #       → **讽刺**：tenant 后端本来就有 `DELETE /{id}`，前端从来没调过。
+    #    📌 注意：这是**成功路径**上的谎言，和「假数据兜底」（失败路径）**形态不同**
+    #       → 两道闸门分开查，缺一不可。
+    - name: 假删除（点了删除不许只改本地数组）
+      run: python3 scripts/check-fake-delete.py --strict
+
     - name: DDL 挂载（database/*.sql 有没有进 docker-compose 的 init 目录）
       run: python3 scripts/check-db-schema-provision.py
 

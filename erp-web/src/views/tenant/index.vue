@@ -124,8 +124,17 @@ function onPlanSelected(code: string) { ElMessage.success(`已选择套餐：${c
 
 async function remove(row: any) {
   await ElMessageBox.confirm(`确认删除租户 ${row.name}？`, '提示', { type: 'warning' })
-  list.value = list.value.filter(r => r.id !== row.id)
-  ElMessage.success('已删除')
+  // ⚠️ 原来这里**只改本地数组**然后弹「已删除」→ **后端数据一条没动**
+  //    → 刷新页面租户又回来了（规则 51 / 72：界面在骗人）。
+  //    → 现在真正调后端（软删：status=DELETED），失败就**不假装成功**。
+  try {
+    await tenantApi.remove(row.id)
+    list.value = list.value.filter(r => r.id !== row.id)
+    ElMessage.success('已删除')
+  } catch (e) {
+    console.error('删除租户失败', e)
+    ElMessage.error('删除租户失败')
+  }
 }
 </script>
 

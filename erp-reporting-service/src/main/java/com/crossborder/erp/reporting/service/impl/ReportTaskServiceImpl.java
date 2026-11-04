@@ -89,6 +89,25 @@ public class ReportTaskServiceImpl implements ReportTaskService {
     }
 
     @Override
+    public void delete(String type, Long id) {
+        if (id == null) {
+            throw new IllegalArgumentException("报表 ID 不能为空");
+        }
+        String t = type == null ? "" : type.trim().toLowerCase();
+        boolean removed;
+        switch (t) {
+            case "sales" -> removed = salesReportService.removeById(id);
+            case "inventory" -> removed = inventoryReportService.removeById(id);
+            case "finance" -> removed = financeReportService.removeById(id);
+            default -> throw new IllegalArgumentException("不支持的报表类型: " + type);
+        }
+        if (!removed) {
+            throw new IllegalArgumentException("报表不存在: " + id);
+        }
+        log.info("删除报表台账: type={}, id={}", t, id);
+    }
+
+    @Override
     public List<Map<String, Object>> templates() {
         List<Map<String, Object>> templates = new ArrayList<>();
         templates.add(template("sales", "销售报表", "按日/周/月汇总订单量、销售额、退款与新老客占比", "DAILY"));
