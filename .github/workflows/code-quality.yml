@@ -81,6 +81,13 @@ jobs:
         python3 scripts/check-seed-idempotency.py
         python3 scripts/check-workflow-validity.py
         python3 scripts/check-action-versions.py --deep --strict
+
+    # 📌 **k8s / Dockerfile 三个闸门单独一个 step** ——
+    #    合进上面的话，CI 界面上失败会挂在「结构/可启动性巡检」名下，
+    #    **报错指向错误的闸门** → 排查时先去看 boot-main-class，白查半天。
+
+    - name: 部署链一致性巡检
+      run: |
         python3 scripts/check-k8s-images.py
         python3 scripts/check-k8s-deploy-coverage.py
         python3 scripts/gen-dockerfiles.py --check

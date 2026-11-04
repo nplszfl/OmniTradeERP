@@ -170,9 +170,29 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         python3 scripts/check-action-versions.py --deep --strict
-        python3 scripts/check-k8s-images.py
-        python3 scripts/check-k8s-deploy-coverage.py
-        python3 scripts/gen-dockerfiles.py --check
+
+    # 📌 **下面 3 个闸门必须是独立的 step，不能合进上面那个** ——
+    #    合在一起的话，CI 界面上 k8s 闸门失败会挂在「Action 版本存在性」名下，
+    #    **报错指向错误的闸门** → 排查时先去看 action 版本，白查半天。
+    #    （这跟「闸门少查了东西然后报绿」是同一类问题：报告要和实际做的事对得上。）
+
+    - name: k8s 镜像引用 ↔ 可产出镜像（k8s 清单 ↔ 模块 ↔ Dockerfile）
+      run: python3 scripts/check-k8s-images.py
+
+    - name: 部署链一致性（构建矩阵 ↔ 部署计划 ↔ k8s 清单）
+      # 📌 这里查的是**构建侧和部署侧会不会漂移**：
+      #    构建侧用正则扫 `image:`，部署侧用 YAML 解析只看 Deployment 的 containers
+      #    —— **两套不同的解析方法**，结构上就可能不一致
+      #    → 「构建了但不部署」/「部署了但没构建」
+      # 📌 📌 **为什么必须放在这个 job（而不是 deploy-k8s）**：
+      #    deploy-k8s 的每个 step 都带 `if: steps.kube.outputs.configured == 'true'`，
+      #    而本仓库**至今 0 个 secret** → KUBE_CONFIG 永远为空 →
+      #    → **整个部署路径在 CI 里一次都没跑过** → 零覆盖。
+      #    📌 「闸门不跑 = 不存在」→ 校验必须放在**永远会跑的 job** 里。
+      run: python3 scripts/check-k8s-deploy-coverage.py
+
+    - name: Dockerfile 与生成脚本一致
+      run: python3 scripts/gen-dockerfiles.py --check
 
   # ============================================================
   # 结构巡检：需要**真实 MySQL 结构**的两个闸门
