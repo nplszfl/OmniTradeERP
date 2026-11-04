@@ -45,6 +45,24 @@ public class DescriptionGenerationResponse {
     /** 使用的模型 */
     private String model;
 
+    /**
+     * 本次生成是否来自<b>模拟实现</b>
+     *
+     * <p>📌 <b>为什么必须有</b>（2026-11-04 实测）：
+     * 之前真实 LLM 调用失败 → catch → <b>静默</b>生成一段模板文本，
+     * 而 {@code model} 仍然写着 {@code deepseek-chat} →
+     * <b>调用方无法分辨真假</b>，且 token 用量也是按模板长度<b>编造</b>的。
+     * <p>→ <b>事实标志不能撒谎</b>。
+     */
+    private Boolean mock = false;
+
+    /**
+     * 降级原因（{@link #mock} 为 true 时有值）
+     *
+     * <p>📌 例：「未配置 LLM API Key」「真实 API 调用失败：...」
+     */
+    private String mockReason;
+
     /** 使用的模板 */
     private String templateId;
 

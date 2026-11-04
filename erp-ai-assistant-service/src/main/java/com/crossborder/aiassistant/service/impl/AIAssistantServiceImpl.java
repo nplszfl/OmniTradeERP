@@ -8,6 +8,7 @@ import com.crossborder.aiassistant.dto.ServiceStatistics;
 import com.crossborder.aiassistant.entity.KnowledgeBase;
 import com.crossborder.aiassistant.repository.KnowledgeBaseRepository;
 import com.crossborder.aiassistant.service.AIAssistantService;
+import com.crossborder.erp.llm.LLMEndpointResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
@@ -32,6 +33,14 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 public class AIAssistantServiceImpl implements AIAssistantService {
+
+    /**
+     * 模拟回复时写在 {@code model} 字段里的标记值
+     *
+     * <p>📌 <b>不能继续写 "deepseek-chat"</b> —— 那是在<b>谎报事实</b>
+     * （说这次回答是 deepseek-chat 产生的，实际是一段固定模板）。
+     */
+    private static final String MOCK_MODEL_NAME = "mock";
 
     // 模拟对话历史存储
     private final Map<String, List<ChatMessage>> sessionHistory = new ConcurrentHashMap<>();
@@ -129,7 +138,7 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         response.setSessionId(request.getSessionId() != null ? 
                 request.getSessionId() : UUID.randomUUID().toString());
         response.setLanguage(detectLanguage(request.getMessage()));
-        response.setModel(request.getModel() != null ? request.getModel() : "deepseek-chat");
+        response.setModel(request.getModel() != null ? request.getModel() : MOCK_MODEL_NAME);
         response.setCreateTime(LocalDateTime.now());
 
         try {
@@ -145,24 +154,40 @@ public class AIAssistantServiceImpl implements AIAssistantService {
             String prompt = buildPrompt(request, retrievedChunks);
 
             // 3. 调用LLM API
-            String aiResponse = callLLMAPI(prompt, request);
-            response.setContent(aiResponse);
+            LLMAnswer answer = callLLMAPI(prompt, request);
+            response.setContent(answer.content());
+            response.setMock(answer.mock());
+            if (answer.mock()) {
+                // 📌 **降级必须可被看见** —— 之前这里静默返回一段 canned 文本，
+                //    而 model 仍写着 deepseek-chat → 调用方完全无法分辨真假
+                response.setMockReason(answer.reason());
+                response.setModel(MOCK_MODEL_NAME);
+                log.warn("AI对话返回的是**模拟回复**（mock=true）：{}", answer.reason());
+            } else {
+                // 📌 真实调用成功 → model 写**真实**模型名
+                response.setModel(llmConfig != null && llmConfig.getModel() != null
+                        ? llmConfig.getModel() : response.getModel());
+            }
 
             // 4. 记录对话历史
-            saveChatMessage(request.getUserId(), response.getSessionId(), 
+            saveChatMessage(request.getUserId(), response.getSessionId(),
                     "user", request.getMessage(), response.getLanguage());
-            saveChatMessage(request.getUserId(), response.getSessionId(), 
-                    "assistant", aiResponse, response.getLanguage());
+            saveChatMessage(request.getUserId(), response.getSessionId(),
+                    "assistant", answer.content(), response.getLanguage());
 
             // 5. Token使用统计
-            ChatResponse.TokenUsage usage = new ChatResponse.TokenUsage();
-            int promptTokens = prompt.length() / 4;
-            int completionTokens = aiResponse.length() / 4;
-            usage.setPromptTokens(promptTokens);
-            usage.setCompletionTokens(completionTokens);
-            usage.setTotalTokens(promptTokens + completionTokens);
-            response.setUsage(usage);
-            recordTokens(usage.getTotalTokens());
+            // 📌 **只对真实调用统计** —— 之前对模拟回复也按 `长度/4` 编造 token 数
+            //    → 那是个**假事实**（用户以为真的调用了 LLM 并消耗了 token）
+            if (!answer.mock()) {
+                ChatResponse.TokenUsage usage = new ChatResponse.TokenUsage();
+                int promptTokens = prompt.length() / 4;
+                int completionTokens = answer.content().length() / 4;
+                usage.setPromptTokens(promptTokens);
+                usage.setCompletionTokens(completionTokens);
+                usage.setTotalTokens(promptTokens + completionTokens);
+                response.setUsage(usage);
+                recordTokens(usage.getTotalTokens());
+            }
 
             // 6. 响应时间
             long responseTime = System.currentTimeMillis() - startTime;
@@ -190,7 +215,12 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         return Flux.create(emitter -> {
             try {
                 String prompt = buildPrompt(request, Collections.emptyList());
-                String response = callLLMAPI(prompt, request);
+                LLMAnswer answer = callLLMAPI(prompt, request);
+                String response = answer.content();
+                if (answer.mock()) {
+                    // 📌 流式也要说真话 —— 前面先推一条说明，别让调用方以为这是真 AI
+                    emitter.next("[" + answer.reason() + "，以下为模拟回复]\n");
+                }
 
                 // 模拟流式输出
                 for (int i = 0; i < response.length(); i++) {
@@ -437,21 +467,51 @@ public class AIAssistantServiceImpl implements AIAssistantService {
     /**
      * 调用LLM API
      * 优先使用真实API（当配置了API Key时），否则使用模拟回复
+     *
+     * <p>📌 <b>降级必须带上原因</b>（2026-11-04 实测）：
+     * 之前真实调用失败（404/超时/鉴权错）→ catch → <b>静默</b>返回一段 canned 文本，
+     * 响应里 {@code model} 还写着 {@code deepseek-chat} →
+     * <b>调用方无法分辨真假</b> → AI 从来没真的工作过，但界面看着完全正常。
      */
-    private String callLLMAPI(String prompt, ChatRequest request) {
+    private LLMAnswer callLLMAPI(String prompt, ChatRequest request) {
         // 检查是否配置了真实的LLM API
         if (llmConfig.isConfigured()) {
             try {
-                log.info("调用真实LLM API - Provider: {}, Model: {}", 
+                log.info("调用真实LLM API - Provider: {}, Model: {}",
                         llmConfig.getProvider(), llmConfig.getModel());
-                return callRealLLMAPI(prompt, request);
+                return LLMAnswer.real(callRealLLMAPI(prompt, request));
             } catch (Exception e) {
+                // 📌 降级不是「静默失败」—— 原因要能传到调用方
                 log.error("LLM API调用失败， fallback到模拟回复", e);
-                return callMockLLMAPI(request);
+                return LLMAnswer.mock(callMockLLMAPI(request),
+                        "真实 API 调用失败：" + e.getMessage());
             }
         } else {
             log.info("未配置LLM API，使用模拟回复");
-            return callMockLLMAPI(request);
+            return LLMAnswer.mock(callMockLLMAPI(request), "未配置 LLM API Key 或 llm.enabled=false");
+        }
+    }
+
+    /**
+     * 一次 LLM 调用的结果：**内容 + 是不是模拟的 + 降级原因**
+     *
+     * <p>📌 为什么要单独一个类型：
+     * 之前 {@code callLLMAPI} 直接返回 {@code String}，
+     * 「这是不是模拟的」这个信息<b>在方法签名里就丢了</b> →
+     * 调用方<b>想报都报不出来</b>。
+     *
+     * @param content 回复内容
+     * @param mock    true = 模拟回复（没配 key，或真实调用失败降级）
+     * @param reason  降级原因（mock=true 时有值）
+     */
+    public record LLMAnswer(String content, boolean mock, String reason) {
+
+        public static LLMAnswer real(String content) {
+            return new LLMAnswer(content, false, null);
+        }
+
+        public static LLMAnswer mock(String content, String reason) {
+            return new LLMAnswer(content, true, reason);
         }
     }
 
@@ -459,7 +519,15 @@ public class AIAssistantServiceImpl implements AIAssistantService {
      * 调用真实LLM API（DeepSeek/OpenAI/Azure OpenAI）
      */
     private String callRealLLMAPI(String prompt, ChatRequest request) {
-        String apiUrl = llmConfig.getBaseUrl() + "/v1/chat/completions";
+        // 📌 **端点拼接的唯一事实来源 = LLMEndpointResolver**
+        // 📌 之前这里写死 `baseUrl + "/v1/chat/completions"`，
+        //    而 application.yml 的 base-url 默认带 /v1 → 拼出 **双 /v1** → 必然 404
+        //    → catch 之后静默降级成模拟回复 → **AI 从来没真的调通过**
+        String apiUrl = LLMEndpointResolver.chatCompletionsUrl(
+                llmConfig.getBaseUrl(),
+                llmConfig.getProvider(),
+                llmConfig.getDeployment(),
+                llmConfig.getApiVersion());
         
         // 构建请求体
         Map<String, Object> requestBody = new HashMap<>();
@@ -478,7 +546,12 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         // 设置请求头
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(llmConfig.getApiKey());
+        // 📌 Azure 用 `api-key` 头，其他家（OpenAI 兼容协议）用 `Authorization: Bearer`
+        if (LLMEndpointResolver.isAzure(llmConfig.getProvider())) {
+            headers.set("api-key", llmConfig.getApiKey());
+        } else {
+            headers.setBearerAuth(llmConfig.getApiKey());
+        }
         
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
         

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.crossborder</groupId>
+        <artifactId>cross-border-erp</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>erp-llm-common</artifactId>
+    <packaging>jar</packaging>
+    <name>OmniTrade ERP - LLM Common Module</name>
+
+    <!--
+      📌 **为什么单独一个模块，而不是放进 erp-common**（2026-11-04 实测）：
+
+      需要共享 LLM 端点解析的服务是 `erp-ai-assistant-service` 和
+      `erp-product-description-service` —— 而这两个恰好是
+      **全项目仅有的两个不依赖 erp-common 的服务**。
+
+      把 erp-common 引进来的代价：
+      - erp-common 带着 `mybatis-plus-spring-boot3-starter`，
+        而这两个服务用的是 **spring-boot-starter-data-jpa**
+        → JPA + MyBatis-Plus 两套 ORM 同时自动装配 → 启动期风险
+      - erp-common 的 `AutoConfiguration.imports` 里有
+        `CommonJacksonAutoConfiguration`（会改 ObjectMapper）
+        → **可能改变响应序列化形状** → 动前端契约
+
+      而本模块是**纯 JDK、零依赖**：
+      - 不引入 Spring → 不触发任何自动装配 → **零行为风险**
+      - 不引入 ORM → 不影响两个服务的 JPA
+      📌 判定依据：只有**纯函数/常量**才放这里；
+        任何需要 Spring 容器的东西都该放 erp-common 并走 AutoConfiguration.imports。
+    -->
+
+    <dependencies>
+        <!--
+          📌 **刻意不依赖任何 Spring / ORM / 中间件** ——
+             这个模块的价值就在于「引入它不会改变任何运行时行为」。
+             JUnit 由根 pom 的 <dependencies> 继承（见根 pom spring-boot-starter-test）。
+        -->
+    </dependencies>
+</project>

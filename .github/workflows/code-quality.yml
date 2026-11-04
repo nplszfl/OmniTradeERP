@@ -56,6 +56,13 @@ jobs:
         python3 scripts/check-sql-schema.py --strict
         python3 scripts/check-api-contract.py --strict
         python3 scripts/check-response-shape.py --strict
+        # 📌 **响应字段名契约**（视图实读字段 ↔ 后端 DTO）——
+        #    形状/路径/方法三道闸门**都不查字段名** →
+        #    `r.reply`（后端只有 `content`）这类缺陷能一路穿过所有闸门，
+        #    表现为「聊天气泡永远是空的」。
+        #    判据是「视图实际读了什么」而非「前端 interface 声明了什么」——
+        #    因为视图层存在显式字段映射，只比 interface 会全是假问题。
+        python3 scripts/check-response-fields.py --strict
         python3 scripts/check-feign-contract.py --strict
         python3 scripts/check-gateway-strip.py
 

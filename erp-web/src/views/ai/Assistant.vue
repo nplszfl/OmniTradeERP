@@ -14,7 +14,14 @@
       <div class="chat-messages" ref="msgBox">
         <div v-for="(m, i) in messages" :key="i" :class="['msg', m.role]">
           <div class="avatar">{{ m.role === 'user' ? '我' : 'AI' }}</div>
-          <div class="bubble">{{ m.content }}</div>
+          <div class="bubble">
+            <div>{{ m.content }}</div>
+            <!-- 📌 **降级要看得见** —— 后端真实 LLM 挂了会降级成模板回复，
+                 mock=true 时必须告诉用户「这是模板，不是真 AI 生成的」 -->
+            <el-tag v-if="m.mock" size="small" type="warning" class="mock-tag">
+              模拟回复{{ m.mockReason ? '（' + m.mockReason + '）' : '' }}
+            </el-tag>
+          </div>
         </div>
         <div v-if="loading" class="msg bot">
           <div class="avatar">AI</div>
@@ -120,7 +127,7 @@ import { aiAssistantApi, knowledgeBaseApi, type KnowledgeBaseItem } from '@/api/
 import { MagicStick, Collection, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { unwrapPage } from '@/utils/response'
 
-const messages = ref<{ role: 'user' | 'bot'; content: string }[]>([
+const messages = ref<{ role: 'user' | 'bot'; content: string; mock?: boolean; mockReason?: string }[]>([
   { role: 'bot', content: '您好，我是 AI 助手。基于 330+ 行业知识库，可以回答订单、物流、库存、财务、退款等问题。' },
 ])
 const input = ref('')
@@ -146,7 +153,14 @@ async function send() {
 
   try {
     const r = await aiAssistantApi.chat({ sessionId: sessionId.value || undefined, message: text })
-    messages.value.push({ role: 'bot', content: r.reply })
+    // 📌 后端字段是 `content`（不是 `reply`！）——
+    //    之前读 `r.reply` 恒为 undefined → **每次聊天气泡都是空的**
+    messages.value.push({
+      role: 'bot',
+      content: r.content ?? '',
+      mock: r.mock,
+      mockReason: r.mockReason,
+    })
     sessionId.value = r.sessionId
   } catch {
     // 后端无响应时降级到 FAQ 或模板回答
@@ -291,6 +305,8 @@ onMounted(() => {
   box-shadow: 0 1px 2px rgba(0,0,0,0.06); line-height: 1.6;
 }
 .msg .bubble.typing { color: #999; font-style: italic; }
+/* 📌 模拟回复的标记 —— 要显眼，让用户知道这不是真 AI 答的 */
+.mock-tag { margin-top: 8px; }
 .chat-input { padding-top: 8px; }
 .input-actions { margin-top: 8px; display: flex; gap: 8px; }
 </style>

@@ -46,6 +46,17 @@
           </template>
           <div v-if="generating" class="placeholder">AI 正在生成高质量商品描述...</div>
           <div v-else-if="result" class="result">
+            <!-- 📌 **降级要看得见** —— 后端真实 LLM 挂了会降级成模板文案，
+                 mock=true 时必须告诉用户「这是模板，不是真 AI 写的」 -->
+            <el-alert
+              v-if="result.mock"
+              type="warning"
+              show-icon
+              :closable="false"
+              class="mock-alert"
+              :title="'这是**模拟生成**的文案，不是真实 LLM 生成'"
+              :description="result.mockReason || '后端未配置 LLM，或真实调用失败后降级'"
+            />
             <h3>{{ result.title }}</h3>
             <p class="subtitle">{{ result.subtitle }}</p>
             <el-divider />
@@ -123,6 +134,7 @@ function saveToProduct() {
 
 <style scoped>
 .desc-page { padding: 16px; }
+.mock-alert { margin-bottom: 12px; }
 .result h3 { margin-top: 0; }
 .subtitle { color: #999; margin: 0 0 12px 0; }
 .body { line-height: 1.8; color: #333; }

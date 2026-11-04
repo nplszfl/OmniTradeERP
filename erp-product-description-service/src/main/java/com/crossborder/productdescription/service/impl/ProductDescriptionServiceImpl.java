@@ -6,6 +6,7 @@ import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
 import com.crossborder.productdescription.dto.FrontendDescriptionRequest;
 import com.crossborder.productdescription.dto.FrontendDescriptionResponse;
 import com.crossborder.productdescription.service.ProductDescriptionService;
+import com.crossborder.erp.llm.LLMEndpointResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -28,6 +29,14 @@ import org.springframework.http.MediaType;
 @Slf4j
 @Service
 public class ProductDescriptionServiceImpl implements ProductDescriptionService {
+
+    /**
+     * 模拟生成时写在 {@code model} 字段里的标记值
+     *
+     * <p>📌 <b>不能继续写 "deepseek-chat"</b> —— 那是在<b>谎报事实</b>
+     * （说这段文案是 deepseek-chat 写的，实际是本地模板拼的）。
+     */
+    private static final String MOCK_MODEL_NAME = "mock";
 
     // 模拟描述模板
     private final Map<String, String> templates = new HashMap<>();
@@ -64,7 +73,7 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         response.setLanguage(detectLanguage(request.getProductName()));
         response.setPlatform(request.getTargetPlatform());
         response.setVersionNumber(1);
-        response.setModel("deepseek-chat");
+        response.setModel(MOCK_MODEL_NAME);  // 📌 真实调用成功后会覆盖成真实模型名
         response.setCreateTime(LocalDateTime.now());
 
         try {
@@ -72,8 +81,20 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
             String prompt = buildPrompt(request);
 
             // 2. 调用LLM API
-            String description = callLLMAPI(prompt, request);
+            LLMAnswer answer = callLLMAPI(prompt, request);
+            String description = answer.content();
             response.setContent(description);
+            response.setMock(answer.mock());
+            if (answer.mock()) {
+                // 📌 **降级必须可被看见** —— 之前这里静默返回模板文本，
+                //    而 model 仍写着 deepseek-chat → 调用方完全无法分辨真假
+                response.setMockReason(answer.reason());
+                response.setModel(MOCK_MODEL_NAME);
+                log.warn("产品描述返回的是**模拟生成**（mock=true）：{}", answer.reason());
+            } else {
+                // 📌 真实调用成功 → model 写**真实**模型名
+                response.setModel(llmConfig != null ? llmConfig.getModel() : MOCK_MODEL_NAME);
+            }
 
             // 3. SEO优化
             if (Boolean.TRUE.equals(request.getEnableSEO())) {
@@ -95,11 +116,15 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
             }
 
             // 6. Token使用统计
-            DescriptionGenerationResponse.TokenUsage usage = new DescriptionGenerationResponse.TokenUsage();
-            usage.setPromptTokens(prompt.length() / 4);
-            usage.setCompletionTokens(description.length() / 4);
-            usage.setTotalTokens(usage.getPromptTokens() + usage.getCompletionTokens());
-            response.setUsage(usage);
+            // 📌 **只对真实调用统计** —— 之前对模板文本也按 `长度/4` 编造 token 数
+            //    → 那是个**假事实**
+            if (!answer.mock()) {
+                DescriptionGenerationResponse.TokenUsage usage = new DescriptionGenerationResponse.TokenUsage();
+                usage.setPromptTokens(prompt.length() / 4);
+                usage.setCompletionTokens(description.length() / 4);
+                usage.setTotalTokens(usage.getPromptTokens() + usage.getCompletionTokens());
+                response.setUsage(usage);
+            }
 
             // 7. 生成时长
             response.setGenerationTime(System.currentTimeMillis() - startTime);
@@ -321,6 +346,9 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         out.setTemplateId(response.getTemplateId());
         out.setGenerationTime(response.getGenerationTime());
         out.setError(response.getError());
+        // 📌 透传「是不是模拟生成」—— 前端要能告诉用户「这是模板，不是真 AI」
+        out.setMock(response.getMock());
+        out.setMockReason(response.getMockReason());
 
         // SEO 结果 → title / seoKeywords
         DescriptionGenerationResponse.SEOResult seo = response.getSeoResult();
@@ -440,24 +468,52 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
      * 调用LLM API生成描述
      * 优先使用真实API，fallback到模拟生成
      */
-    private String callLLMAPI(String prompt, DescriptionGenerationRequest request) {
+    private LLMAnswer callLLMAPI(String prompt, DescriptionGenerationRequest request) {
         if (llmConfig != null && llmConfig.isConfigured()) {
             try {
                 log.info("调用LLM API生成产品描述 - Provider: {}", llmConfig.getProvider());
-                return callRealLLMAPI(prompt);
+                return LLMAnswer.real(callRealLLMAPI(prompt));
             } catch (Exception e) {
+                // 📌 降级不是「静默失败」—— 原因要能传到调用方
                 log.error("LLM API调用失败，使用模拟生成", e);
-                return generateMockDescription(request);
+                return LLMAnswer.mock(generateMockDescription(request),
+                        "真实 API 调用失败：" + e.getMessage());
             }
         }
-        return generateMockDescription(request);
+        return LLMAnswer.mock(generateMockDescription(request),
+                "未配置 LLM API Key 或 llm.enabled=false");
+    }
+
+    /**
+     * 一次 LLM 调用的结果：**内容 + 是不是模拟的 + 降级原因**
+     *
+     * <p>📌 之前 {@code callLLMAPI} 直接返回 {@code String}，
+     * 「这是不是模拟的」这个信息<b>在方法签名里就丢了</b>。
+     */
+    public record LLMAnswer(String content, boolean mock, String reason) {
+
+        public static LLMAnswer real(String content) {
+            return new LLMAnswer(content, false, null);
+        }
+
+        public static LLMAnswer mock(String content, String reason) {
+            return new LLMAnswer(content, true, reason);
+        }
     }
 
     /**
      * 调用真实LLM API
      */
     private String callRealLLMAPI(String prompt) {
-        String apiUrl = llmConfig.getBaseUrl() + "/v1/chat/completions";
+        // 📌 **端点拼接的唯一事实来源 = LLMEndpointResolver**
+        // 📌 之前这里写死 `baseUrl + "/v1/chat/completions"`，
+        //    而 application.yml 的 base-url 默认带 /v1 → 拼出 **双 /v1** → 必然 404
+        //    → catch 之后静默降级成模拟生成 → **AI 从来没真的调通过**
+        String apiUrl = LLMEndpointResolver.chatCompletionsUrl(
+                llmConfig.getBaseUrl(),
+                llmConfig.getProvider(),
+                llmConfig.getDeployment(),
+                llmConfig.getApiVersion());
         
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", llmConfig.getModel());
@@ -475,7 +531,12 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(llmConfig.getApiKey());
+        // 📌 Azure 用 `api-key` 头，其他家（OpenAI 兼容协议）用 `Authorization: Bearer`
+        if (LLMEndpointResolver.isAzure(llmConfig.getProvider())) {
+            headers.set("api-key", llmConfig.getApiKey());
+        } else {
+            headers.setBearerAuth(llmConfig.getApiKey());
+        }
         
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
         

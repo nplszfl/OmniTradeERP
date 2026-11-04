@@ -92,6 +92,13 @@ export interface DescriptionResult {
   templateId?: string
   generationTime?: number
   error?: string
+  /**
+   * 是否是**模拟生成**（后端没配 LLM，或真实调用失败降级）
+   * 📌 true = 这段文案是本地模板拼的，不是真 AI 生成的
+   */
+  mock?: boolean
+  /** 降级原因（mock=true 时有值） */
+  mockReason?: string
 }
 
 export const descriptionApi = {
@@ -121,8 +128,36 @@ export interface KnowledgeBaseItem {
   updateTime?: string
 }
 
+/**
+ * AI 对话响应（后端 erp-ai-assistant-service 的 `ChatResponse`）
+ *
+ * 📌 **字段名必须和后端 DTO 对得上** ——
+ * 后端返回的是 `content`，**不是** `reply`。
+ * 📌 之前这里写的是 `{ reply: string; sessionId: string }`，
+ * 而后端 `ChatResponse` 里**根本没有 `reply` 字段**（只有 `content`）
+ * → `r.reply` 恒为 `undefined` → **每次聊天气泡都是空的**。
+ * 📌 读到的字段后端必须真的有 —— 这是「前端字段 ≠ 实体字段」那类缺陷的变种。
+ */
+export interface AiChatResponse {
+  /** 回复正文（后端 ChatResponse.content） */
+  content: string
+  /** 会话 ID */
+  sessionId: string
+  /** 响应 ID */
+  responseId?: string
+  /** 模型名；模拟回复时后端会写成 'mock' */
+  model?: string
+  /**
+   * 是否是**模拟回复**（后端没配 LLM，或真实调用失败降级）
+   * 📌 true = 这段话是模板拼的，不是真 AI 生成的
+   */
+  mock?: boolean
+  /** 降级原因（mock=true 时有值） */
+  mockReason?: string
+}
+
 export const aiAssistantApi = {
-  chat: (data: { sessionId?: string; message: string }) => request.post<any, { reply: string; sessionId: string }>('/ai/assistant/chat', data),
+  chat: (data: { sessionId?: string; message: string }) => request.post<any, AiChatResponse>('/ai/assistant/chat', data),
   history: (sessionId: string) => request.get<any, any[]>(`/ai/assistant/history/${sessionId}`),
   knowledge: {
     // 语义检索（RAG 文档侧 knowledge_document）

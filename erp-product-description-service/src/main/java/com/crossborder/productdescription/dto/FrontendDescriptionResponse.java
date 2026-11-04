@@ -41,4 +41,18 @@ public class FrontendDescriptionResponse {
 
     /** 出错信息（生成失败时非空） */
     private String error;
+
+    /**
+     * 本次生成是否来自<b>模拟实现</b>
+     *
+     * <p>📌 透传自 {@code DescriptionGenerationResponse.mock} ——
+     * 前端据此提示用户「这是模板回复，不是真 AI 生成的」。
+     * <p>📌 之前没有这个字段 → 真实 LLM 挂了之后，页面上看起来和真的一模一样。
+     */
+    private Boolean mock = false;
+
+    /**
+     * 降级原因（{@link #mock} 为 true 时有值）
+     */
+    private String mockReason;
 }

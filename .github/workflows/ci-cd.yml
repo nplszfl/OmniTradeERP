@@ -135,6 +135,26 @@ jobs:
     - name: 响应形状契约（前端解包方式 ↔ 后端返回类型）
       run: python3 scripts/check-response-shape.py --strict
 
+    # 📌 **响应字段名契约**（视图实读字段 ↔ 后端 DTO 字段）——
+    #    📌 **为什么响应形状闸门不够**：
+    #       `check-response-shape.py` 查的是「裸数组 还是 Result 包装」，
+    #       `check-api-contract.py` 查的是「路径/方法能不能命中」，
+    #       `check-dead-endpoints.py` 查的是「Controller 里有没有实现」——
+    #       **三道闸门没有一道查字段名**。
+    #    📌 本项目实测的漏网之鱼（2026-11-04）：
+    #       前端 `request.post<any, { reply: string; ... }>('/ai/assistant/chat')`
+    #       后端 `ChatResponse` 里**根本没有 `reply` 字段**（只有 `content`）
+    #       → 视图 `messages.value.push({ content: r.reply })`
+    #       → **r.reply 恒为 undefined** → **每次聊天气泡都是空的**
+    #       而形状 ✅ / 路径 ✅ / 方法 ✅ / 单测全绿 —— **四道闸门全部漏过**。
+    #    📌 判据是「**视图实际读了什么**」，不是「前端 interface 声明了什么」：
+    #       因为本项目很多视图在**视图层手动映射**字段
+    #       （`productName: item.name`），只比 interface 会产生大量假问题。
+    #    📌 已用**反向验证**确认它真的会红：
+    #       把 `r.content` 改回 `r.reply` → 闸门报错 → 还原 → 变绿。
+    - name: 响应字段名契约（视图实读字段 ↔ 后端 DTO）
+      run: python3 scripts/check-response-fields.py --strict
+
     - name: Feign 契约（Feign 调用 ↔ 目标服务 Controller 映射）
       run: python3 scripts/check-feign-contract.py --strict
 

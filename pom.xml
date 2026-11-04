@@ -47,6 +47,8 @@
 
     <modules>
         <module>erp-common</module>
+        <!-- 📌 纯 JDK 的 LLM 端点契约模块（无 Spring 依赖 → 引入它不会改变任何运行时行为） -->
+        <module>erp-llm-common</module>
         <module>erp-gateway</module>
         <module>erp-tenant-service</module>
         <module>erp-customer-service</module>
@@ -233,6 +235,11 @@
             <dependency>
                 <groupId>com.crossborder</groupId>
                 <artifactId>erp-common</artifactId>
+                <version>${erp.internal.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.crossborder</groupId>
+                <artifactId>erp-llm-common</artifactId>
                 <version>${erp.internal.version}</version>
             </dependency>
             <dependency>

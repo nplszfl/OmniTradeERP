@@ -23,6 +23,12 @@
     </properties>
 
     <dependencies>
+        <!-- 📌 LLM 端点契约（纯 JDK，无 Spring 依赖 → 不触发自动装配） -->
+        <dependency>
+            <groupId>com.crossborder</groupId>
+            <artifactId>erp-llm-common</artifactId>
+        </dependency>
+
 
         <!-- Nacos 服务注册/发现 -->
         <!-- ⚠️ 之前这两个模块用独立父 pom（spring-boot-starter-parent 3.3.5），

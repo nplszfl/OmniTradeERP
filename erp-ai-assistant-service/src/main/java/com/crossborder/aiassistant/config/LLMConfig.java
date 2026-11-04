@@ -20,7 +20,21 @@ public class LLMConfig {
     /** API Key */
     private String apiKey = "";
 
-    /** API Base URL */
+    /**
+     * API Base URL（<b>API 根地址</b>）
+     *
+     * <p>📌 <b>约定</b>（唯一事实来源 = {@code LLMEndpointResolver}）：
+     * <b>带不带 {@code /v1} 都行</b>，解析器会归一化。
+     *
+     * <p>📌 <b>为什么这里写不带 /v1，而 application.yml 里也必须写不带 /v1</b>：
+     * 两处默认值<b>不一致 = 其中一处是死代码</b>。
+     * 之前类默认是不带 /v1（和拼接匹配），而 yml 默认是带 /v1（和拼接冲突），
+     * 而 yml 永远生效 → 真正生效的是那个和代码冲突的那个。
+     *
+     * <p>📌 ⚠️ <b>不要在这里改回带 /v1</b>，也不要在调用处自己拼路径 ——
+     * 端点拼接只能走 {@code LLMEndpointResolver}，
+     * 否则会重新引入「双 /v1 → 404 → 静默降级成模拟回复」这条链。
+     */
     private String baseUrl = "https://api.deepseek.com";
 
     /** 模型名称 */
@@ -37,6 +51,21 @@ public class LLMConfig {
 
     /** Provider类型: deepseek, openai, azure */
     private String provider = "deepseek";
+
+    /**
+     * Azure 的 deployment 名（模型部署名）
+     *
+     * <p>📌 只有 provider=azure 时才需要 —— Azure 的 URL 形状和其他家不一样：
+     * {@code /openai/deployments/{deployment}/chat/completions?api-version=...}
+     */
+    private String deployment = "";
+
+    /**
+     * Azure 的 api-version（如 {@code 2024-02-01}）
+     *
+     * <p>📌 只有 provider=azure 时才需要。
+     */
+    private String apiVersion = "";
 
     /**
      * 检查是否配置了有效的API Key

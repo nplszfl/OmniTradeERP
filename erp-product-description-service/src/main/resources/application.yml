@@ -39,12 +39,21 @@ springdoc:
 llm:
   enabled: ${LLM_ENABLED:false}
   api-key: ${LLM_API_KEY:${DEEPSEEK_API_KEY:${OPENAI_API_KEY:}}}
-  base-url: ${LLM_BASE_URL:https://api.deepseek.com/v1}
+  # 📌 **API 根地址**（唯一事实来源 = LLMEndpointResolver）
+  #    📌 **带不带 /v1 都行**，解析器会归一化 → 不会拼出双 /v1
+  #    📌 ⚠️ 这里写的是**不带 /v1** —— 和 LLMConfig 的类默认值保持一致。
+  #       两处默认值不一致 = 其中一处是死代码（而 application.yml 永远生效）。
+  #    📌 ⚠️ 端点拼接只能走 LLMEndpointResolver，不要在代码里自己拼路径。
+  base-url: ${LLM_BASE_URL:https://api.deepseek.com}
   model: ${LLM_MODEL:deepseek-chat}
   timeout: ${LLM_TIMEOUT:30000}
   max-tokens: ${LLM_MAX_TOKENS:2000}
   temperature: ${LLM_TEMPERATURE:0.7}
   provider: ${LLM_PROVIDER:deepseek}
+  # Azure 专用（provider=azure 时必填）
+  # 📌 Azure 的 URL 形状和其他家不同：/openai/deployments/{deployment}/chat/completions?api-version=
+  deployment: ${LLM_DEPLOYMENT:}
+  api-version: ${LLM_API_VERSION:}
 
 # 描述生成配置
 description:

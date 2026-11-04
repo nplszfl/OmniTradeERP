@@ -33,6 +33,34 @@ public class ChatResponse {
     /** 模型 */
     private String model;
 
+    /**
+     * 本次回复是否来自<b>模拟实现</b>
+     *
+     * <p>📌 <b>为什么必须有这个字段</b>（2026-11-04 实测）：
+     * 之前真实 LLM 调用失败（404/超时/鉴权错）时，代码 catch 之后
+     * <b>静默降级</b>成一段 canned 文本，而响应里 {@code model} 仍然写着
+     * {@code deepseek-chat} → <b>调用方（前端/接口消费方）完全无法区分</b>
+     * 「这是真 AI 回答」和「这是一段固定模板」。
+     * <p>→ 结果是 <b>AI 功能上线后从来没真的调通过一次</b>，
+     * 但界面看起来完全正常。
+     * <p>📌 <b>事实标志不能撒谎</b> —— 降级必须<b>可被看见</b>。
+     *
+     * <p>📌 {@code true} 的两种情况：
+     * <ul>
+     *   <li>没配 API Key（{@code llm.enabled=false} 或 key 为空）→ 从来就没打算调真实 API</li>
+     *   <li>配了但真实调用失败 → <b>降级</b>（此时看 {@link #mockReason}）</li>
+     * </ul>
+     */
+    private Boolean mock = false;
+
+    /**
+     * 降级原因（{@link #mock} 为 true 时有值）
+     *
+     * <p>📌 例：「未配置 LLM API Key」「真实 API 调用失败：LLM API调用失败」
+     * → 运维一眼能看出「AI 到底有没有真的工作」。
+     */
+    private String mockReason;
+
     /** 消耗的Token数 */
     private TokenUsage usage;
 

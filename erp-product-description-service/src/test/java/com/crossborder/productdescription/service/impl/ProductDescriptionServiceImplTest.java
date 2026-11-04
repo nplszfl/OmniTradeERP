@@ -125,10 +125,31 @@ class ProductDescriptionServiceImplTest {
 
         // 验证结果
         assertNotNull(response);
-        assertNotNull(response.getUsage());
-        assertTrue(response.getUsage().getPromptTokens() > 0);
-        assertTrue(response.getUsage().getCompletionTokens() > 0);
-        assertTrue(response.getUsage().getTotalTokens() > 0);
+        // 📌 **模拟生成不能有 token 统计**（2026-11-04 修正）
+        //    之前的实现对模板文本也按 `长度/4` 编造 token 数 → 那是**假事实**
+        //    （用户以为真的调用了 LLM 并消耗了 token）。
+        //    现在：mock=true → 不统计 token。
+        assertTrue(response.getMock(), "未配置 LLM 时必须标记为模拟生成");
+        assertNotNull(response.getMockReason(), "模拟生成必须带原因");
+        assertNull(response.getUsage(), "模拟生成不得编造 token 用量");
+    }
+
+    @Test
+    @DisplayName("测试生成产品描述 - 模拟生成必须对调用方可见")
+    void testGenerateDescription_MockIsVisible() {
+        DescriptionGenerationRequest request = new DescriptionGenerationRequest();
+        request.setProductId(6L);
+        request.setProductName("测试可见性");
+
+        DescriptionGenerationResponse response = productDescriptionService.generateDescription(request);
+
+        // 📌 **降级必须可被看见** —— 之前 mock=true 的内容与真 AI 输出长得一模一样，
+        //    调用方完全无法分辨真假。
+        assertNotNull(response);
+        assertEquals(Boolean.TRUE, response.getMock());
+        assertNotNull(response.getMockReason());
+        // model 字段不能继续写 "deepseek-chat"（那是在谎报事实）
+        assertEquals("mock", response.getModel());
     }
 
     @Test

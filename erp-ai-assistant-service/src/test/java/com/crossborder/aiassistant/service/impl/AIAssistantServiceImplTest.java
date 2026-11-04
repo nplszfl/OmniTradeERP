@@ -84,6 +84,25 @@ class AIAssistantServiceImplTest {
     }
 
     @Test
+    void testChat_MockIsVisible() {
+        // 📌 **降级必须对调用方可见**（2026-11-04 实测）：
+        //    之前 mock=true 的内容与真 AI 输出**长得一模一样**，
+        //    `model` 字段还写着 `deepseek-chat` → 调用方完全无法分辨真假
+        //    → AI 从来没真的工作过，但界面看着完全正常。
+        //    兜底 llmConfig.isConfigured() 默认 false（Mockito 默认值）
+        //    → 走模拟路径。
+        ChatResponse response = aiAssistantService.chat(chatRequest);
+
+        assertNotNull(response);
+        assertEquals(Boolean.TRUE, response.getMock());
+        assertNotNull(response.getMockReason(), "模拟回复必须带降级原因");
+        // model 不能继续写 deepseek-chat（那是在谎报事实）
+        assertEquals("mock", response.getModel());
+        // 📌 **模拟回复不得编造 token 用量** —— 那是假事实
+        assertNull(response.getUsage(), "模拟回复不得编造 token 用量");
+    }
+
+    @Test
     void testChat_IncludesSessionId() {
         ChatResponse response = aiAssistantService.chat(chatRequest);
 

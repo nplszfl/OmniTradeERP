@@ -3,7 +3,7 @@
 # 📌 **由 scripts/gen-dockerfiles.py 生成** —— 改之前先改生成脚本。
 #
 # ⚠️ **为什么不能只 COPY 少数几个模块的 pom 再 go-offline**：
-#    根 pom 声明了 26 个 module，Maven 解析根 pom 时会**逐个检查子模块目录是否存在**。
+#    根 pom 声明了 27 个 module，Maven 解析根 pom 时会**逐个检查子模块目录是否存在**。
 #    只 COPY 少数几个 → `mvn dependency:go-offline` 直接报：
 #        [ERROR] Child module /app/erp-tenant-service of /app/pom.xml does not exist
 #    → 镜像构建失败。
