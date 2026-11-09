@@ -172,6 +172,14 @@ jobs:
     - name: 测试与时钟无关（now() + 子日位移 × 按天分桶 → 时间炸弹测试）
       run: python3 scripts/check-test-clock-independence.py
 
+    # 📌 **「部署通知不许谎报成功」**（第 37 道闸门）——
+    #    `deploy-k8s` 没配 KUBE_CONFIG 时会**跳过全部真实部署 step**，
+    #    但 job 结论仍是 `success` → 下游若把 `success()` 翻译成「部署成功」，
+    #    就是一次货真价实的**假成功**（实测 11-10 的 CI 日志：
+    #    19:01:48「跳过部署」→ 19:01:55「✅ 部署成功！」，一个 Deployment 都没 apply）。
+    - name: 部署通知诚实性（没部署 ≠ 部署成功）
+      run: python3 scripts/check-deploy-notification-honesty.py
+
     - name: API 契约（前端 ↔ 网关 ↔ 后端）
       run: python3 scripts/check-api-contract.py --strict
 
@@ -610,6 +618,14 @@ jobs:
   deploy-k8s:
     name: Deploy to Kubernetes
     runs-on: ubuntu-latest
+    # 📌 **job 输出：本次到底有没有真部署** ——
+    #    job 的结论 `success` 只代表「没报错」，**不代表部署发生了**：
+    #    没配 KUBE_CONFIG 时，下面**每一个真实部署 step** 都会被 `if` 跳过 →
+    #    job 照样是 `success` → 下游会把它读成「部署成功」。
+    #    → 必须把「跳过」这个事实**显式暴露成 output**，让下游能区分
+    #      「真部署了」vs「什么都没做」（规则 18：事实标志不能撒谎）。
+    outputs:
+      deployed: ${{ steps.kube.outputs.configured }}
     # 📌 前端镜像现在由**独立 job** 构建（矩阵 job 只跑 Maven 服务）→ 必须一起等
     needs: [docker-build, docker-build-frontend]
     # 📌 同上 —— 必须是 master
@@ -747,10 +763,24 @@ jobs:
     if: always()
 
     steps:
-    - name: Send notification
-      if: success()
+    # 📌 **不能把 job 的 `success()` 直接翻译成「部署成功」** ——
+    #    `deploy-k8s` 在**没配 KUBE_CONFIG** 时会**跳过所有真实部署 step**
+    #    （含 `Verify deployment`），但 job 结论仍然是 `success`
+    #    → 曾经在这里打印过「✅ 部署成功！」，而实际上**一个 Deployment 都没 apply**
+    #    （实测 11-10 的 CI 日志：19:01:48「跳过部署」→ 19:01:55「✅ 部署成功！」）。
+    #    → 必须看 `needs.deploy-k8s.outputs.deployed`
+    #      （规则 18：事实标志不能撒谎；规则 19：降级必须带原因且能被调用方看见）。
+    - name: Send notification (已部署)
+      if: needs.deploy-k8s.outputs.deployed == 'true' && success()
       run: |
         echo "✅ 部署成功！"
+        # TODO: 添加飞书/钉钉通知
+
+    - name: Send notification (未部署 —— 跳过，不谎报成功)
+      if: needs.deploy-k8s.outputs.deployed != 'true' && success()
+      run: |
+        echo "⏭️ **本次未部署**：KUBE_CONFIG secret 未配置 → 部署步骤全部跳过。"
+        echo "   （这不是「部署成功」—— 集群里一个 Deployment 都没变。）"
         # TODO: 添加飞书/钉钉通知
 
     - name: Send failure notification

@@ -63,6 +63,10 @@ jobs:
         #    实测 2026-11-10 00:16 抓到 `AnalyticsRepositoryH2Test` 这么一颗雷：
         #    它 23:54 提交、CI 也 23:54 跑 → **CI 全绿** → 绿得靠运气。
         python3 scripts/check-test-clock-independence.py
+        # 📌 **「部署通知不许谎报成功」**（第 37 道闸门）——
+        #    没配 KUBE_CONFIG → 部署步骤全跳过 → job 仍是 success →
+        #    通知 job 若照着 `success()` 打印「部署成功」＝**假成功**。
+        python3 scripts/check-deploy-notification-honesty.py
         python3 scripts/check-api-contract.py --strict
         python3 scripts/check-response-shape.py --strict
         # 📌 **响应字段名契约**（视图实读字段 ↔ 后端 DTO）——
