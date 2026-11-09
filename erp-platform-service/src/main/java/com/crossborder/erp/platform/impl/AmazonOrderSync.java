@@ -7,6 +7,7 @@ import com.crossborder.erp.common.constant.PlatformType;
 import com.crossborder.erp.common.exception.PlatformApiException;
 import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
+import com.crossborder.erp.platform.annotation.ApiMonitor;
 import com.crossborder.erp.platform.api.PlatformOrderSync;
 import com.crossborder.erp.platform.config.AmazonConfig;
 import com.crossborder.erp.platform.util.AmazonSPApiSigner;
@@ -54,6 +55,7 @@ public class AmazonOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "amazon")
     public List<Order> syncOrders(LocalDateTime startTime, LocalDateTime endTime, String shopId) {
         log.info("开始同步亚马逊订单, 店铺: {}, 时间范围: {} - {}", shopId, startTime, endTime);
 
@@ -88,6 +90,7 @@ public class AmazonOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "amazon")
     public Order getOrderByNo(String platformOrderNo, String shopId) {
         log.info("获取亚马逊订单详情, 订单号: {}", platformOrderNo);
 
@@ -119,6 +122,7 @@ public class AmazonOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "amazon")
     public List<OrderItem> syncOrderItems(String platformOrderNo, String shopId) {
         log.info("同步亚马逊订单商品明细, 订单号: {}", platformOrderNo);
 
@@ -149,6 +153,7 @@ public class AmazonOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "amazon")
     public boolean validateConfig(String shopId) {
         log.info("验证亚马逊API配置, 店铺: {}", shopId);
 

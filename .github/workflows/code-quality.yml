@@ -95,6 +95,9 @@ jobs:
         python3 scripts/check-map-injection-keys.py
         python3 scripts/check-placeholder-syntax.py
         python3 scripts/check-silent-failures.py
+        # 📌 **指标真实性** —— 声明了指标 ≠ 指标在说真话
+        #    （2026-11-10：erp-common 的 5 个 Micrometer 指标全是假的 —— 无人递增 / 硬编码 0）
+        python3 scripts/check-metrics-truthfulness.py
         python3 scripts/check-db-schema-provision.py
         python3 scripts/check-seed-table-refs.py
         python3 scripts/check-seed-idempotency.py

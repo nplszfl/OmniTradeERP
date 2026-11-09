@@ -4,6 +4,7 @@ import com.crossborder.erp.common.constant.PlatformType;
 import com.crossborder.erp.common.exception.PlatformApiException;
 import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
+import com.crossborder.erp.platform.annotation.ApiMonitor;
 import com.crossborder.erp.platform.api.PlatformOrderSync;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -45,6 +46,7 @@ public class TiktokOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "tiktok")
     public List<Order> syncOrders(LocalDateTime startTime, LocalDateTime endTime, String shopId) {
         // TODO: 实现 TikTok Shop Open Platform API 对接
         // 文档：https://partner.tiktokshop.com/doc/v2/order/query-orders.html
@@ -52,6 +54,7 @@ public class TiktokOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "tiktok")
     public Order getOrderByNo(String platformOrderNo, String shopId) {
         // TODO: 实现 TikTok Shop Open Platform API 对接
         // 接口：/api/v2/order/query_orders
@@ -59,6 +62,7 @@ public class TiktokOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "tiktok")
     public List<OrderItem> syncOrderItems(String platformOrderNo, String shopId) {
         // TODO: 实现 TikTok Shop Open Platform API 对接
         // 订单商品明细包含在GetOrders响应中
@@ -66,6 +70,7 @@ public class TiktokOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "tiktok")
     public boolean validateConfig(String shopId) {
         // TODO: 实现 TikTok Shop Open Platform API 对接
         //

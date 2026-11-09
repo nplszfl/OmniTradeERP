@@ -4,6 +4,7 @@ import com.crossborder.erp.common.constant.PlatformType;
 import com.crossborder.erp.common.exception.PlatformApiException;
 import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
+import com.crossborder.erp.platform.annotation.ApiMonitor;
 import com.crossborder.erp.platform.api.PlatformOrderSync;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -53,6 +54,7 @@ public class EbayOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "ebay")
     public List<Order> syncOrders(LocalDateTime startTime, LocalDateTime endTime, String shopId) {
         // TODO: 实现 eBay Trading API 对接
         // 接口：https://developer.ebay.com/devzone/xml/docs/reference/ebay/GetOrders.html
@@ -61,6 +63,7 @@ public class EbayOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "ebay")
     public Order getOrderByNo(String platformOrderNo, String shopId) {
         // TODO: 实现 eBay Trading API 对接
         // GetOrderCall接口
@@ -68,6 +71,7 @@ public class EbayOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "ebay")
     public List<OrderItem> syncOrderItems(String platformOrderNo, String shopId) {
         // TODO: 实现 eBay Trading API 对接
         // OrderItem包含在GetOrders响应中
@@ -75,6 +79,7 @@ public class EbayOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "ebay")
     public boolean validateConfig(String shopId) {
         // TODO: 实现 eBay Trading API 对接
         // 可以调用GeteBayOfficialTime接口验证Token有效性

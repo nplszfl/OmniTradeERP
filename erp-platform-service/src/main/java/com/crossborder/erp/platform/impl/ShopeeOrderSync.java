@@ -7,6 +7,7 @@ import com.crossborder.erp.common.constant.PlatformType;
 import com.crossborder.erp.common.exception.PlatformApiException;
 import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
+import com.crossborder.erp.platform.annotation.ApiMonitor;
 import com.crossborder.erp.platform.api.PlatformOrderSync;
 import com.crossborder.erp.platform.config.ShopeeConfig;
 import com.crossborder.erp.platform.util.ShopeeApiSigner;
@@ -46,6 +47,7 @@ public class ShopeeOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "shopee")
     public List<Order> syncOrders(LocalDateTime startTime, LocalDateTime endTime, String shopId) {
         log.info("开始同步Shopee订单, 店铺: {}, 时间范围: {} - {}", shopId, startTime, endTime);
 
@@ -77,6 +79,7 @@ public class ShopeeOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "shopee")
     public Order getOrderByNo(String platformOrderNo, String shopId) {
         log.info("获取Shopee订单详情, 订单号: {}", platformOrderNo);
 
@@ -106,6 +109,7 @@ public class ShopeeOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "shopee")
     public List<OrderItem> syncOrderItems(String platformOrderNo, String shopId) {
     log.info("同步Shopee订单商品明细, 订单号: {}", platformOrderNo);
 
@@ -137,6 +141,7 @@ public class ShopeeOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "shopee")
     public boolean validateConfig(String shopId) {
         log.info("验证Shopee API配置, 店铺: {}", shopId);
 

@@ -68,6 +68,24 @@ public interface OrderMapper extends BaseMapper<Order> {
                                              @Param("end") LocalDateTime end);
 
     /**
+     * 全量按状态统计订单数（**与时间窗口无关**）。
+     *
+     * <p>用途：{@code order.status} 指标要表达的是「<b>当前</b>订单簿里各状态的存量」，
+     * 不是「某个时间区间内创建的订单」。所以不能用上面那个带时间过滤的方法 ——
+     * 那个的口径是「区间内创建的订单按现在的状态分组」，两者含义不同。</p>
+     *
+     * <p>口径与业务代码对齐：排除逻辑删除（{@code deleted = 0}），
+     * 与 {@link #countByStatus} / {@code countByPlatform} 保持一致。</p>
+     */
+    @Select("""
+            SELECT status, COUNT(*) AS cnt
+            FROM t_order
+            WHERE deleted = 0
+            GROUP BY status
+            """)
+    List<Map<String, Object>> countByStatusAll();
+
+    /**
      * 按天聚合销售趋势
      *
      * <p>返回 date / cnt / amount 三列，按日期升序。

@@ -236,6 +236,24 @@ jobs:
     - name: 静默失败（catch 空 / 吞异常 / return null）
       run: python3 scripts/check-silent-failures.py
 
+    # 📌 **指标真实性**（声明了指标 ≠ 指标在说真话）
+    #    📌 **2026-11-10 抓到的真缺陷**：
+    #       `erp-common` 的 `MetricsConfig` 声明了 5 个 Micrometer 指标
+    #       （order.create.count / order.sync.count / order.status /
+    #         platform.api.call.count / platform.api.error.count），
+    #       通过 `AutoConfiguration.imports` 注册进**所有**带 Actuator 的服务。
+    #       但 —— 4 个 Counter **没有任何地方 `.increment()`**、
+    #       `order.status` 的 supplier 直接 `return 0;`
+    #       → `/actuator/prometheus` 抓到的全是假事实：
+    #       「订单创建总数 = 0」而系统明明在创建订单；
+    #       「平台 API 失败次数 = 0」而平台同步失败时监控完全看不见。
+    #    📌 **根因比疏忽更深**：这些指标声明在 **common** 里 ——
+    #       公共库拿不到订单表、也拿不到平台 API → **从设计上就只能写死**。
+    #    📌 本闸门查 5 类：无人递增的计数器 / 恒为常量的 Gauge /
+    #       公共库声明业务域指标 / 描述与形状不符 / 写入点在永不触发的切面里。
+    - name: 指标真实性（假事实指标）
+      run: python3 scripts/check-metrics-truthfulness.py
+
     # 📌 **统计口径一致性**（同一个页面上「说 N 条」和「列出 N 条」必须同一张表）
     #    📌 **为什么需要它**：
     #       2026-11-04 在 AI 客服模块抓到一个真缺陷：

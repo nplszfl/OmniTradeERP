@@ -4,6 +4,7 @@ import com.crossborder.erp.common.constant.PlatformType;
 import com.crossborder.erp.common.exception.PlatformApiException;
 import com.crossborder.erp.order.entity.Order;
 import com.crossborder.erp.order.entity.OrderItem;
+import com.crossborder.erp.platform.annotation.ApiMonitor;
 import com.crossborder.erp.platform.api.PlatformOrderSync;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -45,6 +46,7 @@ public class LazadaOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "lazada")
     public List<Order> syncOrders(LocalDateTime startTime, LocalDateTime endTime, String shopId) {
         // TODO: 实现 Lazada Open Platform API 对接
         // 接口：https://open.lazada.com/doc/doc.htm#/?nav=2&articleId=823
@@ -52,6 +54,7 @@ public class LazadaOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "lazada")
     public Order getOrderByNo(String platformOrderNo, String shopId) {
         // TODO: 实现 Lazada Open Platform API 对接
         // GetOrder接口
@@ -59,6 +62,7 @@ public class LazadaOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "lazada")
     public List<OrderItem> syncOrderItems(String platformOrderNo, String shopId) {
         // TODO: 实现 Lazada Open Platform API 对接
         // GetOrderItems接口
@@ -66,6 +70,7 @@ public class LazadaOrderSync implements PlatformOrderSync {
     }
 
     @Override
+    @ApiMonitor(platform = "lazada")
     public boolean validateConfig(String shopId) {
         // TODO: 实现 Lazada Open Platform API 对接
         //
