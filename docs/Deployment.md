@@ -66,6 +66,14 @@ docker-compose -f docker-compose.yml up -d
 - 存储类（StorageClass）
 - 已配置 `KUBE_CONFIG` secret（否则 CI 的 `deploy-k8s` job 会**全部 skip 并显示 success**，
   看起来部署通了，实际一次都没跑过）
+- 已配置 `DOCKER_USERNAME` / `DOCKER_PASSWORD` secret —— ⚠️ **只配 `KUBE_CONFIG` 还不够**：
+  构建 job 的 `push: ${{ env.DOCKER_USERNAME != '' }}` / `load: ${{ env.DOCKER_USERNAME == '' }}`
+  是**互斥**的 → 没凭据时走 `load`（只进 runner 本地，**不推送**）→
+  registry 里**根本没有** `nplszfl/erp-*:sha` 这个 tag →
+  部署的 `kubectl set image` 指向一个不存在的镜像 → **ImagePullBackOff** → Pod 起不来 →
+  `rollout status` 超时 → job 失败。
+  （本地 Dockerfile **全部能构建成功** —— CI 每天在验证的是「镜像能不能造出来」，
+  不是「有没有推上去」。）
 
 ### 部署步骤
 
