@@ -144,6 +144,24 @@ jobs:
     - name: SQL 契约（Java SQL ↔ database/*.sql ↔ datasource 库名）
       run: python3 scripts/check-sql-schema.py --strict
 
+    # 📌 **SQL 方言可移植性**（裸 SQL 里不许出现 H2 不认的 MySQL 方言）——
+    #    📌 **为什么需要它**（2026-11-05 实测）：
+    #       `erp-analytics-service` 的看板 SQL 用了三种 MySQL 方言
+    #       （`DATE_FORMAT` / `INTERVAL 1 DAY` / `DATE_SUB(... WEEKDAY ...)`）
+    #       → **H2（即使 MODE=MySQL）不认** → 整条 SQL 抛异常 → 被 `catch` 吞掉 →
+    #       → 看板「今日/昨日/本月销售额」「按周营收趋势」**恒为 0 / 恒为空**，
+    #         页面上完全看不出来（只有一条 WARN 日志）。
+    #    📌 **为什么四道闸门都没发现**：
+    #       ① 单测把 Repository **mock 掉了** → SQL 根本没执行；
+    #       ② CI **没有 MySQL service** → 也没有真库可跑；
+    #       ③ 生产 MySQL 上它是好的 → 语法完全合法；
+    #       ④ **没有任何闸门查「这条 SQL 在别的库上能不能跑」**。
+    #    📌 判据是**实测**出来的，不是查文档：逐条在 H2（MODE=MySQL）上跑过——
+    #       支持的（`IFNULL` / `GROUP_CONCAT` / `TIMESTAMPDIFF` / `CURDATE` / `DATE()` /
+    #       `HOUR()` / `ON DUPLICATE KEY UPDATE` …）**一律不报** → 不假红。
+    - name: SQL 方言可移植性（MySQL 专有方言 → H2 会抛异常 → 被 catch 吞掉）
+      run: python3 scripts/check-sql-portability.py
+
     - name: API 契约（前端 ↔ 网关 ↔ 后端）
       run: python3 scripts/check-api-contract.py --strict
 

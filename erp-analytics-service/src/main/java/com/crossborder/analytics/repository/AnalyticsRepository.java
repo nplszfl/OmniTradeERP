@@ -7,8 +7,10 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -99,9 +101,18 @@ public class AnalyticsRepository {
      */
     public SalesSummary getSalesSummary() {
         try {
-            BigDecimal today = sumOrders("DATE(create_time) = CURDATE()");
-            BigDecimal yesterday = sumOrders("DATE(create_time) = CURDATE() - INTERVAL 1 DAY");
-            BigDecimal month = sumOrders("DATE(create_time) >= DATE_FORMAT(CURDATE(), '%Y-%m-01')");
+            // ⚠️ 时间边界一律用**参数**传，不要 CURDATE() / DATE_FORMAT / INTERVAL：
+            //    那是 MySQL 方言，H2（即使 MODE=MySQL）不认 → 整条 SQL 抛异常 →
+            //    被下面的 catch 吞掉 → 看板「今日/昨日/本月销售额」**恒为 0**，
+            //    而且页面上只有一条 WARN 日志，看起来一切正常。
+            //    （同一个坑 InventoryNameResolver 已经修过一次，注释还在那儿。）
+            LocalDate day = LocalDate.now();
+            LocalDateTime dayStart = day.atStartOfDay();
+            LocalDateTime nextDayStart = day.plusDays(1).atStartOfDay();
+            BigDecimal today = sumOrders("create_time >= ? AND create_time < ?", dayStart, nextDayStart);
+            BigDecimal yesterday = sumOrders("create_time >= ? AND create_time < ?",
+                    day.minusDays(1).atStartOfDay(), dayStart);
+            BigDecimal month = sumOrders("create_time >= ?", day.withDayOfMonth(1).atStartOfDay());
             BigDecimal total = sumOrders("1 = 1");
 
             long totalOrders = countOrders("1 = 1");
@@ -118,17 +129,17 @@ public class AnalyticsRepository {
         }
     }
 
-    private BigDecimal sumOrders(String where) {
+    private BigDecimal sumOrders(String where, Object... args) {
         BigDecimal v = jdbcTemplate.queryForObject(
                 "SELECT COALESCE(SUM(order_amount), 0) FROM erp_order.t_order WHERE "
-                        + where + " AND deleted = 0", BigDecimal.class);
+                        + where + " AND deleted = 0", BigDecimal.class, args);
         return nz(v);
     }
 
-    private long countOrders(String where) {
+    private long countOrders(String where, Object... args) {
         Long v = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM erp_order.t_order WHERE " + where + " AND deleted = 0",
-                Long.class);
+                Long.class, args);
         return v == null ? 0 : v;
     }
 
@@ -140,16 +151,19 @@ public class AnalyticsRepository {
     public List<HourlyAggregate> getHourlyAggregates() {
         Map<Integer, HourlyAggregate> bucket = new java.util.TreeMap<>();
         try {
+            // 📌 今天的时间窗用参数传（MySQL 方言 CURDATE() 在 H2 不认，详见 getSalesSummary）
+            LocalDate day = LocalDate.now();
             List<HourlyAggregate> rows = jdbcTemplate.query(
                     "SELECT HOUR(create_time) AS h, COUNT(*) AS cnt, "
                             + "COALESCE(SUM(order_amount), 0) AS rev "
                             + "FROM erp_order.t_order "
-                            + "WHERE DATE(create_time) = CURDATE() AND deleted = 0 "
+                            + "WHERE create_time >= ? AND create_time < ? AND deleted = 0 "
                             + "GROUP BY HOUR(create_time)",
                     (rs, i) -> new HourlyAggregate(
                             rs.getInt("h"),
                             rs.getLong("cnt"),
-                            nz(rs.getBigDecimal("rev"))));
+                            nz(rs.getBigDecimal("rev"))),
+                    day.atStartOfDay(), day.plusDays(1).atStartOfDay());
             for (HourlyAggregate r : rows) {
                 bucket.put(r.hour(), r);
             }
@@ -289,9 +303,13 @@ public class AnalyticsRepository {
      */
     public List<WeeklyAggregate> getWeeklyAggregates(LocalDate start, LocalDate end) {
         try {
-            return jdbcTemplate.query(
-                    "SELECT DATE_SUB(DATE(o.create_time), "
-                            + "INTERVAL WEEKDAY(o.create_time) DAY) AS wk, "
+            // 📌 **按天聚合后在 Java 里折成周**，而不是在 SQL 里写
+            //    `DATE_SUB(DATE(x), INTERVAL WEEKDAY(x) DAY)`：
+            //    那是 MySQL 方言，H2 不认 → 整条 SQL 抛异常 → 被下面的 catch 吞掉 →
+            //    营收趋势图恒为空（只剩一条 WARN 日志）。
+            //    折周是纯函数（foldDailyToWeekly），能单测；原来那段 SQL 谁也测不了。
+            List<DailyRevenueCost> daily = jdbcTemplate.query(
+                    "SELECT DATE(o.create_time) AS d, "
                             + "COALESCE(SUM(oi.total_amount), 0) AS rev, "
                             + "COALESCE(SUM(oi.quantity * s.cost_price), 0) AS cost "
                             + "FROM erp_order.t_order o "
@@ -300,17 +318,47 @@ public class AnalyticsRepository {
                             + "LEFT JOIN erp_product.t_product_sku s ON s.sku_code = oi.internal_sku AND s.deleted = 0 "
                             + "WHERE o.deleted = 0 AND DATE(o.create_time) >= ? "
                             + "AND DATE(o.create_time) <= ? "
-                            + "GROUP BY wk ORDER BY wk",
-                    (rs, i) -> new WeeklyAggregate(
-                            rs.getDate("wk").toLocalDate(),
-                            nz(rs.getBigDecimal("rev")),
-                            nz(rs.getBigDecimal("cost"))),
+                            + "GROUP BY DATE(o.create_time) ORDER BY d",
+                    (rs, i) -> new DailyRevenueCost(
+                            rs.getDate("d").toLocalDate(),
+                            rs.getBigDecimal("rev"),
+                            rs.getBigDecimal("cost")),
                     start, end);
+            return foldDailyToWeekly(daily);
         } catch (Exception e) {
             log.warn("查询周聚合失败: {}", e.getMessage());
             return List.of();
         }
     }
+
+    /**
+     * 把「按天」聚合折叠成「按周（周一起始）」聚合 —— **纯函数**，单测直接覆盖。
+     *
+     * <p>语义与 MySQL 的 {@code DATE_SUB(DATE(d), INTERVAL WEEKDAY(d) DAY)} 完全一致：
+     * {@code WEEKDAY()} 周一=0…周日=6，即「该日期所在周的周一」；
+     * {@code previousOrSame(MONDAY)} 对周一返回自身、对周日返回前一周一。</p>
+     *
+     * <p>📌 舍入时机与原 SQL 一致：先累加**未舍入**的日值，最后才 {@link #nz} 到两位小数
+     * （不是「先舍入再累加」）。</p>
+     */
+    static List<WeeklyAggregate> foldDailyToWeekly(List<DailyRevenueCost> daily) {
+        Map<LocalDate, BigDecimal[]> agg = new LinkedHashMap<>();
+        for (DailyRevenueCost d : daily) {
+            LocalDate weekStart = d.date().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            BigDecimal[] acc = agg.computeIfAbsent(weekStart,
+                    k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
+            acc[0] = acc[0].add(d.revenue() == null ? BigDecimal.ZERO : d.revenue());
+            acc[1] = acc[1].add(d.cost() == null ? BigDecimal.ZERO : d.cost());
+        }
+        List<WeeklyAggregate> out = new ArrayList<>(agg.size());
+        for (Map.Entry<LocalDate, BigDecimal[]> e : agg.entrySet()) {
+            out.add(new WeeklyAggregate(e.getKey(), nz(e.getValue()[0]), nz(e.getValue()[1])));
+        }
+        return out;
+    }
+
+    /** 按天的营收 / 成本（折周前的中间结构）。 */
+    record DailyRevenueCost(LocalDate date, BigDecimal revenue, BigDecimal cost) {}
 
     /**
      * 时间区间内各商品的营收与成本
@@ -522,10 +570,12 @@ public class AnalyticsRepository {
      */
     public long getTodayOrderCount() {
         try {
+            // 📌 今天的窗口用参数传（不要 CURDATE()，H2 不认）
+            LocalDate day = LocalDate.now();
             Long v = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM erp_order.t_order "
-                            + "WHERE deleted = 0 AND DATE(create_time) = CURDATE()",
-                    Long.class);
+                            + "WHERE deleted = 0 AND create_time >= ? AND create_time < ?",
+                    Long.class, day.atStartOfDay(), day.plusDays(1).atStartOfDay());
             return v == null ? 0 : v;
         } catch (Exception e) {
             log.warn("查询今日订单数失败: {}", e.getMessage());

@@ -54,6 +54,9 @@ jobs:
       run: |
         python3 scripts/check-port-consistency.py
         python3 scripts/check-sql-schema.py --strict
+        # 📌 SQL 方言可移植性：H2 不认的 MySQL 方言 → 整条 SQL 抛异常 → 被 catch 吞掉
+        #    → 看板数字恒为 0 而页面看不出来（单测 mock 掉了 Repository，测不到）
+        python3 scripts/check-sql-portability.py
         python3 scripts/check-api-contract.py --strict
         python3 scripts/check-response-shape.py --strict
         # 📌 **响应字段名契约**（视图实读字段 ↔ 后端 DTO）——
