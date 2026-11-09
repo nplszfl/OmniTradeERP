@@ -63,6 +63,18 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- 📌 **H2（test）** —— 不是为了「跑得起来」，是为了**让 SQL 真被执行一次**。
+             这个模块以前**所有单测都把 Repository mock 掉了** → SQL 从来没执行过 →
+             MySQL 专有方言（H2 不认）能一直藏着，直到生产上被 catch 吞掉、
+             看板数字恒为 0 而页面看不出来（规则 17 / 46 / 49）。
+             有了 H2 + AnalyticsRepositoryH2Test：
+             **SQL 语法错 = 单测直接红**，不再靠「人肉记住」闸门。 -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- JUnit 5 -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
