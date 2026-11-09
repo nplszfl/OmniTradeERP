@@ -52,9 +52,11 @@ WF_DIR = os.path.join(REPO_ROOT, ".github", "workflows")
 
 # 📌 「宣告成功」的**多种等价写法**都要认（规则 100：这个 API 有几种写法？我认了几种？）
 CLAIM_RE = re.compile(
-    r"部署成功|部署完成|部署已成功|"
-    r"deploy(?:ed|ment)?\s+(?:was\s+)?success(?:ful(?:ly)?)?|"
-    r"success(?:ful(?:ly)?)?\s+deploy",
+    r"部署成功|部署完成|部署已成功|部署已完成|"
+    r"deploy(?:ed|ment|ing)?\s+(?:was\s+|has\s+been\s+)?"
+    r"(?:success(?:ful(?:ly)?)?|complet(?:e|ed))|"
+    r"success(?:ful(?:ly)?)?\s+deploy|"
+    r"deploy(?:ment)?\s+complet(?:e|ed)",
     re.IGNORECASE,
 )
 
