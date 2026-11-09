@@ -46,6 +46,22 @@ class AnalyticsRepositoryH2Test {
     private JdbcTemplate jdbcTemplate;
     private AnalyticsRepository repository;
 
+    /**
+     * 📌 **今天的时间锚点：固定在正午 12:00** —— 绝对不能用 {@code LocalDateTime.now()}。
+     *
+     * <p>🔴 这里曾经埋了一颗<b>时间炸弹</b>：种子数据原本用 {@code now} 和
+     * {@code now.minusHours(1)} 表示「今天的两单」。
+     * → 在 <b>00:00~00:59</b> 之间跑，{@code now.minusHours(1)} 会落到<b>昨天</b> →
+     * 「今日销售额」少 200、「按小时聚合」少 1 单 → <b>单测直接红</b>。
+     * <p>而它是 <b>23:54</b> 提交的，CI 也是那个点跑的 → <b>全绿</b> →
+     * 缺陷能静静躺到第二天凌晨才爆（本次就是 00:16 复现的）。
+     *
+     * <p>→ 锚点改成 {@code today.atTime(12, 0)}：无论几点跑，11:00 / 12:00 都稳稳落在今天。
+     * <p>（SQL 侧按 <b>日期区间</b> {@code [dayStart, nextDayStart)} 过滤，
+     * 不是「{@code create_time <= now}」→ 所以中午这个锚点即便「还没到」也不会被漏掉。）
+     */
+    private LocalDateTime todayAnchor;
+
     @BeforeEach
     void setUp() {
         // 📌 每个测试用**独立的库名** → 互不干扰，且不需要 DB_CLOSE_DELAY
@@ -59,6 +75,8 @@ class AnalyticsRepositoryH2Test {
         ds.setUsername("sa");
         ds.setPassword("");
         this.jdbcTemplate = new JdbcTemplate(ds);
+        // 📌 锚点必须在建表/播种**之前**算好 —— 种子数据里所有「今天」的时间都从它派生
+        this.todayAnchor = LocalDate.now().atTime(12, 0);
         createSchema();
         seedData();
         this.repository = new AnalyticsRepository(jdbcTemplate);
@@ -116,7 +134,8 @@ class AnalyticsRepositoryH2Test {
 
     private void seedData() {
         LocalDate today = LocalDate.now();
-        LocalDateTime now = LocalDateTime.now();
+        // 📌 用锚点，不用 now() —— 理由见 todayAnchor 的注释（0 点后会跨到昨天）
+        LocalDateTime now = todayAnchor;
 
         // 今天：2 单 300.00
         insertOrder(1L, "SO-T-1", "AMAZON", "COMPLETED", "100.00", "US", now);
@@ -125,8 +144,12 @@ class AnalyticsRepositoryH2Test {
         insertOrder(3L, "SO-Y-1", "EBAY", "COMPLETED", "50.00", "DE",
                 now.minusDays(1));
         // 上个月（本月之外）：1 单 999.00 —— 用来验证「本月」不被它污染
+        // 📌 **必须是「1 号减 2 天」，不能是「1 号减 1 天」**：
+        //    「1 号减 1 天」= 上个月最后一天 = **今天恰好是本月 1 号时的「昨天」**
+        //    → 两单落在同一天 → 「昨日销售额」变成 50 + 999 = 1049 → 断言红。
+        //    → 「减 2 天」永远在上个月，且**永远不是昨天**。
         insertOrder(4L, "SO-M-1", "TIKTOK", "COMPLETED", "999.00", "FR",
-                today.withDayOfMonth(1).minusDays(1).atStartOfDay());
+                today.withDayOfMonth(1).minusDays(2).atStartOfDay());
 
         insertItem(11L, 1L, "SKU-001", "无线耳机", 1, "100.00");
         insertItem(12L, 2L, "SKU-002", "蓝牙音箱", 2, "200.00");
@@ -177,8 +200,11 @@ class AnalyticsRepositoryH2Test {
                 "今日销售额应为 300.00，实际 " + s.todaySales());
         assertEquals(0, s.yesterdaySales().compareTo(new BigDecimal("50.00")),
                 "昨日销售额应为 50.00，实际 " + s.yesterdaySales());
-        assertEquals(0, s.monthSales().compareTo(new BigDecimal("350.00")),
-                "本月销售额应为 350.00（不含上月那单），实际 " + s.monthSales());
+        // 📌 「本月」的期望值必须**跟着日历算**：昨天是否落在本月，取决于「今天是不是本月 1 号」
+        //    → 写死 350.00 就等于在每月 1 号那天埋下一颗新的时间炸弹
+        BigDecimal expectedMonth = expectedMonthSales();
+        assertEquals(0, s.monthSales().compareTo(expectedMonth),
+                "本月销售额应为 " + expectedMonth + "（今天 300.00 + 昨天是否落在本月），实际 " + s.monthSales());
         assertEquals(0, s.totalSales().compareTo(new BigDecimal("1349.00")),
                 "累计销售额应为 1349.00，实际 " + s.totalSales());
         assertEquals(4L, s.totalOrders(), "总订单数应为 4");
@@ -193,6 +219,51 @@ class AnalyticsRepositoryH2Test {
         assertFalse(rows.isEmpty(), "按小时聚合不应为空（H2 不认 CURDATE() 时会空）");
         long count = rows.stream().mapToLong(AnalyticsRepository.HourlyAggregate::orderCount).sum();
         assertEquals(2L, count, "今天应有 2 单");
+    }
+
+    /**
+     * 「本月」的期望值 —— <b>必须跟着日历算</b>。
+     *
+     * <p>SQL 侧「本月」的口径是 {@code create_time >= 当月 1 号 00:00}（无上界），
+     * 所以「昨天那一单」到底算不算本月，取决于<b>今天是不是本月 1 号</b>。
+     * → 把期望值写死成 {@code 350.00}，就等于在<b>每月 1 号</b>那天埋一颗新的时间炸弹
+     * （和 {@code now.minusHours(1)} 同一类病：断言依赖「跑测试的那一刻」）。
+     */
+    private static BigDecimal expectedMonthSales() {
+        LocalDate today = LocalDate.now();
+        BigDecimal expected = new BigDecimal("300.00");   // 今天的两单
+        if (isSameMonth(today.minusDays(1), today)) {
+            expected = expected.add(new BigDecimal("50.00"));   // 昨天也在本月
+        }
+        return expected;
+    }
+
+    private static boolean isSameMonth(LocalDate a, LocalDate b) {
+        return a.getYear() == b.getYear() && a.getMonthValue() == b.getMonthValue();
+    }
+
+    @Test
+    @DisplayName("回归：种子里「今天的两单」必须真的落在今天（防止再写回 now.minusHours(1)）")
+    void seededTodayOrdersMustReallyBeToday() {
+        // 📌 直接查库核对种子落在哪一天 → 不管将来种子怎么改，这条断言都抓得住
+        Integer todayCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM erp_order.t_order WHERE DATE(create_time) = DATE(?) AND deleted = 0",
+                Integer.class, LocalDate.now());
+        Integer yesterdayCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM erp_order.t_order WHERE DATE(create_time) = DATE(?) AND deleted = 0",
+                Integer.class, LocalDate.now().minusDays(1));
+        Integer prevMonthCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM erp_order.t_order WHERE DATE(create_time) < ? AND deleted = 0",
+                Integer.class, LocalDate.now().withDayOfMonth(1));
+
+        assertEquals(2, todayCount,
+                "今天必须有 2 单 —— 若种子改回 now.minusHours(1)，00:00~00:59 跑就会变成 1 单");
+        assertEquals(1, yesterdayCount, "昨天必须正好 1 单");
+        // 📌 「1 号之前」的单数**也会随「今天是不是本月 1 号」变**：
+        //    今天是 1 号时，「昨天那单」也落在上月 → 2 单；否则只有「上月那单」→ 1 单。
+        int expectedBeforeMonth = 1 + (LocalDate.now().getDayOfMonth() == 1 ? 1 : 0);
+        assertEquals(expectedBeforeMonth, prevMonthCount,
+                "本月 1 号之前应有 " + expectedBeforeMonth + " 单（验证「本月」不会被它污染）");
     }
 
     @Test

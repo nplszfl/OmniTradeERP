@@ -162,6 +162,16 @@ jobs:
     - name: SQL 方言可移植性（MySQL 专有方言 → H2 会抛异常 → 被 catch 吞掉）
       run: python3 scripts/check-sql-portability.py
 
+    # 📌 **「测试与时钟无关」**（第 35 道闸门）——
+    #    2026-11-10 00:16 实测：`AnalyticsRepositoryH2Test` 用 `now()` / `now.minusHours(1)`
+    #    播种「今天的两单」→ 而 `AnalyticsRepository` 是**按天分桶**的
+    #    → 在 **00:00~00:59** 之间跑，`now.minusHours(1)` 落到昨天 → 单测红。
+    #    🔴 而它 23:54 提交、CI 也 23:54 跑 → **CI 全绿** → 「绿」只是运气。
+    #    判据 = ①「now() 派生值被做了子日位移」+ ②「该模块生产代码按天分桶」→ 才报
+    #    （只满足 ① 的是「移动基准」用法，两边一起动 → 永远一致 → 不报）。
+    - name: 测试与时钟无关（now() + 子日位移 × 按天分桶 → 时间炸弹测试）
+      run: python3 scripts/check-test-clock-independence.py
+
     - name: API 契约（前端 ↔ 网关 ↔ 后端）
       run: python3 scripts/check-api-contract.py --strict
 
