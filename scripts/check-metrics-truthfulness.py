@@ -47,7 +47,7 @@
 
 判据 A 依赖「**指标名（字面量或常量）必须出现在 `.increment(` 附近**」。
 所以：**不要把指标名藏进一个跟 increment 无关的地方**。
-两种写法都支持：
+**三种**写法都支持：
 
     // 写法 1：字面量直接跟在 increment 旁边
     Counter.builder("platform.api.call.count").tag("platform", p).register(registry).increment();
@@ -56,6 +56,20 @@
     private static final String M = "platform.api.call.count";
     ...
     Counter.builder(M).register(registry).increment();
+
+    // 写法 3：经 MeterRegistry 直接取（Micrometer 最标准的写法）
+    meterRegistry.counter("platform.api.call.count").increment();
+    meterRegistry.counter("platform.api.call.count", "platform", p).increment();
+
+⚠️ **写法 3 是曾经漏掉的一种**（2026-11-10 02:30 修复）——
+判据原本只认 `Counter.builder(` / `MultiGauge.builder(` / `.timer(`，
+**完全不认 `.counter(`** → 同一个 API 的两种等价写法，只认一种 → **双向失明**：
+  - **假阴性**：用 `meterRegistry.counter("x")` 声明、且真没人写的计数器 → 闸门**完全看不见** → 真·假事实漏网；
+  - **假阳性**：用 `meterRegistry.counter("x").increment()` 写入的计数器 → 被误报成「没人写 → 永远是 0」
+    → **合法代码被判死** → 假阳性比假阴性危险（会逼下一个人去放松闸门，规则 99）。
+→ 现在**声明点**和**写入点**两边都补了 `.counter(`。
+→ **反向验证**：① 合法写法（registry.counter 写入）→ 绿；② 真·假事实（registry.counter 声明、没人写）→ 红；
+  ③ 回归：原始缺陷（erp-common 的 5 个假事实指标）→ 仍报 13 处。
 
 ## 已知豁免
 
@@ -360,6 +374,12 @@ def find_incremented_metrics(lines, consts, qualified=None, ambiguous=None, scop
         # ② `registry.timer("x", ...)` 这种写法
         for m in re.finditer(r'\.timer\s*\(\s*"([^"]+)"', stmt):
             found.add(m.group(1))
+        # ②b `meterRegistry.counter("x", ...)` —— Micrometer **最标准**的取计数器写法。
+        #     ⚠️ 漏了它会**双向失明**：
+        #       假阴性 → 用它声明且没人写的计数器 → 闸门完全看不见（真·假事实漏网）
+        #       假阳性 → 用它写入的计数器 → 被误报成「没人写 → 永远是 0」（合法代码被判死）
+        for m in re.finditer(r'\.counter\s*\(\s*"([^"]+)"', stmt):
+            found.add(m.group(1))
         # ③ 语句里带常量名
         for m in re.finditer(r'\.builder\s*\(\s*([\w$]+\.[A-Z][A-Z0-9_]*|[A-Z][A-Z0-9_]{2,})\s*[,)]', stmt):
             nm = resolve_name(m.group(1), consts, qualified, ambiguous, scope)
@@ -445,6 +465,15 @@ def main():
                 continue
             lineno = src[:start].count('\n') + 1
             counters.setdefault(name, []).append((rel, lineno, args[0].strip()))
+
+        # ---- Counter（经 MeterRegistry 直接取的写法）----
+        # `meterRegistry.counter("x")` / `registry.counter("x", "tag", "v")`
+        # → 这也是**声明**（注册进 registry），而且是 Micrometer 最标准的写法。
+        # ⚠️ 漏了它 → 用这种写法声明、且真没人写的计数器 → 闸门完全看不见（假阴性）。
+        for m in re.finditer(r'(?i)\b\w*registry\w*\s*\.\s*counter\s*\(\s*"([^"]+)"', src):
+            name = m.group(1)
+            lineno = src[:m.start()].count('\n') + 1
+            counters.setdefault(name, []).append((rel, lineno, name))
 
         # ---- Gauge ----
         for start, inner in find_call_args(src, r'Gauge\.builder\s*\('):
