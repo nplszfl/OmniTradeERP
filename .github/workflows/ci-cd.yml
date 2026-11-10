@@ -290,6 +290,10 @@ jobs:
     - name: 组件扫描 / 自动装配（erp-common 的组件必须被注册）
       run: python3 scripts/check-component-scan-deadcode.py
 
+    # 📌 **「选完丢掉」**（规则 86 形态 ②）—— check-fake-success 抓不到这个形态
+    - name: 前端选择持久化（选了必须记下来）
+      run: python3 scripts/check-selection-persistence.py
+
     # 📌 **MySQL init 执行顺序** —— 种子必须排在建表之后（规则 61）
     #    📌 **为什么需要它**：docker-entrypoint 按**目标文件名**字母序执行 initdb.d，
     #      每个文件是独立 mysql 会话，**一条语句报错 → 该文件剩余语句全部不执行**，
