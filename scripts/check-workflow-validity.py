@@ -35,6 +35,17 @@
    （📌 本项目只有 master，写 `main` → job 永远被跳过 → 部署从不发生）
 8. 关键步骤**不能有** `continue-on-error: true`
    （📌 闸门挂了但整体绿 = 白跑）
+9. **`if:` 表达式里不许出现 `secrets`**（job 级 + step 级都查）
+   （📌 GitHub 的上下文可用性表里 `if` **拿不到 secrets** → 写成 `if: ${{ secrets.X != '' }}`
+   会被 GitHub **拒收整个 workflow 文件**：`Unrecognized named-value: 'secrets'`
+   → 又是「0 个 job、整个 workflow 作废」的老坑。
+   ⚠️ **本地 YAML 解析得通** → 本地校验**发现不了**，只有 GitHub 才会拒收。
+   ✅ 正解：job 级 `env: FOO: ${{ secrets.X }}` 中转 → step 级写 `if: env.FOO != ''`）
+10. **Dockerfile 与生成脚本一致**（`docker/Dockerfile.*` 里的「根 pom 声明了 N 个 module」
+    必须等于根 pom 实际的 module 数 → 根 pom 加模块后忘了跑 `scripts/gen-dockerfiles.py` 会红）
+
+📌 **本文件与实现保持一致**：上面 10 条 = 代码里实际做的 10 项检查。
+改实现时**同步改这里** —— 否则下一个维护者会按这份清单误判覆盖面（规则 44）。
 
 用法：python3 scripts/check-workflow-validity.py
 退出码 0 = 全绿，1 = 有问题
