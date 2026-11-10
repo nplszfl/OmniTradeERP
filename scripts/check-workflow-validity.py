@@ -61,6 +61,7 @@ import os
 import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 
 import yaml
 
@@ -244,6 +245,45 @@ def main():
                 "      → 正确姿势：改 scripts/gen-dockerfiles.py，然后跑它重新生成\n"
                 + "      " + r.stdout.strip().replace("\n", "\n      ")
             )
+
+    # ── 检查 9b：Dockerfile 里「根 pom 声明了 N 个 module」的 N 必须**独立**核实 ──
+    # 📌 **为什么要独立核实**（2026-11-11 02:45 实测踩过，规则 100）：
+    #   检查 9 跑的是**生成脚本自己的 --check** → 生成器和校验器**用同一个方法**
+    #   → 就算**方法本身是错的**，两边也会**互相印证** → **假绿**。
+    #   实测：根 pom 里有一段**被注释掉**的 `<module>erp-assembly</module>`
+    #   （故意不启用）→ 朴素正则数成 **27**，而 **Maven 真实 reactor 是 26**
+    #   → 16 个 Dockerfile 全都写着「27 个 module」= **事实错误**，而闸门**全绿**。
+    # ✅ 独立真值源 = **ElementTree 解析根 pom**（XML 注释在 ET 里天然不生效）
+    #   → 与生成器的正则**实现不同** → 不可能「同样错」。
+    #   📌 **反向验证**：把某个 Dockerfile 的 26 改成 27 → 本检查必须报红。
+    try:
+        pom_path = os.path.join(ROOT, "pom.xml")
+        _ns = {"m": "http://maven.apache.org/POM/4.0.0"}
+        _root = ET.parse(pom_path).getroot()
+        _real_modules = [e.text for e in _root.findall(".//m:modules/m:module", _ns) if e.text]
+        docker_dir = os.path.join(ROOT, "docker")
+        if os.path.isdir(docker_dir):
+            for fn in sorted(os.listdir(docker_dir)):
+                if not fn.startswith("Dockerfile."):
+                    continue
+                txt = open(os.path.join(docker_dir, fn), encoding="utf-8").read()
+                m = re.search(r"根 pom 声明了\s*(\d+)\s*个 module", txt)
+                if not m:
+                    continue
+                claimed = int(m.group(1))
+                if claimed != len(_real_modules):
+                    errors.append(
+                        f"[docker/{fn}] 写着「根 pom 声明了 {claimed} 个 module」，"
+                        f"但根 pom 实际启用的是 **{len(_real_modules)}** 个\n"
+                        f"      → **事实错误**（Maven 的真实 reactor 才是真值，"
+                        f"`mvn validate` 的 Reactor Build Order 可复核）\n"
+                        f"      → ⚠️ 检查 9 只保证「Dockerfile == 生成脚本」——"
+                        f"**生成器和校验器同样错时就是假绿**（规则 100）\n"
+                        f"      → 修法：改 scripts/gen-dockerfiles.py，然后跑它重新生成"
+                    )
+    except Exception as e:
+        print(f"❌ 检查 9b 解析根 pom 失败: {e}", file=sys.stderr)
+        errors.append("[pom.xml] 检查 9b 无法独立核实 module 数 —— 闸门自身失效，必须报红")
 
     # ── 检查 11：job 的**必需键存在** ────────────────────────────────
     # 📌 缺 `runs-on` / `steps` → GitHub **拒收整个 workflow 文件** → 0 个 job、0 行日志

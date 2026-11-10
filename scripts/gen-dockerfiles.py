@@ -30,7 +30,24 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCKER_DIR = os.path.join(ROOT, "docker")
 
 pom = open(os.path.join(ROOT, "pom.xml"), encoding="utf-8").read()
-MODULES = re.findall(r"<module>([^<]+)</module>", pom)
+
+# 📌 **必须先剥掉 XML 注释再数 module**（2026-11-11 02:45 实测踩过）：
+#
+#    根 pom 里有一段**被注释掉**的 `<module>erp-assembly</module>`
+#    （单体聚合模块，pom 第 73 行写明「**故意不启用**」—— 0 个 java 文件，
+#      且配的 `<mainClass>` 指向的类不存在，显式配 mainClass 时 spring-boot-maven-plugin
+#      **不校验** → package 照样成功 → 产出跑起来就炸的 fat jar）。
+#
+#    → 朴素正则 `re.findall(r"<module>([^<]+)</module>", pom)` 会**把它算进去** → **27**
+#    → 而 **Maven 自己的 reactor 只有 26 个子模块**（实测 `mvn validate` 的 Reactor Build Order）
+#    → 生成的 16 个 Dockerfile 全都写着「根 pom 声明了 **27** 个 module」= **事实错误**
+#    → 更糟：`check-workflow-validity.py` 跑的是**本脚本的 --check** →
+#      **生成器和校验器用同一个错方法** → 互相印证 → **假绿**（规则 100：
+#      「两个脚本各自自洽」不等于「两者都对」）。
+#
+#    ✅ 正解：**先剥注释再数**（XML 注释在 Maven 里本来就不生效）。
+_POM_NO_COMMENTS = re.sub(r"<!--.*?-->", "", pom, flags=re.S)
+MODULES = re.findall(r"<module>([^<]+)</module>", _POM_NO_COMMENTS)
 
 
 def port_of(module):
