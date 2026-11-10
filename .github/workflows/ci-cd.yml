@@ -818,21 +818,39 @@ jobs:
     #    （实测 11-10 的 CI 日志：19:01:48「跳过部署」→ 19:01:55「✅ 部署成功！」）。
     #    → 必须看 `needs.deploy-k8s.outputs.deployed`
     #      （规则 18：事实标志不能撒谎；规则 19：降级必须带原因且能被调用方看见）。
+    # 📌 **通知要真的发出去** —— 只 `echo` 到日志的话，
+    #    **只有主动打开 GitHub 网页的人看得到**（规则 101 的续集）。
+    #    webhook URL **只从 secret 读**，仓库里不出现任何 URL。
     - name: Send notification (已部署)
       if: needs.deploy-k8s.outputs.deployed == 'true' && success()
+      env:
+        FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         echo "✅ 部署成功！"
-        # TODO: 添加飞书/钉钉通知
+        python3 scripts/notify-deploy-status.py --status deployed \
+          --commit "${{ github.sha }}" --run-url "$RUN_URL"
 
     - name: Send notification (未部署 —— 跳过，不谎报成功)
       if: needs.deploy-k8s.outputs.deployed != 'true' && success()
+      env:
+        FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         echo "⏭️ **本次未部署**：KUBE_CONFIG secret 未配置 → 部署步骤全部跳过。"
         echo "   （这不是「部署成功」—— 集群里一个 Deployment 都没变。）"
-        # TODO: 添加飞书/钉钉通知
+        python3 scripts/notify-deploy-status.py --status not-deployed \
+          --commit "${{ github.sha }}" --run-url "$RUN_URL" \
+          --message "KUBE_CONFIG secret 未配置 → 部署步骤全部跳过"
 
+    # 📌 **失败分支更要发通知** —— 通知最该起作用的时刻就是「CI 挂了」
     - name: Send failure notification
       if: failure()
+      env:
+        FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         echo "❌ 部署失败！"
-        # TODO: 添加飞书/钉钉通知
+        python3 scripts/notify-deploy-status.py --status failed \
+          --commit "${{ github.sha }}" --run-url "$RUN_URL" \
+          --message "CI/部署流程失败，详见链接"
