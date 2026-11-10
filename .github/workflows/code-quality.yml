@@ -13,8 +13,10 @@ on:
 jobs:
   # Java代码检查
   java-code-quality:
+    # 📌 超时保护：GitHub 默认 6 小时 → 卡死时整轮 CI 白占 runner
+    #    （2026-11-10 真实卡死 50 分钟的教训）
+    timeout-minutes: 30
     name: Java Code Quality
-    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
@@ -119,6 +121,8 @@ jobs:
         python3 scripts/check-gates-wired.py
         # 📌 **文档端口表**（规则 33）
         python3 scripts/check-doc-port-table.py
+        # 📌 **CI 超时保护**（两层）
+        python3 scripts/check-ci-timeout-guards.py
         # 📌 **文档数字一致性**（规则 51）
         python3 scripts/check-doc-compose-counts.py
         # 📌 **MySQL init 执行顺序** —— 种子必须排在建表之后（规则 61）
@@ -145,8 +149,10 @@ jobs:
 
   # 前端代码检查
   frontend-code-quality:
+    # 📌 超时保护：GitHub 默认 6 小时 → 卡死时整轮 CI 白占 runner
+    #    （2026-11-10 真实卡死 50 分钟的教训）
+    timeout-minutes: 20
     name: Frontend Code Quality
-    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
@@ -197,8 +203,10 @@ jobs:
 
   # 安全扫描
   security-scan:
+    # 📌 超时保护：GitHub 默认 6 小时 → 卡死时整轮 CI 白占 runner
+    #    （2026-11-10 真实卡死 50 分钟的教训）
+    timeout-minutes: 20
     name: Security Scan
-    runs-on: ubuntu-latest
     # 📌 **必须显式声明 security-events: write** ——
     #    上传 SARIF 到 GitHub Security 需要这个权限，
     #    而 workflow 默认的 GITHUB_TOKEN 只有 read

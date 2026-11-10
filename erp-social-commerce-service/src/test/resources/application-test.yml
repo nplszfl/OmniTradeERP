@@ -1,0 +1,38 @@
+spring:
+  datasource:
+    # ⚠️ MODE=MySQL 必须带：Hibernate 生成的 DDL 尾部带 `engine=InnoDB`
+    #    （MySQL 方言），H2 默认模式不认 → **所有表建表失败**，
+    #    而失败只以 WARN 形式打印，整个上下文照样起来 → 测试“通过”但表根本不存在。
+    #    ⚠️ 这是一个**假绿**形态（规则 88 的测试层对应物）：
+    #    报错被降级成 WARN → 你以为测过了，其实一行数据都没落库。
+    #    切到 MODE=MySQL 后 DDL 正常执行。
+    #    （同一坑在 erp-tenant-service 已踩过并修复 —— 复用其配置。）
+    url: jdbc:h2:mem:socialtest;MODE=MySQL;DATABASE_TO_LOWER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    # 📌 **dialect 必须覆盖成 H2Dialect**（2026-11-10 实测）
+    #
+    # ⚠️ **三层必须同时对齐**，少一层就建表失败：
+    #   ① JDBC URL 的 `MODE=MySQL`      → 让 H2 **接受** MySQL 语法
+    #   ② Hibernate 的 **dialect**       → 决定 Hibernate **生成**什么 DDL
+    #   ③ 实体里有没有 MySQL-only 的 columnDefinition
+    #
+    # ⚠️ **主 application.yml 强制了 `dialect: org.hibernate.dialect.MySQLDialect`** →
+    #    用 MySQL 方言生成的 DDL 尾部带 `engine=InnoDB` →
+    #    **H2 连 MODE=MySQL 也不认 `engine=InnoDB`**（实测 Syntax error）→
+    #    **所有表建表失败**，而失败**只以 WARN 打印** → 上下文照样起来 →
+    #    测试「通过」但**表根本不存在**（假绿！规则 88 的测试层对应物）。
+    #    ⚠️ 只设 `MODE=MySQL` **不够** —— 它管「接受什么」，不管「生成什么」。
+    database-platform: org.hibernate.dialect.H2Dialect
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+
+logging:
+  level:
+    com.omnitrade.erp.social: DEBUG

@@ -105,8 +105,23 @@ public class LiveStreamMonitorService {
             throw new BizException("直播streamId不存在，无法同步数据");
         }
         
-        TikTokShopConfig shop = shopConfigRepository.findByShopId(liveStream.getPlatform().name())
-                .orElseThrow(() -> new RuntimeException("店铺配置不存在"));
+        // 📌 **平台分派**（2026-11-10 实测修复）：
+        //    本方法走的是 **TikTok 专属** API（apiClient = TikTokApiClient），
+        //    而 live_stream 里还有 DOUYIN / TAOBAO_LIVE 的记录。
+        //    之前不判平台 → 拿 TikTok 的店铺配置去同步抖音直播 → 必然失败。
+        //    ⚠️ 这里**必须显式拒绝**而不是默默用错平台的数据（规则 12：静默失败）。
+        if (liveStream.getPlatform() != LiveStream.Platform.TIKTOK) {
+            throw new BizException("当前仅支持 TikTok 直播数据同步，"
+                    + liveStream.getPlatform() + " 平台暂不支持");
+        }
+        
+        // 📌 **店铺定位**（2026-11-10 实测修复）：
+        //    之前写的是 `findByShopId(liveStream.getPlatform().name())` ——
+        //    即拿 **平台枚举名**（'TIKTOK'）去查 **店铺 ID** 列。
+        //    真实 MySQL 实测：`SELECT COUNT(*) FROM tiktok_shop_config WHERE shop_id='TIKTOK'` → **0 行**
+        //    （真值是 'SHOP-TT-0001'）→ **每次同步都抛「店铺配置不存在」**
+        //    → 被定时任务 catch 吞掉 → **直播数据永远不更新**（规则 12 / 18）。
+        TikTokShopConfig shop = resolveShopConfig(liveStream);
         
         if (isTokenExpired(shop)) {
             refreshToken(shop);
@@ -169,12 +184,58 @@ public class LiveStreamMonitorService {
     private void updateLiveStreamsData() {
         List<LiveStream> liveStreams = liveStreamRepository.findCurrentLiveStreams();
         for (LiveStream stream : liveStreams) {
+            // 📌 **只同步 TikTok**（2026-11-10 实测修复）：
+            //    其它平台没有对应的 API 客户端 → 调了也只会每次都报错 →
+            //    每 30 秒刷一次 error 日志（定时任务 fixedRate=30000），
+            //    把真正的失败**淹没在噪音里**（规则 43：WARN 级别的「没查到」= 虚假安全感）。
+            //    ⚠️ 跳过是**诚实的**：不假装同步过，也不制造假告警。
+            if (stream.getPlatform() != LiveStream.Platform.TIKTOK) {
+                log.debug("跳过非 TikTok 直播的数据同步, liveStreamId: {}, platform: {}",
+                        stream.getId(), stream.getPlatform());
+                continue;
+            }
             try {
                 syncLiveStreamData(stream.getId());
             } catch (Exception e) {
                 log.error("更新直播数据失败, liveStreamId: {}", stream.getId(), e);
             }
         }
+    }
+    
+    /**
+     * 📌 **定位直播所属的 TikTok 店铺**（2026-11-10 实测修复）
+     *
+     * <p><b>主路径</b>：{@code live_stream.shop_id} → {@code findByShopId(shopId)}
+     * <br><b>存量降级</b>：{@code shop_id} 为空（列是后加的）→ 按平台找 ACTIVE 店铺；
+     * <b>恰好一个</b> → 用它并**回填** {@code shop_id}；
+     * <b>零个或多个</b> → 抛 <b>BizException</b>，**不瞎猜**。
+     *
+     * <p>📌 **降级判据是「这个值还能不能用」而不是「值是不是空」**（规则 57）：
+     * 一个 ACTIVE 店铺 = 可用 → 可用就回填；两个 = **无法判定是哪个** → 宁可报错也不能猜。
+     * <p>📌 **降级必须带原因且调用方能看见**（规则 19）：回填时打 info 日志说明为什么。
+     */
+    private TikTokShopConfig resolveShopConfig(LiveStream liveStream) {
+        String shopId = liveStream.getShopId();
+        
+        if (shopId != null && !shopId.isBlank()) {
+            return shopConfigRepository.findByShopId(shopId)
+                    .orElseThrow(() -> new BizException(
+                            "店铺配置不存在: shopId=" + shopId
+                            + "（直播记录 id=" + liveStream.getId() + "）"));
+        }
+        
+        // 存量数据：shop_id 为空 → 按平台回退
+        List<TikTokShopConfig> activeShops = shopConfigRepository
+                .findByStatus(TikTokShopConfig.ConfigStatus.ACTIVE);
+        if (activeShops.size() != 1) {
+            throw new BizException("直播记录未关联店铺，且当前有 " + activeShops.size()
+                    + " 个 ACTIVE 店铺，无法判定归属（直播记录 id=" + liveStream.getId() + "）");
+        }
+        TikTokShopConfig fallback = activeShops.get(0);
+        log.info("直播记录缺少 shop_id，按唯一 ACTIVE 店铺回退并回填: liveStreamId={}, shopId={}",
+                liveStream.getId(), fallback.getShopId());
+        liveStream.setShopId(fallback.getShopId());
+        return fallback;
     }
     
     /**
@@ -305,6 +366,10 @@ public class LiveStreamMonitorService {
                 .streamId(statusData.getLiveId())
                 .title("TikTok直播_" + statusData.getLiveId())
                 .platform(LiveStream.Platform.TIKTOK)
+                // 📌 **2026-11-10 修复**：原来 `shop` 参数**完全没被使用** ——
+                //    店铺归属在写入时就丢了 → 直播记录无法定位到店铺
+                //    → syncLiveStreamData 只能瞎猜（它确实瞎猜了：拿 platform.name() 当 shopId）。
+                .shopId(shop.getShopId())
                 .status(LiveStream.StreamStatus.LIVE)
                 .actualStartTime(LocalDateTime.now())
                 .build();

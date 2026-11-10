@@ -169,6 +169,7 @@ public class LiveStreamService {
                 .streamId(entity.getStreamId())
                 .title(entity.getTitle())
                 .platform(entity.getPlatform().name())
+                .shopId(entity.getShopId())
                 .influencerId(entity.getInfluencer() != null ? entity.getInfluencer().getId() : null)
                 .status(entity.getStatus().name())
                 .scheduledStartTime(entity.getScheduledStartTime() != null ? entity.getScheduledStartTime().toString() : null)

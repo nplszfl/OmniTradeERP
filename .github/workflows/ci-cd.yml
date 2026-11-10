@@ -17,8 +17,10 @@ env:
 jobs:
   # 后端构建和测试
   backend-build-test:
+    # 📌 超时保护：GitHub 默认 6 小时 → 卡死时整轮 CI 白占 runner
+    #    （2026-11-10 真实卡死 50 分钟的教训）
+    timeout-minutes: 60
     name: Backend Build & Test
-    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
@@ -77,8 +79,10 @@ jobs:
   #    之前它们只在本地手动跑，且 CI 因为分支名写错（main vs master）
   #    一次都没触发过 → 盲区全都活了下来。
   contract-audit:
+    # 📌 超时保护：GitHub 默认 6 小时 → 卡死时整轮 CI 白占 runner
+    #    （2026-11-10 真实卡死 50 分钟的教训）
+    timeout-minutes: 30
     name: Contract Audit (端口 / DDL / API / 网关)
-    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
@@ -303,6 +307,11 @@ jobs:
     - name: 文档端口表（与 application.yml 同源且无遗漏）
       run: python3 scripts/check-doc-port-table.py
 
+    # 📌 **CI 超时保护**（两层）：Dockerfile 构建期保护 + job 级 timeout-minutes
+    #    2026-11-10 真实卡死 50 分钟 → 保护当时写在了**没人用的** Dockerfile 里
+    - name: CI 超时保护（Dockerfile 构建期 + job 级上限）
+      run: python3 scripts/check-ci-timeout-guards.py
+
     # 📌 **文档数字一致性**（规则 51）：手写的数字会静默过期 —— 没人发现
     - name: 文档数字（compose 服务数 ↔ 实际 services 数）
       run: python3 scripts/check-doc-compose-counts.py
@@ -476,8 +485,10 @@ jobs:
   #    scripts/start-audit-mysql.sh 会**扫 init 日志**，
   #    有报错就退出非 0 → 这一层就把静默失败堵住了。
   schema-audit:
+    # 📌 超时保护：GitHub 默认 6 小时 → 卡死时整轮 CI 白占 runner
+    #    （2026-11-10 真实卡死 50 分钟的教训）
+    timeout-minutes: 30
     name: Schema Audit (真实表结构 / NOT NULL 写入路径)
-    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
@@ -515,8 +526,10 @@ jobs:
 
   # 前端构建和测试
   frontend-build-test:
+    # 📌 超时保护：GitHub 默认 6 小时 → 卡死时整轮 CI 白占 runner
+    #    （2026-11-10 真实卡死 50 分钟的教训）
+    timeout-minutes: 30
     name: Frontend Build & Test
-    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
@@ -572,8 +585,10 @@ jobs:
   #    手写 = 多一个会漂移的事实来源：以后往 k8s 加一个服务，
   #    CI 不会自动跟着构建 → 回到「镜像从没构建过 → ImagePullBackOff」的老问题。
   prepare-matrices:
+    # 📌 超时保护：GitHub 默认 6 小时 → 卡死时整轮 CI 白占 runner
+    #    （2026-11-10 真实卡死 50 分钟的教训）
+    timeout-minutes: 10
     name: Prepare Build Matrix
-    runs-on: ubuntu-latest
     outputs:
       images: ${{ steps.gen.outputs.matrix }}
     steps:
@@ -585,8 +600,10 @@ jobs:
       run: echo "matrix=$(python3 scripts/k8s-image-matrix.py)" >> "$GITHUB_OUTPUT"
 
   docker-build:
+    # 📌 超时保护：GitHub 默认 6 小时 → 卡死时整轮 CI 白占 runner
+    #    （2026-11-10 真实卡死 50 分钟的教训）
+    timeout-minutes: 45
     name: Build ${{ matrix.module }} image
-    runs-on: ubuntu-latest
     needs: [backend-build-test, frontend-build-test, prepare-matrices]
     # 📌 必须是 **master** —— 本仓库唯一的分支是 master（origin/HEAD -> origin/master）。
     #    之前写的是 refs/heads/main，而 main 分支**从来不存在**
@@ -650,8 +667,10 @@ jobs:
         tags: ${{ matrix.image }}:latest,${{ matrix.image }}:${{ github.sha }}
 
   docker-build-frontend:
+    # 📌 超时保护：GitHub 默认 6 小时 → 卡死时整轮 CI 白占 runner
+    #    （2026-11-10 真实卡死 50 分钟的教训）
+    timeout-minutes: 30
     name: Build Frontend image
-    runs-on: ubuntu-latest
     needs: [frontend-build-test]
     if: github.ref == 'refs/heads/master'
     env:
@@ -681,8 +700,10 @@ jobs:
 
   # 部署到Kubernetes
   deploy-k8s:
+    # 📌 超时保护：GitHub 默认 6 小时 → 卡死时整轮 CI 白占 runner
+    #    （2026-11-10 真实卡死 50 分钟的教训）
+    timeout-minutes: 30
     name: Deploy to Kubernetes
-    runs-on: ubuntu-latest
     # 📌 **job 输出：本次到底有没有真部署** ——
     #    job 的结论 `success` 只代表「没报错」，**不代表部署发生了**：
     #    没配 KUBE_CONFIG 时，下面**每一个真实部署 step** 都会被 `if` 跳过 →
@@ -822,8 +843,10 @@ jobs:
 
   # 通知部署结果
   notify:
+    # 📌 超时保护：GitHub 默认 6 小时 → 卡死时整轮 CI 白占 runner
+    #    （2026-11-10 真实卡死 50 分钟的教训）
+    timeout-minutes: 10
     name: Notify Deployment Status
-    runs-on: ubuntu-latest
     needs: [deploy-k8s]
     if: always()
 

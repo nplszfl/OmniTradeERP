@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS `live_stream` (
     `stream_id`             VARCHAR(255)  NOT NULL,
     `title`                 VARCHAR(255)  NOT NULL,
     `platform`              VARCHAR(50)   NOT NULL COMMENT 'TIKTOK/DOUYIN/TAOBAO_LIVE',
+    `shop_id`               VARCHAR(64)           DEFAULT NULL COMMENT '所属店铺ID(tiktok_shop_config.shop_id，形如 SHOP-TT-0001)；存量行为 NULL',
     `influencer_id`         BIGINT                 DEFAULT NULL,
     `status`                VARCHAR(50)   NOT NULL COMMENT 'SCHEDULED/LIVE/ENDED/CANCELLED',
     `scheduled_start_time`  DATETIME              DEFAULT NULL,
@@ -114,8 +115,34 @@ CREATE TABLE IF NOT EXISTS `live_stream` (
     PRIMARY KEY (`id`),
     KEY `idx_live_stream_platform` (`platform`),
     KEY `idx_live_stream_status` (`status`),
-    KEY `idx_live_stream_influencer` (`influencer_id`)
+    KEY `idx_live_stream_influencer` (`influencer_id`),
+    KEY `idx_live_stream_shop_id` (`shop_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='直播表';
+
+-- 📌 **存量迁移：给已存在的 live_stream 表补 shop_id 列**（2026-11-10）
+--
+-- ⚠️ **为什么需要**：上面用的是 `CREATE TABLE IF NOT EXISTS` →
+--    对**已经建好的表**（生产/已有环境）**不会补列** →
+--    而实体 `LiveStream.shopId` 已经映射到这个列 → 启动后 Hibernate 报
+--    「Unknown column 'shop_id'」→ **整个服务起不来**。
+--
+-- ⚠️ **为什么不能用 `ADD COLUMN IF NOT EXISTS`**：
+--    那是 **MariaDB** 的语法，**MySQL 8.0 不支持**（实测直接报错）→
+--    → 用 information_schema 判断 + PREPARE 动态执行（幂等，可重复跑）。
+--
+-- 📌 **存量行的 shop_id 留 NULL**：服务侧 `resolveShopConfig` 会按平台回退 +
+--    回填（判据是「这个值还能不能用」，不是「值是不是空」—— 规则 57）。
+--    ⚠️ **不能在这里直接 UPDATE 填一个值** → 多店铺时无法判定归属（会静默填错）。
+SET @live_stream_has_shop_id := (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'erp_social' AND TABLE_NAME = 'live_stream' AND COLUMN_NAME = 'shop_id'
+);
+SET @live_stream_ddl := IF(@live_stream_has_shop_id = 0,
+    'ALTER TABLE `live_stream` ADD COLUMN `shop_id` VARCHAR(64) DEFAULT NULL COMMENT ''所属店铺ID(tiktok_shop_config.shop_id)''',
+    'SELECT ''live_stream.shop_id 已存在，跳过''');
+PREPARE live_stream_stmt FROM @live_stream_ddl;
+EXECUTE live_stream_stmt;
+DEALLOCATE PREPARE live_stream_stmt;
 
 -- ------------------------------------------------------------
 -- TikTok 订单

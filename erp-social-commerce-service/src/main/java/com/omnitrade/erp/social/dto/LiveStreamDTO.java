@@ -21,6 +21,12 @@ public class LiveStreamDTO {
     
     @NotNull(message = "平台不能为空")
     private String platform;
+
+    /**
+     * 📌 所属店铺 ID（2026-11-10 新增）—— 直播记录归属到哪个店铺。
+     * ⚠️ 存量记录可能为 null（列是后加的）。
+     */
+    private String shopId;
     
     private Long influencerId;
     

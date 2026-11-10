@@ -27,6 +27,22 @@ public class LiveStream {
     @Column(nullable = false)
     private Platform platform;
     
+    /**
+     * 📌 **所属店铺 ID**（对应 {@code tiktok_shop_config.shop_id}，形如 {@code 'SHOP-TT-0001'}）。
+     *
+     * <p>⚠️ **可空是有意的**：存量数据没有这个值（列是后加的）→ 加 NOT NULL 会让
+     * 历史行插不进去（规则 9：NOT NULL 无默认值列 → 插入 100% 失败）。
+     * 存量行由 {@code LiveStreamMonitorService#resolveShopConfig} 走「按平台回退 + 回填」。
+     *
+     * <p>📌 **绝对不要用 {@code platform.name()} 当店铺 ID**：
+     * {@code platform} 存的是 {@code TIKTOK/DOUYIN/TAOBAO_LIVE}，
+     * 而 {@code shop_id} 存的是 {@code SHOP-TT-0001} —— 两者语义完全不同。
+     * 实测（2026-11-10）：曾用 {@code findByShopId(liveStream.getPlatform().name())}
+     * → 查的是 {@code shop_id='TIKTOK'} → 永远 0 行 → 每次同步都抛「店铺配置不存在」。
+     */
+    @Column(length = 64)
+    private String shopId;
+    
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "influencer_id")
     private Influencer influencer;

@@ -548,21 +548,27 @@ ON DUPLICATE KEY UPDATE
     `updated_at` = VALUES(`updated_at`);
 
 -- 直播
+-- 📌 **shop_id = 所属店铺ID**（2026-11-10 新增）：
+--    之前直播记录**不关联店铺** → syncLiveStreamData 只能拿 platform.name() 瞎猜
+--    → 实测 MySQL：`WHERE shop_id='TIKTOK'` → 0 行 → **每次同步都失败**。
+--    ⚠️ **同一列存了不同平台的店铺ID**（SHOP-TT-* / SHOP-DY-*）→ 靠 platform 区分。
+--    ⚠️ TAOBAO_LIVE **没有店铺配置表** → shop_id 留 NULL（诚实，不编）。
 INSERT INTO `live_stream`
-    (`id`, `stream_id`, `title`, `platform`, `influencer_id`, `status`,
+    (`id`, `stream_id`, `title`, `platform`, `shop_id`, `influencer_id`, `status`,
      `scheduled_start_time`, `actual_start_time`, `end_time`, `duration`,
      `viewer_count`, `peak_viewers`, `like_count`, `share_count`, `comment_count`,
      `new_followers`, `total_sales`, `total_orders`, `total_gmv`,
      `cover_image_url`, `products`, `created_at`, `updated_at`)
 VALUES
-    (7201, 'LIVE-20261101-01', '美妆新品发布专场',   'TIKTOK',  7001, 'ENDED',     NOW() - INTERVAL 3 DAY, NOW() - INTERVAL 3 DAY, NOW() - INTERVAL 3 DAY + INTERVAL 2 HOUR, 120, 268000, 41200, 1860000,  42000, 31000, 2400,  1680, 1450, 216400.00, NULL, 'SKU-BTY-010,SKU-BTY-011', NOW() - INTERVAL 5 DAY, NOW() - INTERVAL 3 DAY),
-    (7202, 'LIVE-20261102-01', '充电宝开箱直播',     'TIKTOK',  7002, 'ENDED',     NOW() - INTERVAL 2 DAY, NOW() - INTERVAL 2 DAY, NOW() - INTERVAL 2 DAY + INTERVAL 90 MINUTE, 90, 171000, 27800,  940000,  26000, 19000, 1200,  1042,  890, 156300.00, NULL, 'SKU-PWB-005-BLK',        NOW() - INTERVAL 4 DAY, NOW() - INTERVAL 2 DAY),
-    (7203, 'LIVE-20261103-01', '智能手表体验直播',   'DOUYIN',  7004, 'LIVE',      NOW() - INTERVAL 1 DAY, NOW() - INTERVAL 1 DAY, NULL, NULL, 98000, 21400, 620000, 15000, 11000,  680,   640,  480,  76800.00, NULL, 'SKU-WAT-002-SLV',        NOW() - INTERVAL 3 DAY, NOW() - INTERVAL 1 HOUR),
-    (7204, 'LIVE-20261105-01', '今日零食福利场',     'DOUYIN',  7005, 'SCHEDULED', NOW() + INTERVAL 1 DAY,  NULL, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, 'SKU-PWB-005-BLK', NOW() - INTERVAL 1 DAY, NOW() - INTERVAL 1 DAY),
-    (7205, 'LIVE-20261108-01', '家居收纳专场直播',   'TIKTOK',  7003, 'SCHEDULED', NOW() + INTERVAL 4 DAY,  NULL, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, 'SKU-STG-007',           NOW() - INTERVAL 1 DAY, NOW() - INTERVAL 1 DAY),
-    (7206, 'LIVE-20261028-01', '露营装备选品直播',   'TAOBAO_LIVE', 7006, 'CANCELLED', NOW() - INTERVAL 8 DAY, NULL, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, 'SKU-STN-004',            NOW() - INTERVAL 12 DAY, NOW() - INTERVAL 8 DAY)
+    (7201, 'LIVE-20261101-01', '美妆新品发布专场',   'TIKTOK',  'SHOP-TT-0001', 7001, 'ENDED',     NOW() - INTERVAL 3 DAY, NOW() - INTERVAL 3 DAY, NOW() - INTERVAL 3 DAY + INTERVAL 2 HOUR, 120, 268000, 41200, 1860000,  42000, 31000, 2400,  1680, 1450, 216400.00, NULL, 'SKU-BTY-010,SKU-BTY-011', NOW() - INTERVAL 5 DAY, NOW() - INTERVAL 3 DAY),
+    (7202, 'LIVE-20261102-01', '充电宝开箱直播',     'TIKTOK',  'SHOP-TT-0001', 7002, 'ENDED',     NOW() - INTERVAL 2 DAY, NOW() - INTERVAL 2 DAY, NOW() - INTERVAL 2 DAY + INTERVAL 90 MINUTE, 90, 171000, 27800,  940000,  26000, 19000, 1200,  1042,  890, 156300.00, NULL, 'SKU-PWB-005-BLK',        NOW() - INTERVAL 4 DAY, NOW() - INTERVAL 2 DAY),
+    (7203, 'LIVE-20261103-01', '智能手表体验直播',   'DOUYIN',  'SHOP-DY-0001',  7004, 'LIVE',      NOW() - INTERVAL 1 DAY, NOW() - INTERVAL 1 DAY, NULL, NULL, 98000, 21400, 620000, 15000, 11000,  680,   640,  480,  76800.00, NULL, 'SKU-WAT-002-SLV',        NOW() - INTERVAL 3 DAY, NOW() - INTERVAL 1 HOUR),
+    (7204, 'LIVE-20261105-01', '今日零食福利场',     'DOUYIN',  'SHOP-DY-0001',  7005, 'SCHEDULED', NOW() + INTERVAL 1 DAY,  NULL, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, 'SKU-PWB-005-BLK', NOW() - INTERVAL 1 DAY, NOW() - INTERVAL 1 DAY),
+    (7205, 'LIVE-20261108-01', '家居收纳专场直播',   'TIKTOK',  'SHOP-TT-0001', 7003, 'SCHEDULED', NOW() + INTERVAL 4 DAY,  NULL, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, 'SKU-STG-007',           NOW() - INTERVAL 1 DAY, NOW() - INTERVAL 1 DAY),
+    (7206, 'LIVE-20261028-01', '露营装备选品直播',   'TAOBAO_LIVE', NULL, 7006, 'CANCELLED', NOW() - INTERVAL 8 DAY, NULL, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, 'SKU-STN-004',            NOW() - INTERVAL 12 DAY, NOW() - INTERVAL 8 DAY)
 ON DUPLICATE KEY UPDATE
     `title` = VALUES(`title`), `platform` = VALUES(`platform`),
+    `shop_id` = VALUES(`shop_id`),
     `influencer_id` = VALUES(`influencer_id`), `status` = VALUES(`status`),
     `scheduled_start_time` = VALUES(`scheduled_start_time`),
     `actual_start_time` = VALUES(`actual_start_time`), `end_time` = VALUES(`end_time`),
