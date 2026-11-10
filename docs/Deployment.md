@@ -18,7 +18,7 @@
 
 ## 方式一：Docker Compose 部署（推荐）
 
-仓库里有 8 个 compose 文件，**按需要选**：
+仓库里有 9 个 compose 文件，**按需要选**：
 
 | 文件 | 服务数 | 内容 |
 |------|------|------|
@@ -26,7 +26,7 @@
 | `docker-compose.minimal.yml` | 7 | 基础设施 + Gateway + user / product / order |
 | `docker-compose.full.yml` | 16 | 基础设施 + Gateway + 11 个业务服务 + frontend |
 | `docker-compose.yml` | 30 | **全量**：23 个 ERP 后端服务 + frontend + nginx + MySQL + RabbitMQ + Nacos + Sentinel |
-| `docker-compose.prod.yml` | 13 | 生产裁剪版 |
+| `docker-compose.prod.yml` | 9 | 生产裁剪版：MySQL + Redis + RabbitMQ + Sentinel + Gateway + 3 个核心业务服务 + frontend |
 | `docker-compose.test.yml` / `.mini.yml` / `.audit.yml` / `.ssl.yml` | — | 各场景专用 |
 
 ### 1. 轻量部署（只要数据库）

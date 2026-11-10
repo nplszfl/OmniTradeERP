@@ -303,6 +303,10 @@ jobs:
     - name: 文档端口表（与 application.yml 同源且无遗漏）
       run: python3 scripts/check-doc-port-table.py
 
+    # 📌 **文档数字一致性**（规则 51）：手写的数字会静默过期 —— 没人发现
+    - name: 文档数字（compose 服务数 ↔ 实际 services 数）
+      run: python3 scripts/check-doc-compose-counts.py
+
     # 📌 **MySQL init 执行顺序** —— 种子必须排在建表之后（规则 61）
     #    📌 **为什么需要它**：docker-entrypoint 按**目标文件名**字母序执行 initdb.d，
     #      每个文件是独立 mysql 会话，**一条语句报错 → 该文件剩余语句全部不执行**，
