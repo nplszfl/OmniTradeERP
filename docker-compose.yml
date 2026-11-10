@@ -40,7 +40,7 @@ services:
       #    scripts/check-db-schema-provision.py 会守住这条。
       - ./database/social-commerce-service.sql:/docker-entrypoint-initdb.d/social-commerce-service.sql:ro
       - ./database/tenant-service.sql:/docker-entrypoint-initdb.d/tenant-service.sql:ro
-      - ./database/seed-data.sql:/docker-entrypoint-initdb.d/seed-data.sql:ro
+      - ./database/seed-data.sql:/docker-entrypoint-initdb.d/zz-seed-data.sql:ro
       - ./database/user-service.sql:/docker-entrypoint-initdb.d/user-service.sql:ro
       - ./database/warehouse-service.sql:/docker-entrypoint-initdb.d/warehouse-service.sql:ro
       # ⚠️ zz- 前缀是必须的：docker-entrypoint-initdb.d 按**文件名字母序**执行，
