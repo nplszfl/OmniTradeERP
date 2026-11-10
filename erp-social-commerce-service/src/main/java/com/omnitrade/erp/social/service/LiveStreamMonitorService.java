@@ -51,7 +51,11 @@ public class LiveStreamMonitorService {
     /**
      * 监控单个店铺的直播状态
      */
-    @Transactional
+    // 📌 **noRollbackFor = BizException.class**（2026-11-10 22:50 第 50 道闸门抓到）：
+    //    `refreshToken(shop)` 在 **try 之外**被调用 → 刷新失败抛 BizException →
+    //    **传播出本方法** → 事务回滚 → `refreshToken` 里「标记店铺 ERROR」**被撤销**。
+    //    → 店铺永远 ACTIVE → 下一轮又取它 → **死循环**。
+    @Transactional(noRollbackFor = BizException.class)
     public void monitorLiveStream(TikTokShopConfig shop) {
         log.info("开始监控TikTok直播状态, shopId: {}", shop.getShopId());
         

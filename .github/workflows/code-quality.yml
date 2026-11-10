@@ -124,6 +124,8 @@ jobs:
         python3 scripts/check-doc-port-table.py
         # 📌 **CI 超时保护**（两层）
         python3 scripts/check-ci-timeout-guards.py
+        # 📌 **降级事实的落地性**（规则 111）
+        python3 scripts/check-degradation-fact-rollback.py
         # 📌 **文档数字一致性**（规则 51）
         python3 scripts/check-doc-compose-counts.py
         # 📌 **MySQL init 执行顺序** —— 种子必须排在建表之后（规则 61）

@@ -314,6 +314,12 @@ jobs:
     - name: CI 超时保护（Dockerfile 构建期 + job 级上限）
       run: python3 scripts/check-ci-timeout-guards.py
 
+    # 📌 **降级事实的落地性**（规则 111）：catch 里「标记 ERROR + 抛异常」
+    #    → BizException extends RuntimeException → **事务回滚冲掉标记** → 死循环
+    #    2026-11-10 22:50 真实踩过 → 这类缺陷**编译能过、单测测不出**（@DataJpaTest 外层事务遮蔽）
+    - name: 降级事实落地性（标记不会被回滚冲掉）
+      run: python3 scripts/check-degradation-fact-rollback.py
+
     # 📌 **文档数字一致性**（规则 51）：手写的数字会静默过期 —— 没人发现
     - name: 文档数字（compose 服务数 ↔ 实际 services 数）
       run: python3 scripts/check-doc-compose-counts.py

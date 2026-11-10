@@ -50,7 +50,7 @@ public class TikTokProductService {
     /**
      * 根据店铺同步商品
      */
-    @Transactional
+    @Transactional(noRollbackFor = BizException.class)
     public void syncProductsByShop(TikTokShopConfig shop) {
         log.info("开始同步TikTok商品, shopId: {}", shop.getShopId());
         
@@ -92,7 +92,7 @@ public class TikTokProductService {
     /**
      * 同步单个商品详情
      */
-    @Transactional
+    @Transactional(noRollbackFor = BizException.class)
     public TikTokProductDTO syncProductDetail(Long shopConfigId, String productId) {
         TikTokShopConfig shop = shopConfigRepository.findById(shopConfigId)
                 .orElseThrow(() -> new RuntimeException("店铺配置不存在: " + shopConfigId));
@@ -372,8 +372,20 @@ public class TikTokProductService {
             log.info("Token刷新成功, shopId: {}", shop.getShopId());
         } catch (Exception e) {
             log.error("Token刷新失败, shopId: {}", shop.getShopId(), e);
-            shop.setStatus(TikTokShopConfig.ConfigStatus.ERROR);
-            shopConfigRepository.save(shop);
+            // 📌 **标记状态也要走 DB，但它自己失败时不能盖掉原始异常**（否则根因丢失）
+            try {
+                shop.setStatus(TikTokShopConfig.ConfigStatus.ERROR);
+                shopConfigRepository.save(shop);
+            } catch (Exception dbEx) {
+                log.error("标记店铺状态失败, shopId: {}", shop.getShopId(), dbEx);
+            }
+            // 📌 **刷新失败必须抛出去，不能吞掉**（2026-11-10 22:50 第 50 道闸门 / 兄弟分支）：
+            //    之前 catch 里只 log + 标 ERROR 就**返回了** → 调用方**继续用那个过期 token 去调 API**
+            //    → 必然 401 → 再被外层 catch 吞掉 → **每轮刷一条 error** → 真故障被噪音淹没（规则 43）。
+            //    📌 **同一概念必须一个口径**（规则 44 / 107）：
+            //    `LiveStreamMonitorService.refreshToken` / `LiveProductService.refreshToken` 都抛 →
+            //    本方法必须**对齐**。
+            throw new BizException("Token刷新失败: " + e.getMessage());
         }
     }
     
