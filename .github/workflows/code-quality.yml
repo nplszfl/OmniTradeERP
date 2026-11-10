@@ -141,7 +141,14 @@ jobs:
 
     - name: Install dependencies
       working-directory: ./erp-web
-      run: npm ci
+      # 📌 **必须强制走官方 registry** —— `npm ci` 认 lockfile 里的 `resolved` URL，
+      #    而 `erp-web/package-lock.json` 里 **146 条 resolved 全部指向 `registry.npmmirror.com`**（国内镜像）。
+      #    → GitHub runner 在**美区** → CI 依赖一家第三方国内镜像 → 镜像抖一下（实测 502 Bad Gateway）
+      #      → `npm ci` 失败 → **CI 红，而代码一个字都没改**。
+      #    → `--replace-registry-host=always`（npm ≥ 9.5）把 resolved 的 host 换成下面这个 registry。
+      #    ✅ 已核对：146 个包在 npmjs.org 上的 **integrity 与 lockfile 逐一相同** → 换源安全。
+      #    📌 **本地开发不受影响**：这条只加在 CI 里，本地 `npm ci` 仍走 npmmirror（国内更快）。
+      run: npm ci --registry=https://registry.npmjs.org/ --replace-registry-host=always
 
     - name: Run ESLint
       working-directory: ./erp-web
