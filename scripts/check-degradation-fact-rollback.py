@@ -42,6 +42,15 @@
    - **且两者在 M 的同一个 try 块里**
 2. **且**该 `@Transactional` 方法的注解**没有** `noRollbackFor` 包含 `BizException.class`
    （`rollbackFor` 包含 `RuntimeException.class` **不算豁免** —— 那反而更糟）
+3. **且可达**：该 `@Transactional` 方法**本身是 M**，
+   **或它能通过 ≤3 层调用到达 M**（调用图 BFS；深度由环境变量 `GATE_DEGRADATION_DEPTH` 可调）
+
+   📌 **11-11 04:45 实测：「一层」是**真盲区**（不是理论推演）——
+   注入 `tx → private B() → private C()`（二层链）→ 闸门**漏报**；
+   把探针改成**一层**调用 → 报红 → **对照组排除了「探针写歪」** → 盲区真实存在。
+   ✅ 已改成 **BFS 深度 3**（1/2/3 层都能抓到；**4 层会漏** —— 这是**声明的边界**）。
+   📌 **规则 100**：这道闸门**自己**也曾「只认一种写法」→ **边界必须写在 docstring 里**，
+   否则后人以为它覆盖全部。
 
 → 报红：**降级标记 + 抛异常 会在同一事务里被回滚冲掉**。
 
@@ -60,7 +69,9 @@
 ① 去掉 `noRollbackFor` → 报红；
 ② 把 `BizException` 改成 `RuntimeException` → **仍报红**（更糟）；
 ③ 把降级标记移出该类 → 不报；
-④ 正常类（无降级标记）→ 不报。
+④ 正常类（无降级标记）→ 不报；
+⑤ **二层调用链**（`tx → private B() → private C()`）→ 必须报红
+   （**曾漏报 → 已用 BFS 修**；对照实验：同一探针改成一层调用 → 报红）。
 
 用法：
     python3 scripts/check-degradation-fact-rollback.py          # 巡检（有问题 → exit 1）
@@ -284,17 +295,55 @@ def find_risky_methods(src: str, cls_start: int, cls_end: int) -> list[dict]:
 
 
 
+# ── 可达性搜索深度 ──
+# 📌 **11-11 04:45 实测**：一层可达性是**真盲区**（注入 `tx → private B() → private C()`
+#    的二层链 → 闸门**漏报**；改成一层 → 报红 → 证明盲区确实存在，不是探针写歪）。
+# 📌 规则 100：**这道闸门自己也有「只认一种写法」的毛病** → 用 BFS 放宽到 3 层。
+#    深度可调：`GATE_DEGRADATION_DEPTH` 环境变量（默认 3）。
+MAX_CALL_DEPTH = int(os.environ.get("GATE_DEGRADATION_DEPTH", "3"))
+
+
+def _calls_in(body: str) -> set[str]:
+    """从方法体里抽出「被调用了的方法名」候选。"""
+    out = set()
+    if not body:
+        return out
+    for m in re.finditer(r"\b([a-zA-Z_]\w*)\s*\(", body):
+        out.add(m.group(1))
+    return out
+
+
 def _reachable(tx_name: str, owner: str, bodies: dict[str, str]) -> bool:
-    """@Transactional 方法能否**到达**风险方法（自身 或 一层直接调用）。"""
+    """@Transactional 方法能否**到达**风险方法（自身，或 ≤ MAX_CALL_DEPTH 层调用）。
+
+    📌 **为什么要 BFS 而不是一层**（11-11 04:45 实测）：
+    一层会漏掉 `tx → private B() → private C()` 的二层链 → **真盲区**。
+    """
     if not owner:
         return True  # 定位不到方法名 → 保守报红（避免漏）
     if tx_name == owner:
         return True
-    body = bodies.get(tx_name)
-    if body is None:
-        return False
-    # 一层：tx 方法体内直接调用了 owner 方法
-    return re.search(r"\b" + re.escape(owner) + r"\s*\(", body) is not None
+
+    # 调用图：method -> 它调用了谁（只保留本类里存在的方法）
+    graph = {name: _calls_in(body) & set(bodies.keys())
+             for name, body in bodies.items()}
+
+    # BFS，深度上限 MAX_CALL_DEPTH
+    frontier = {tx_name}
+    seen = {tx_name}
+    for _ in range(MAX_CALL_DEPTH):
+        nxt = set()
+        for cur in frontier:
+            for callee in graph.get(cur, ()):  # noqa: E501
+                if callee == owner:
+                    return True
+                if callee not in seen:
+                    nxt.add(callee)
+        if not nxt:
+            break
+        seen |= nxt
+        frontier = nxt
+    return False
 
 def analyze_file(path: str) -> list[dict]:
     src = open(path, encoding="utf-8", errors="ignore").read()
