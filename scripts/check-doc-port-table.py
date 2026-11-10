@@ -123,7 +123,18 @@ def main() -> int:
     # ── A：文档里的端口必须与 application.yml 一致 ────────────────
     for module, entries in sorted(doc_ports.items()):
         if module not in ports:
-            continue  # 不是服务模块 → 不查
+            # 📌 **C：文档提到磁盘上不存在的服务目录**（规则 100 的双向版）
+            #    原来这里是 `continue`（静默跳过）→ 文档写 `erp-ghost-service | 8888`
+            #    闸门**纹丝不动** → 假绿。而「照着文档找服务」的人会**找不到目录**。
+            #    ⚠️ 只对**文档表格里的服务行**判 —— 不对散文里的名字判（判据要窄）。
+            for rel, _port in sorted(entries):
+                if not os.path.isdir(os.path.join(REPO_ROOT, module)):
+                    findings.append(
+                        f"[C] `{rel}` 里列了服务 `{module}`，但仓库里**没有这个目录**"
+                        f" → 文档提到了**不存在的东西**"
+                        f"（规则 100：等价写法必须一起认；这里反过来 —— **不存在的东西也必须报出来**）"
+                    )
+            continue  # 不是服务模块 → 不查端口
         for rel, port in sorted(entries):
             if port != ports[module]:
                 findings.append(
@@ -156,7 +167,7 @@ def main() -> int:
 
     if verbose:
         print("检查了 %d 个含端口表的文档" % docs_checked)
-    print("✅ 文档端口表：%d 个服务的端口与 application.yml 完全一致，且**无遗漏**（A/B）" % len(ports))
+    print("✅ 文档端口表：%d 个服务的端口与 application.yml 完全一致，且**无遗漏**、**无幽灵服务**（A/B/C）" % len(ports))
     return 0
 
 

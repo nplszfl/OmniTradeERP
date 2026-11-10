@@ -63,6 +63,26 @@ TABLE_ROW_RE = re.compile(
 )
 # 散文：「仓库里有 8 个 compose 文件」
 COUNT_FILES_RE = re.compile(r"(\d+)\s*个\s*compose\s*文件")
+# 📌 **等价写法必须一起认**（规则 100：只认一种写法 = 双向失明）：
+#    「共 9 个 compose 文件」「9 个 docker-compose 文件」「共 9 个 compose 配置」
+#    —— 说的是**同一件事**，却都逃过了上面的正则。
+COUNT_FILES_RE2 = re.compile(
+    r"(\d+)\s*个\s*(?:docker[-_]compose|compose)\s*(?:文件|配置|编排)"
+)
+COUNT_FILES_RE3 = re.compile(
+    r"(?:共|一共|总计|共有)\s*(\d+)\s*个\s*(?:docker[-_]compose|compose)"
+)
+# 📌 **散文形态的服务数**：「docker-compose.prod.yml 有 13 个服务」
+#    —— 表格行之外的等价写法（当前仓库暂无此形态，但闸门必须认，否则下次写了就漏）
+PROSE_COUNT_RE = re.compile(
+    r"`?(docker-compose[\w\-.]*\.yml)`?\s*(?:有|包含|含|带|共|定义了?)?\s*"
+    r"(\d+)\s*个\s*服务"
+)
+
+
+def line_hint(text, pos):
+    """pos 所在的行号（1-based）。"""
+    return text[:pos].count("\n") + 1
 
 
 def compose_service_count(path):
@@ -148,6 +168,15 @@ def main() -> int:
                 continue  # 多文件合一行 / 或只是列举 → 不判（判据要窄）
             fn = files[0]
             if fn not in actual_counts:
+                # 📌 **C：文档提到磁盘上不存在的 compose 文件**（规则 100 的双向版）
+                #    原来这里是 `continue`（静默跳过）→ 文档写 `| docker-compose-ghost.yml | 42 |`
+                #    闸门**纹丝不动** → 假绿。而照着文档敲
+                #    `docker-compose -f docker-compose-ghost.yml up` 会直接报 no such file。
+                findings.append(
+                    f"[C] `{rel}:{line_hint(text, m.start())}` 引用了 `{fn}`，"
+                    f"但仓库里**没有这个文件** → 文档提到了**不存在的东西**"
+                    f"（照着敲会得到 'no such file or directory'，规则 93）"
+                )
                 continue
             checked_rows += 1
             real = actual_counts[fn]
@@ -160,16 +189,44 @@ def main() -> int:
                 )
 
         # ── B：「N 个 compose 文件」 ─────────────────────────────
-        for m in COUNT_FILES_RE.finditer(text):
-            claimed = int(m.group(1))
+        # 📌 **三种等价写法一起认**（规则 100）
+        # 📌 **但同一处只能算一次**（规则 96）：三个正则会命中**同一句话**
+        #    （「9 个 compose 文件」同时匹配 R1 和 R2）→ 数字虚高会让人不信闸门。
+        # 📌 **按「覆盖的文本区间」去重**，不是按起始位置 ——
+        #    「共 7 个 compose 配置」会被 R2（从「7」开始）和 R3（从「共」开始）
+        #    **各命中一次，起始位置不同** → 只按 start 去重会漏 → 同一问题报 2 次（规则 96）。
+        seen_b = []   # 已覆盖的区间列表
+        for cre in (COUNT_FILES_RE, COUNT_FILES_RE2, COUNT_FILES_RE3):
+            for m in cre.finditer(text):
+                span = (m.start(), m.end())
+                if any(span[0] < e and s0 < span[1] for s0, e in seen_b):
+                    continue
+                seen_b.append(span)
+                claimed = int(m.group(1))
+                checked_rows += 1
+                real = len(compose_files)
+                if real != claimed:
+                    line = text[:m.start()].count("\n") + 1
+                    findings.append(
+                        f"[B] `{rel}:{line}` 说「**{claimed}** 个 compose 文件」，"
+                        f"但磁盘上实际有 **{real}** 个"
+                        f" → **文档数字已漂**（规则 51）"
+                    )
+
+        # ── C：散文形态的服务数 ─────────────────────────────────
+        for m in PROSE_COUNT_RE.finditer(text):
+            fn = m.group(1)
+            claimed = int(m.group(2))
+            if fn not in actual_counts:
+                continue
             checked_rows += 1
-            real = len(compose_files)
+            real = actual_counts[fn]
             if real != claimed:
                 line = text[:m.start()].count("\n") + 1
                 findings.append(
-                    f"[B] `{rel}:{line}` 说「**{claimed}** 个 compose 文件」，"
-                    f"但磁盘上实际有 **{real}** 个"
-                    f" → **文档数字已漂**（规则 51）"
+                    f"[C] `{rel}:{line}` 说 `{fn}` 有 **{claimed}** 个服务，"
+                    f"但实际 `services:` 里有 **{real}** 个"
+                    f" → **文档数字已漂**（规则 51：手写结论会静默过期）"
                 )
 
     if findings:

@@ -63,6 +63,7 @@ DOCS = [
     "docs/Deployment.md",
     "docs/Quick-Start.md",
     "docs/Installation.md",
+    "docs/AI-Features.md",
     "k8s/KUBERNETES_DEPLOYMENT_GUIDE.md",
     "README.md",
 ]

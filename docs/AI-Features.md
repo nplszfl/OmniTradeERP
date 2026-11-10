@@ -104,8 +104,9 @@ Docker 一键启动 AI 服务：
 # 启动全部 AI 服务
 docker-compose -f docker-compose.yml up -d
 
-# 或仅启动 AI 服务
-docker-compose -f docker-compose.ai.yml up -d
+# 或仅启动 AI 服务（按服务名筛选，无需额外的 compose 文件）
+docker-compose up -d ai-assistant-service product-description-service \
+  product-recommendation-service inventory-prediction-service
 ```
 
 ## 相关文档
