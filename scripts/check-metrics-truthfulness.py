@@ -291,18 +291,37 @@ def method_body(src, method_name):
 
 
 def body_is_constant(body):
-    """方法体是否「只返回一个数字字面量」"""
+    """方法体 / lambda 体是否「只返回一个数字字面量」
+
+    📌 **11-11 06:15 实测修正（规则 100：判据只认一种写法 = 双向失明）**：
+    原版只认 `return <数字>;`（分号**必需**）→ **漏掉两种等价写法**：
+
+    | body | 来源 | 原判定 | 现在 |
+    |---|---|---|---|
+    | `return 0;` | 方法体 | True | True |
+    | `return 0` | 方法体（缺分号） | ❌ False | **True** |
+    | `0` | **lambda `() -> 0`** | ❌ False | **True** |
+    | `0L` | **lambda `() -> 0L`** | ❌ False | **True** |
+
+    → 真实代码 `OrderStatusMetrics` 用的**正是 lambda 形式**
+    → 注入 `Gauge.builder("order.status", () -> 0)` → 修复前**闸门报绿**（真空绿）
+    ✅ 现在报红：**Gauge 恒为 0 = 假事实**（规则 56）。
+    """
     if body is None:
         return False
     lines = [l.strip() for l in body.split('\n') if l.strip()]
     if not lines:
         return False
-    if len(lines) > 1:
-        # 允许多行注释/空行被 strip 掉后只剩一条
-        pass
     if len(lines) != 1:
         return False
-    return bool(re.fullmatch(r'return\s+[-+]?\d+(\.\d+)?[dDfFlL]?;', lines[0]))
+    one = lines[0]
+    # ① `return <数字>[后缀]`（分号可选）
+    if re.fullmatch(r'return\s+[-+]?\d+(\.\d+)?[dDfFlL]?;?', one):
+        return True
+    # ② **裸数字字面量** = lambda 表达式体 `() -> 0` / `() -> 0L`（无 return）
+    if re.fullmatch(r'[-+]?\d+(\.\d+)?[dDfFlL]?', one):
+        return True
+    return False
 
 
 def body_is_inert(body):
