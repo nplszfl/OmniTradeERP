@@ -109,6 +109,8 @@ jobs:
         python3 scripts/check-npm-registry-pinning.py
         # 📌 **MySQL 配置层必填项** —— 字符集 / 注释空格 / JDBC 公钥（规则 63 / 64 / 65）
         python3 scripts/check-db-sql-config.py
+        # 📌 **内部细节不得泄露给前端**（规则 14）
+        python3 scripts/check-internal-detail-leak.py
         # 📌 **MySQL init 执行顺序** —— 种子必须排在建表之后（规则 61）
         python3 scripts/check-init-sql-exec-order.py
         python3 scripts/check-db-schema-provision.py

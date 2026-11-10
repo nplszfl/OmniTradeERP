@@ -112,33 +112,39 @@ public class LiveStreamMonitorService {
             refreshToken(shop);
         }
         
+        // 📌 **数据库写入必须放在 try 之外**（规则 14）：
+        //    若 `liveStreamRepository.save(...)` 在 try 里、catch 又把 `e.getMessage()`
+        //    塞进 RuntimeException → 抛出去的是**普通 RuntimeException**（不在黑名单里）
+        //    → 黑名单完全失效 → **SQL / 表名 / 列名直达前端**。
+        //    实测（2026-11-10）：本项目正是这个形态（闸门 check-internal-detail-leak.py 抓到）。
+        // 📌 **上游 API 的消息仍然透出**（规则 13）：平台拒绝了这次同步时，
+        //    用户需要知道真实原因，而不是一句「系统繁忙」。
+        TikTokApiClient.TikTokLiveStatsData statsData;
         try {
             // 获取直播统计数据
             TikTokApiClient.TikTokLiveStatsResponse statsResponse = apiClient.getLiveStats(
                     shop.getAccessToken(), shop.getShopId(), liveStream.getStreamId());
-            
-            if (statsResponse.getData() != null) {
-                TikTokApiClient.TikTokLiveStatsData statsData = statsResponse.getData();
-                
-                liveStream.setViewerCount(statsData.getViewerCount());
-                liveStream.setPeakViewers(statsData.getPeakViewers());
-                liveStream.setLikeCount(statsData.getLikeCount());
-                liveStream.setShareCount(statsData.getShareCount());
-                liveStream.setCommentCount(statsData.getCommentCount());
-                liveStream.setNewFollowers(statsData.getNewFollowers());
-                liveStream.setTotalSales(BigDecimal.valueOf(statsData.getTotalSales()));
-                liveStream.setTotalOrders(statsData.getTotalOrders());
-                liveStream.setTotalGmv(BigDecimal.valueOf(statsData.getTotalGmv()));
-                
-                LiveStream saved = liveStreamRepository.save(liveStream);
-                return liveStreamService.toDTO(saved);
+            if (statsResponse.getData() == null) {
+                return liveStreamService.toDTO(liveStream);
             }
+            statsData = statsResponse.getData();
         } catch (Exception e) {
             log.error("同步直播数据失败, liveStreamId: {}", liveStreamId, e);
             throw new RuntimeException("同步直播数据失败: " + e.getMessage(), e);
         }
-        
-        return liveStreamService.toDTO(liveStream);
+
+        liveStream.setViewerCount(statsData.getViewerCount());
+        liveStream.setPeakViewers(statsData.getPeakViewers());
+        liveStream.setLikeCount(statsData.getLikeCount());
+        liveStream.setShareCount(statsData.getShareCount());
+        liveStream.setCommentCount(statsData.getCommentCount());
+        liveStream.setNewFollowers(statsData.getNewFollowers());
+        liveStream.setTotalSales(BigDecimal.valueOf(statsData.getTotalSales()));
+        liveStream.setTotalOrders(statsData.getTotalOrders());
+        liveStream.setTotalGmv(BigDecimal.valueOf(statsData.getTotalGmv()));
+
+        LiveStream saved = liveStreamRepository.save(liveStream);
+        return liveStreamService.toDTO(saved);
     }
     
     /**

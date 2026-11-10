@@ -312,19 +312,32 @@ public class LiveProductService {
             throw new BizException("Refresh Token不存在，无法刷新");
         }
         
+        // 📌 **数据库写入必须放在 try 之外**（规则 14）：
+        //    若 `shopConfigRepository.save(shop)` 在 try 里、catch 又把 `e.getMessage()`
+        //    塞进 RuntimeException → 抛出去的是**普通 RuntimeException**（不在黑名单里）
+        //    → 黑名单完全失效 → **SQL / 表名 / 列名直达前端**。
+        //    实测（2026-11-10）：本项目正是这个形态（闸门 check-internal-detail-leak.py 抓到）。
+        // 📌 **上游 API 的消息仍然透出**（规则 13）：网络/平台错误不是内部细节，
+        //    用户需要知道「TikTok 拒绝了这次刷新」，而不是一句「系统繁忙」。
+        TikTokApiClient.TokenResponse tokenResponse;
         try {
-            TikTokApiClient.TokenResponse tokenResponse = apiClient.refreshAccessToken(shop.getRefreshToken());
-            shop.setAccessToken(tokenResponse.getAccessToken());
-            shop.setRefreshToken(tokenResponse.getRefreshToken());
-            shop.setTokenExpireTime(java.time.LocalDateTime.now().plusSeconds(tokenResponse.getExpiresIn()));
-            shopConfigRepository.save(shop);
-            log.info("Token刷新成功, shopId: {}", shop.getShopId());
+            tokenResponse = apiClient.refreshAccessToken(shop.getRefreshToken());
         } catch (Exception e) {
             log.error("Token刷新失败, shopId: {}", shop.getShopId(), e);
-            shop.setStatus(TikTokShopConfig.ConfigStatus.ERROR);
-            shopConfigRepository.save(shop);
+            // 标记状态也要走 DB，但**不能**把它的 message 透出去 → 这里单独处理
+            try {
+                shop.setStatus(TikTokShopConfig.ConfigStatus.ERROR);
+                shopConfigRepository.save(shop);
+            } catch (Exception dbEx) {
+                log.error("标记店铺状态失败, shopId: {}", shop.getShopId(), dbEx);
+            }
             throw new RuntimeException("Token刷新失败: " + e.getMessage(), e);
         }
+        shop.setAccessToken(tokenResponse.getAccessToken());
+        shop.setRefreshToken(tokenResponse.getRefreshToken());
+        shop.setTokenExpireTime(java.time.LocalDateTime.now().plusSeconds(tokenResponse.getExpiresIn()));
+        shopConfigRepository.save(shop);
+        log.info("Token刷新成功, shopId: {}", shop.getShopId());
     }
     
     private TikTokProductDTO toProductDTO(TikTokProduct entity) {

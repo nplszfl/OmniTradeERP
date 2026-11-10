@@ -281,6 +281,11 @@ jobs:
     - name: MySQL 配置层必填项（字符集 / 注释 / JDBC 公钥）
       run: python3 scripts/check-db-sql-config.py
 
+    # 📌 **内部细节不得泄露给前端**（规则 14）
+    #    黑名单（DataAccessException 等）会被「RuntimeException 包装 e.getMessage()」绕过。
+    - name: 内部细节泄露（SQL 栈 / 表名 / 列名不得直达前端）
+      run: python3 scripts/check-internal-detail-leak.py
+
     # 📌 **MySQL init 执行顺序** —— 种子必须排在建表之后（规则 61）
     #    📌 **为什么需要它**：docker-entrypoint 按**目标文件名**字母序执行 initdb.d，
     #      每个文件是独立 mysql 会话，**一条语句报错 → 该文件剩余语句全部不执行**，

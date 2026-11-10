@@ -53,7 +53,15 @@ SKIP_DIRS = {"target", "node_modules", ".git", "dist", "build", ".idea"}
 MUST_EXCLUDE = ("DataAccessException", "DataIntegrityViolationException", "SQLException")
 
 # 数据访问调用的识别（只看这三类，够用且不会误伤）
-DB_CALL_RE = re.compile(r"\b(?:repository|mapper|dao)\.\w+\s*\(")
+# 📌 **必须同时认「前缀式」命名**（规则 100）：本仓库的真实写法是
+#    `productRepository.` / `userMapper.` / `xxxDao.`，**不是**裸 `repository.`。
+#    只认裸名 → 闸门对 593 个文件几乎全盲（实测：注入真实绕过形态 → 闸门 exit 0）。
+# 📌 **必须排除 Jackson 的 ObjectMapper**（规则 99：假阳性更危险）：
+#    `objectMapper.writeValueAsString(...)` 是 JSON 序列化，不是数据访问。
+#    实测本仓库里 Jackson 的变量名只有 `objectMapper` 一个。
+DB_CALL_RE = re.compile(
+    r"\b(?!objectMapper\b)\w*(?:Repository|Mapper|Dao)\s*\.\w+\s*\("
+)
 CATCH_RE = re.compile(
     r"catch\s*\(\s*(?:[\w.]+\s*\|\s*)?(?:Exception|Throwable)\s+(\w+)\s*\)\s*\{"
 )
