@@ -24,8 +24,13 @@
 
 | 断言 | 内容 |
 |---|---|
-| **A** | workflow 里 `python3 <path>` / `python <path>` 引用的脚本，**文件必须真实存在** |
+| **A** | workflow 里**调用仓库内脚本**（`python3 <path>` / `bash <path>.sh`）时，**文件必须真实存在** |
 | **B** | 任何 `run:` 里**调用仓库内脚本**的 job，**必须先有 `actions/checkout` 步骤**（否则脚本不在工作目录里） |
+
+📌 **⚠️ 2026-11-10 15:50 实测扩展**：原判据只认 `python3 xxx.py`，
+而 `bash scripts/start-audit-mysql.sh`（schema-audit job）**完全在射程之外**
+→ 那个 job 要是哪天漏了 `actions/checkout`，闸门**不会报** → **盲区**（规则 100）。
+→ 现已扩成 `SCRIPT_CALL_RES = (PY_CALL_RE, SH_CALL_RE)`，两种形态一起扫。
 
 📌 **为什么 B 是「job 级」而不是「step 级」**：
 GitHub Actions 里每个 step 都在**同一个工作目录**执行；
@@ -58,6 +63,16 @@ WORKFLOW_DIR = os.path.join(REPO_ROOT, ".github", "workflows")
 PY_CALL_RE = re.compile(
     r"(?:python3?|py)\s+((?:[\w\-.]+\/)*[\w\-.]+\.py)\b"
 )
+# 📌 **shell 脚本调用也得认**（规则 100：只认一种写法 = 双向失明）：
+#    实测 `bash scripts/start-audit-mysql.sh`（schema-audit job）**完全在 PY_CALL_RE 的射程之外**
+#    → 那个 job 要是哪天漏了 `actions/checkout`，这道闸门**不会报**。
+#    → 形态：`bash xxx.sh` / `sh xxx.sh` / `source xxx.sh` / `./xxx.sh`
+SH_CALL_RE = re.compile(
+    r"(?:^|[;&|]\s*|\s)(?:bash|sh|source|\.)\s+"
+    r"((?:[\w\-.]+\/)*[\w\-.]+\.(?:sh|bash))\b"
+)
+# 📌 **合并后的调用识别**：`(命令, 脚本路径)`
+SCRIPT_CALL_RES = (PY_CALL_RE, SH_CALL_RE)
 # 仓库内脚本的路径前缀（本仓脚本都在这些目录下）
 REPO_SCRIPT_DIRS = ("scripts/", "database/", "k8s/", "erp-web/", "docker/")
 
@@ -158,35 +173,38 @@ def main() -> int:
             for step_name, step_body in steps:
                 if not step_body:
                     continue
-                for m in PY_CALL_RE.finditer(step_body):
-                    script = m.group(1)
-                    # 只管「仓库内路径」：必须带目录前缀，且是本仓的目录
-                    if "/" not in script:
-                        continue
-                    if not script.startswith(REPO_SCRIPT_DIRS):
-                        continue  # 系统路径 / 其它目录 → 不在本仓
-                    checked_refs += 1
-                    full = os.path.join(REPO_ROOT, script)
-                    if not os.path.exists(full):
-                        findings.append(
-                            f"[A] `{rel}` 的 job `{job_name}` / step「{step_name}」"
-                            f" 调用了 `{script}`，但**这个文件不存在**"
-                            f" → runner 上 `python3 {script}` 直接报"
-                            f" `No such file or directory`（退出码 2）→ **CI 变红**"
-                        )
-                    elif not has_checkout:
-                        key = (job_name, script, "B")
-                        if key in reported:
+                # 📌 **两种调用形态都要扫**（规则 100）：
+                #    `python3 scripts/x.py` **和** `bash scripts/x.sh`
+                for call_re in SCRIPT_CALL_RES:
+                    for m in call_re.finditer(step_body):
+                        script = m.group(1)
+                        # 只管「仓库内路径」：必须带目录前缀，且是本仓的目录
+                        if "/" not in script:
                             continue
-                        reported.add(key)
-                        findings.append(
-                            f"[B] `{rel}` 的 job `{job_name}` 调用了仓库内脚本 `{script}`，"
-                            f"但**这个 job 没有 `actions/checkout` 步骤**"
-                            f" → runner 工作目录里**没有仓库代码** → 脚本不在 → "
-                            f" `No such file or directory` → **CI 变红**"
-                            f"\n     📌 实测（11-10 15:15）：就是这个坑。"
-                            f"报错看起来像「脚本坏了」，真正原因却是「没 checkout」→ 排查方向会被带偏。"
-                        )
+                        if not script.startswith(REPO_SCRIPT_DIRS):
+                            continue  # 系统路径 / 其它目录 → 不在本仓
+                        checked_refs += 1
+                        full = os.path.join(REPO_ROOT, script)
+                        if not os.path.exists(full):
+                            findings.append(
+                                f"[A] `{rel}` 的 job `{job_name}` / step「{step_name}」"
+                                f" 调用了 `{script}`，但**这个文件不存在**"
+                                f" → runner 上直接报"
+                                f" `No such file or directory`（退出码 2）→ **CI 变红**"
+                            )
+                        elif not has_checkout:
+                            key = (job_name, script, "B")
+                            if key in reported:
+                                continue
+                            reported.add(key)
+                            findings.append(
+                                f"[B] `{rel}` 的 job `{job_name}` 调用了仓库内脚本 `{script}`，"
+                                f"但**这个 job 没有 `actions/checkout` 步骤**"
+                                f" → runner 工作目录里**没有仓库代码** → 脚本不在 → "
+                                f" `No such file or directory` → **CI 变红**"
+                                f"\n     📌 实测（11-10 15:15）：就是这个坑。"
+                                f"报错看起来像「脚本坏了」，真正原因却是「没 checkout」→ 排查方向会被带偏。"
+                            )
 
     if findings:
         print("❌ workflow 脚本引用闸门：发现 %d 处问题\n" % len(findings))
