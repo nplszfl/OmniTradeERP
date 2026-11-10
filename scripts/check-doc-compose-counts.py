@@ -58,7 +58,8 @@ SNAPSHOT_RE = re.compile(r"(FIX-|REPORT|SNAPSHOT|COMPLETION|STATUS)", re.I)
 
 # 表格行：| `docker-compose.xxx.yml` | 16 | ... |
 TABLE_ROW_RE = re.compile(
-    r"^\s*\|\s*`?((?:docker-compose[\w\-.]*\.yml)(?:\s*/\s*`?[\w\-.]*\.yml`?)*)`?\s*\|\s*(\d+)\s*\|",
+    r"^\s*\|\s*`?((?:[\w\-.]*compose[\w\-.]*\.(?:yml|yaml))"
+    r"(?:\s*/\s*`?[\w\-.]*compose[\w\-.]*\.(?:yml|yaml)`?)*)`?\s*\|\s*(\d+)\s*\|",
     re.M,
 )
 # 散文：「仓库里有 8 个 compose 文件」
@@ -74,15 +75,52 @@ COUNT_FILES_RE3 = re.compile(
 )
 # 📌 **散文形态的服务数**：「docker-compose.prod.yml 有 13 个服务」
 #    —— 表格行之外的等价写法（当前仓库暂无此形态，但闸门必须认，否则下次写了就漏）
+# 📌 **扩展名要认 `.yaml`**（规则 100：等价写法必须一起认）——
+#    `docker-compose -f xxx.yaml up` 完全合法 → 只认 `.yml` = 对一类文件失明
 PROSE_COUNT_RE = re.compile(
-    r"`?(docker-compose[\w\-.]*\.yml)`?\s*(?:有|包含|含|带|共|定义了?)?\s*"
+    r"`?([\w\-.]*compose[\w\-.]*\.(?:yml|yaml))`?\s*(?:有|包含|含|带|共|定义了?)?\s*"
     r"(\d+)\s*个\s*服务"
 )
+
+# 📌 **compose 文件的「宇宙」必须按语义定义，不能按文件名**（规则 100）：
+#    只认 `docker-compose*.yml` → 磁盘上放一个 `docker-compose-extra.yaml`
+#    → 闸门眼里还是 9 个 → 文档写「9 个 compose 文件」依然绿 → **但实际有 10 个**。
+#    → 现在按「根目录里**顶层有 services: 映射**的 .yml/.yaml」来定义，
+#      文件名只作**兜底**（没有 pyyaml 时用名字判）。
+COMPOSE_NAME_RE = re.compile(r"[\w\-.]*compose[\w\-.]*\.(?:yml|yaml)", re.I)
 
 
 def line_hint(text, pos):
     """pos 所在的行号（1-based）。"""
     return text[:pos].count("\n") + 1
+
+
+def _is_compose_file(path):
+    """这个文件**是** compose 文件吗？—— 按**语义**判，不按文件名（规则 100）。
+
+    📌 **为什么不能只看文件名**：
+    只认 `docker-compose*.yml` → 磁盘上多一个 `docker-compose-extra.yaml`
+    → 闸门眼里的「compose 文件数」不变 → 文档写「9 个 compose 文件」依然绿
+    → **但实际已经有 10 个** → 文档的数字**漂了却没人管**（实测 2026-11-10 19:25）。
+
+    📌 **语义定义**：根目录的 `.yml` / `.yaml`，且**顶层有 `services:` 映射**。
+    → 这样 `docker-compose-extra.yaml`、`compose-gateway.yml` 一视同仁；
+      而 `k8s/deploy.yml`（无 services）**不会**被算进去（闸门不乱抓）。
+    → 无 pyyaml 时**兜底**按文件名判（名字含 compose）。
+    """
+    try:
+        import yaml  # noqa: PLC0415
+        d = yaml.safe_load(open(path, encoding="utf-8"))
+        if isinstance(d, dict):
+            svcs = d.get("services")
+            if isinstance(svcs, dict) and svcs:
+                return True
+            # 顶层确实写了 services: 但为空 → 仍是 compose 文件（只是没起服务）
+            if "services" in d:
+                return True
+    except Exception:
+        pass
+    return bool(COMPOSE_NAME_RE.match(os.path.basename(path)))
 
 
 def compose_service_count(path):
@@ -138,7 +176,7 @@ def main() -> int:
 
     compose_files = sorted(
         fn for fn in os.listdir(REPO_ROOT)
-        if fn.startswith("docker-compose") and fn.endswith(".yml")
+        if fn.endswith((".yml", ".yaml")) and _is_compose_file(os.path.join(REPO_ROOT, fn))
     )
     if not compose_files:
         print("❌ 找不到 docker-compose*.yml —— 本闸门会变成瞎的")
@@ -218,6 +256,15 @@ def main() -> int:
             fn = m.group(1)
             claimed = int(m.group(2))
             if fn not in actual_counts:
+                # 📌 **C：文档提到磁盘上不存在的 compose 文件**（规则 100 的双向版）
+                #    ⚠️ 这里原来只有一句 `continue`（静默跳过）——
+                #    表格分支（上面）已经补了幽灵文件检查，**散文分支却漏了**
+                #    → 同一个缺陷的**兄弟分支**（规则 100：不对称最危险）。
+                findings.append(
+                    f"[C] `{rel}:{line_hint(text, m.start())}` 引用了 `{fn}`，"
+                    f"但仓库里**没有这个文件** → 文档提到了**不存在的东西**"
+                    f"（照着敲会得到 'no such file or directory'，规则 93）"
+                )
                 continue
             checked_rows += 1
             real = actual_counts[fn]
