@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# 📌 pre-commit 钩子：**在提交前**拦住「解析期就会让整个 workflow 作废」的错误。
+#
+# ═══════════════════════════════════════════════════════════════════════
+# 🔴 为什么这个钩子**不可省略**（2026-11-10 21:25 真实踩过）
+# ═══════════════════════════════════════════════════════════════════════
+# 批量给 13 个 job 插入 `timeout-minutes` 时，脚本把每个 job 的 **`runs-on` 删掉了**
+# → GitHub 报「Invalid workflow file」→ **三个 workflow 全部 0 秒失败**（0 个 job、0 行日志）
+# → 而 **49 道闸门全跑 PASS** —— 因为 `runs-on` 缺失是**解析期**错误
+#   → **整个 workflow 都不会跑** → job 里的任何闸门都到不了
+#
+# ⚠️ **这是结构性的**：CI 侧的闸门**在原理上**无法发现「workflow 本身解析失败」。
+#    → 唯一能提前拦住的时机是**提交前**（本地）。
+#
+# ✅ 因此本钩子调用的两个脚本都必须能**独立于 CI** 跑：
+#    - scripts/check-workflow-validity.py  → workflow 语法 + job 必需键（runs-on / steps）
+#    - scripts/check-ci-timeout-guards.py  → 超时保护两层 + job 必需键
+#
+# 📌 **安装**（一次性，clone 后执行）：
+#      git config core.hooksPath .githooks
+#    或直接：bash scripts/install-git-hooks.sh
+#
+# ⚠️ **本钩子只拦「workflow 相关」的改动** —— 其它改动不拦（避免拖慢提交）。
+#    若钩子因环境问题跑不起来（缺 PyYAML 等），**放行但不报错**（不能挡住正常开发）。
+
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+# ── 只在改到 workflow 时才检查 ────────────────────────────────────────
+STAGED="$(git diff --cached --name-only --diff-filter=ACMR)"
+if ! echo "$STAGED" | grep -qE '^\.github/workflows/'; then
+  exit 0
+fi
+
+echo "🔍 pre-commit：检测到 workflow 改动 → 校验 workflow 结构…"
+
+FAILED=0
+for script in scripts/check-workflow-validity.py scripts/check-ci-timeout-guards.py; do
+  if [ ! -f "$script" ]; then
+    continue
+  fi
+  if ! python3 "$script"; then
+    echo ""
+    echo "❌ $script 未通过 → **拒绝提交**"
+    echo "   （workflow 解析期错误 → 整个 workflow 0 秒失败 → 所有闸门都跑不到）"
+    FAILED=1
+  fi
+done
+
+if [ "$FAILED" -ne 0 ]; then
+  echo ""
+  echo "💡 修法：给缺失的 job 补上 'runs-on:' / 'steps:'，或撤销这次改动。"
+  exit 1
+fi
+
+echo "✅ pre-commit：workflow 结构校验通过"
+exit 0

@@ -11,6 +11,7 @@ jobs:
     #    （2026-11-10 真实卡死 50 分钟的教训）
     timeout-minutes: 30
     name: Create Release
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code

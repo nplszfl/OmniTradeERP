@@ -17,6 +17,7 @@ jobs:
     #    （2026-11-10 真实卡死 50 分钟的教训）
     timeout-minutes: 30
     name: Java Code Quality
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
@@ -153,6 +154,7 @@ jobs:
     #    （2026-11-10 真实卡死 50 分钟的教训）
     timeout-minutes: 20
     name: Frontend Code Quality
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
@@ -207,6 +209,7 @@ jobs:
     #    （2026-11-10 真实卡死 50 分钟的教训）
     timeout-minutes: 20
     name: Security Scan
+    runs-on: ubuntu-latest
     # 📌 **必须显式声明 security-events: write** ——
     #    上传 SARIF 到 GitHub Security 需要这个权限，
     #    而 workflow 默认的 GITHUB_TOKEN 只有 read

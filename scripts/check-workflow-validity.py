@@ -43,8 +43,15 @@
    ✅ 正解：job 级 `env: FOO: ${{ secrets.X }}` 中转 → step 级写 `if: env.FOO != ''`）
 10. **Dockerfile 与生成脚本一致**（`docker/Dockerfile.*` 里的「根 pom 声明了 N 个 module」
     必须等于根 pom 实际的 module 数 → 根 pom 加模块后忘了跑 `scripts/gen-dockerfiles.py` 会红）
+11. **job 的**必需键存在**（`runs-on` / `steps`）—— 缺任何一个 → GitHub **拒收整个 workflow**
+    📌 **我自己踩过**（11-10 21:25）：批量给 job 插 \`timeout-minutes\` 的脚本
+    把每个 job 的 \`runs-on\` 删掉了 → **三个 workflow 全部 0 秒失败**（0 个 job、0 行日志）
+    → 而**所有闸门都绿** → 因为本闸门当时把 \`runs-on\` 放在**允许键白名单**里，
+      却**从不检查它是否存在** → **只校验「键的值合不合法」，不校验「必需的键在不在」**（规则 88）
+    ⚠️ 这类错误发生在**解析期** → **任何 job 里的闸门都跑不到** → CI 侧的闸门**结构上无法发现**它
+    → ✅ 唯一能提前拦住的地方是**提交前**（本脚本可独立跑 + \`.githooks/pre-commit\`）
 
-📌 **本文件与实现保持一致**：上面 10 条 = 代码里实际做的 10 项检查。
+📌 **本文件与实现保持一致**：上面 11 条 = 代码里实际做的 11 项检查。
 改实现时**同步改这里** —— 否则下一个维护者会按这份清单误判覆盖面（规则 44）。
 
 用法：python3 scripts/check-workflow-validity.py
@@ -237,6 +244,32 @@ def main():
                 "      → 正确姿势：改 scripts/gen-dockerfiles.py，然后跑它重新生成\n"
                 + "      " + r.stdout.strip().replace("\n", "\n      ")
             )
+
+    # ── 检查 11：job 的**必需键存在** ────────────────────────────────
+    # 📌 缺 `runs-on` / `steps` → GitHub **拒收整个 workflow 文件** → 0 个 job、0 行日志
+    #    → 其它 job 里的闸门**一个都跑不到** → 结构上无法在 CI 里发现
+    for fn in files:
+        try:
+            d2 = yaml.safe_load(open(os.path.join(WF_DIR, fn), encoding="utf-8").read())
+        except Exception:
+            continue          # YAML 解析失败已在上面积累报错
+        if not isinstance(d2, dict):
+            continue
+        for jn, job in (d2.get("jobs") or {}).items():
+            if not isinstance(job, dict):
+                continue
+            for required in ("runs-on", "steps"):
+                if required not in job:
+                    errors.append(
+                        f"[{fn}] job '{jn}' **缺少必需的 '{required}'**\n"
+                        f"      → GitHub 会**拒收整个 workflow 文件** → **所有 job 全部 0 秒失败**\n"
+                        f"      ⚠️ 解析期错误 → 任何 job 里的闸门都跑不到 → **闸门全绿也发现不了**\n"
+                        f"      修法：给这个 job 补上 `{required}: ...`"
+                    )
+            if not job.get("runs-on"):
+                errors.append(
+                    f"[{fn}] job '{jn}' 的 `runs-on` **为空** → GitHub 拒收该 workflow"
+                )
 
     # ── 报告 ──────────────────────────────────────────────────────────
     print(f"📋 校验 {len(files)} 个 workflow 文件\n")
