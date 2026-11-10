@@ -79,7 +79,7 @@ public class LiveProductService {
     /**
      * 挂载商品到直播
      */
-    @Transactional
+    @Transactional(noRollbackFor = BizException.class)
     public TikTokProductDTO mountProduct(Long liveStreamId, String productId) {
         LiveStream liveStream = liveStreamRepository.findById(liveStreamId)
                 .orElseThrow(() -> new RuntimeException("直播不存在: " + liveStreamId));
@@ -125,7 +125,7 @@ public class LiveProductService {
     /**
      * 批量挂载商品到直播
      */
-    @Transactional
+    @Transactional(noRollbackFor = BizException.class)
     public List<TikTokProductDTO> mountProducts(Long liveStreamId, List<String> productIds) {
         List<TikTokProductDTO> mountedProducts = new ArrayList<>();
         
@@ -145,7 +145,7 @@ public class LiveProductService {
     /**
      * 从直播移除商品
      */
-    @Transactional
+    @Transactional(noRollbackFor = BizException.class)
     public void unmountProduct(Long liveStreamId, String productId) {
         LiveStream liveStream = liveStreamRepository.findById(liveStreamId)
                 .orElseThrow(() -> new RuntimeException("直播不存在: " + liveStreamId));
@@ -331,7 +331,10 @@ public class LiveProductService {
             } catch (Exception dbEx) {
                 log.error("标记店铺状态失败, shopId: {}", shop.getShopId(), dbEx);
             }
-            throw new RuntimeException("Token刷新失败: " + e.getMessage(), e);
+            // 📌 **BizException 而非 RuntimeException**（2026-11-10 22:45 互审）：
+            //    外层方法标了 `noRollbackFor = BizException.class` → **标记店铺 ERROR 的写入不会被回滚**
+            //    （修复前抛 RuntimeException → 事务回滚 → **降级事实被撤销** → 店铺永远 ACTIVE → 死循环）
+            throw new BizException("Token刷新失败: " + e.getMessage());
         }
         shop.setAccessToken(tokenResponse.getAccessToken());
         shop.setRefreshToken(tokenResponse.getRefreshToken());

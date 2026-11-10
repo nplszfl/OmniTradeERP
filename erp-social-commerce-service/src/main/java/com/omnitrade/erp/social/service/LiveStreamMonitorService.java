@@ -96,10 +96,16 @@ public class LiveStreamMonitorService {
     /**
      * 同步直播数据（观众数、销售额等）
      */
-    @Transactional
+    // 📌 **noRollbackFor = BizException.class**（2026-11-10 22:45 互审发现）：
+    //    `refreshToken` 失败时会 ① 把店铺标记成 ERROR ② 抛 BizException。
+    //    BizException extends RuntimeException → **默认触发回滚** →
+    //    ① 的标记被**撤销** → 店铺状态**永远留在 ACTIVE** →
+    //    下一轮 `findByStatus(ACTIVE)` 又会取它 → **又失败 → 死循环 + 每 30 秒一条 error**。
+    //    → 「降级事实必须真的落地」（规则 18 / 19）。
+    @Transactional(noRollbackFor = BizException.class)
     public LiveStreamDTO syncLiveStreamData(Long liveStreamId) {
         LiveStream liveStream = liveStreamRepository.findById(liveStreamId)
-                .orElseThrow(() -> new RuntimeException("直播不存在: " + liveStreamId));
+                .orElseThrow(() -> new BizException("直播不存在: " + liveStreamId));  // 📌 BizException 而非 RuntimeException：业务问题 → HTTP 400，不是「服务端故障」500（规则 28）
         
         if (liveStream.getStreamId() == null) {
             throw new BizException("直播streamId不存在，无法同步数据");
@@ -243,7 +249,7 @@ public class LiveStreamMonitorService {
      */
     public Map<String, Object> getLiveStreamStats(Long liveStreamId) {
         LiveStream liveStream = liveStreamRepository.findById(liveStreamId)
-                .orElseThrow(() -> new RuntimeException("直播不存在: " + liveStreamId));
+                .orElseThrow(() -> new BizException("直播不存在: " + liveStreamId));  // 📌 BizException 而非 RuntimeException：业务问题 → HTTP 400，不是「服务端故障」500（规则 28）
         
         Map<String, Object> stats = new HashMap<>();
         stats.put("viewerCount", liveStream.getViewerCount());
@@ -281,7 +287,7 @@ public class LiveStreamMonitorService {
         
         if (liveStreamId != null) {
             LiveStream liveStream = liveStreamRepository.findById(liveStreamId)
-                    .orElseThrow(() -> new RuntimeException("直播不存在: " + liveStreamId));
+                    .orElseThrow(() -> new BizException("直播不存在: " + liveStreamId));  // 📌 BizException 而非 RuntimeException：业务问题 → HTTP 400，不是「服务端故障」500（规则 28）
             
             analytics.put("duration", liveStream.getDuration());
             analytics.put("viewerCount", liveStream.getViewerCount());
@@ -315,7 +321,14 @@ public class LiveStreamMonitorService {
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             
             analytics.put("totalStreams", totalStreams);
-            analytics.put("avgViewers", totalStreams > 0 ? totalViewers / totalStreams : 0);
+            // 📌 **不能用 int 除法**（2026-11-10 22:45 互审发现）：
+            //    `totalViewers / totalStreams` 全是 int → **整数除法截断**
+            //    → 3 个观众 2 场直播 → 1（真实值 1.5）→ 报表**少报一半**。
+            //    📌 而且 `avgGmv` 是 BigDecimal、`avgViewers` 却是 Integer → **同一张表两种精度语义**。
+            analytics.put("avgViewers", totalStreams > 0
+                    ? BigDecimal.valueOf(totalViewers)
+                            .divide(BigDecimal.valueOf(totalStreams), 2, BigDecimal.ROUND_HALF_UP)
+                    : BigDecimal.ZERO);
             analytics.put("totalGmv", totalGmv);
             analytics.put("avgGmv", totalStreams > 0 ? totalGmv.divide(BigDecimal.valueOf(totalStreams), 2, BigDecimal.ROUND_HALF_UP) : BigDecimal.ZERO);
         }
@@ -327,7 +340,17 @@ public class LiveStreamMonitorService {
     
     private void updateLiveStreamStatus(LiveStream liveStream, TikTokApiClient.TikTokLiveStatusData statusData) {
         String status = statusData.getStatus();
-        
+
+        // 📌 **status 可能为 null**（平台在某些状态下不返回 status）：
+        //    `switch (status)` 遇到 null 会抛 **NullPointerException**
+        //    → 被 `monitorLiveStream` 的 catch 吞掉 → **这一轮监控白跑**
+        //    → 而且日志上看起来是「网络失败」，实际是「字段缺失」（规则 12：别把两件事混成一件）
+        if (status == null) {
+            log.warn("直播状态返回缺少 status 字段, streamId: {}, 跳过状态更新",
+                    liveStream.getStreamId());
+            return;
+        }
+
         switch (status) {
             case "LIVE":
                 if (liveStream.getStatus() != LiveStream.StreamStatus.LIVE) {
@@ -389,7 +412,14 @@ public class LiveStreamMonitorService {
         if (shop.getRefreshToken() == null) {
             throw new BizException("Refresh Token不存在，无法刷新");
         }
-        
+
+        // 📌 **刷新失败必须抛出去，不能吞掉**（2026-11-10 22:45 互审发现）：
+        //    之前 catch 里只 log + 标 ERROR 就**返回了** → 调用方
+        //    （`monitorLiveStream` / `syncLiveStreamData`）**继续用那个过期 token 去调 API**
+        //    → 必然 401 → 再被外层 catch 吞掉 → **每 30 秒（fixedRate=30000）刷一条 error**
+        //    → 真正的故障被**噪音淹没**（规则 43）。
+        // 📌 **同一模块两种口径**（规则 44 / 107）：`LiveProductService.refreshToken`
+        //    失败时**会抛** → 本方法必须**对齐**，否则同一概念两种行为。
         try {
             TikTokApiClient.TokenResponse tokenResponse = apiClient.refreshAccessToken(shop.getRefreshToken());
             shop.setAccessToken(tokenResponse.getAccessToken());
@@ -399,8 +429,16 @@ public class LiveStreamMonitorService {
             log.info("Token刷新成功, shopId: {}", shop.getShopId());
         } catch (Exception e) {
             log.error("Token刷新失败, shopId: {}", shop.getShopId(), e);
-            shop.setStatus(TikTokShopConfig.ConfigStatus.ERROR);
-            shopConfigRepository.save(shop);
+            // 📌 **标记状态也要走 DB，但它自己失败时不能盖掉原始异常**（否则根因丢失）
+            try {
+                shop.setStatus(TikTokShopConfig.ConfigStatus.ERROR);
+                shopConfigRepository.save(shop);
+            } catch (Exception dbEx) {
+                log.error("标记店铺状态失败, shopId: {}", shop.getShopId(), dbEx);
+            }
+            // ⚠️ 用 BizException（业务问题 → 400）而不是 RuntimeException（→ 500）
+            //    理由同 `LiveProductService`：这是「token 暂时刷不了」，不是「服务端故障」。
+            throw new BizException("Token刷新失败: " + e.getMessage());
         }
     }
 }
