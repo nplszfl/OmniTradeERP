@@ -271,6 +271,15 @@ jobs:
     - name: LLM 降级诚实性（降级不许撒谎）
       run: python3 scripts/check-llm-degradation-honesty.py
 
+    # 📌 **MySQL init 执行顺序** —— 种子必须排在建表之后（规则 61）
+    #    📌 **为什么需要它**：docker-entrypoint 按**目标文件名**字母序执行 initdb.d，
+    #      每个文件是独立 mysql 会话，**一条语句报错 → 该文件剩余语句全部不执行**，
+    #      而容器退出码可能仍是 0 → 后面几百行种子**静默丢失**。
+    #      实测：`seed-data.sql` 漏了 `zz-` 前缀 → 排在建表之前 → 用户/角色/权限种子丢失，
+    #      且因 initdb.d 只在空数据目录跑一次 → **长期潜伏**，只在全新部署时发作。
+    - name: MySQL init 执行顺序（种子必须在建表之后）
+      run: python3 scripts/check-init-sql-exec-order.py
+
     # 📌 **统计口径一致性**（同一个页面上「说 N 条」和「列出 N 条」必须同一张表）
     #    📌 **为什么需要它**：
     #       2026-11-04 在 AI 客服模块抓到一个真缺陷：
