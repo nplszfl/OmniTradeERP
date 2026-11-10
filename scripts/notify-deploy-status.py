@@ -92,16 +92,30 @@ def send(webhook_url, payload, timeout=10):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="CI 部署状态 → 飞书群机器人")
-    ap.add_argument("--status", required=True, choices=list(STATUS_TEXT.keys()),
-                    help="事实标志：deployed / not-deployed / failed")
-    ap.add_argument("--commit", default=os.environ.get("GITHUB_SHA", "")[:7])
-    ap.add_argument("--run-url", default="")
-    ap.add_argument("--message", default="")
-    ap.add_argument("--dry-run", action="store_true", help="只打印 payload，不真发")
-    args = ap.parse_args()
+    try:
+        ap = argparse.ArgumentParser(description="CI 部署状态 → 飞书群机器人")
+        ap.add_argument("--status", required=True, choices=list(STATUS_TEXT.keys()),
+                        help="事实标志：deployed / not-deployed / failed")
+        ap.add_argument("--commit", default=os.environ.get("GITHUB_SHA", "")[:7])
+        ap.add_argument("--run-url", default="")
+        ap.add_argument("--message", default="")
+        ap.add_argument("--dry-run", action="store_true", help="只打印 payload，不真发")
+        args = ap.parse_args()
+    except SystemExit as e:
+        # 📌 **参数写错也不能拖红 CI**（硬规则 2）
+        #    `argparse` 参数错误默认 exit 2 → 整个 job 失败 → CI 变红
+        #    → 而「通知脚本用错」根本不是「部署失败」→ 必须 exit 0。
+        print(f"⚠️ 通知脚本参数错误（exit {e.code}）→ 跳过通知，CI 不受影响")
+        return 0
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠️ 通知脚本初始化失败：{type(e).__name__}: {e} → 跳过通知，CI 不受影响")
+        return 0
 
-    payload = build_payload(args.status, args.commit, args.run_url, args.message)
+    try:
+        payload = build_payload(args.status, args.commit, args.run_url, args.message)
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠️ 构造通知内容失败：{type(e).__name__}: {e} → 跳过通知，CI 不受影响")
+        return 0
 
     if args.dry_run:
         print("=== dry-run payload ===")
@@ -137,4 +151,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # 📌 **最外层也要包一层** —— 硬规则 2：「发送失败不许把 CI 拖红」。
+    #    任何未预料的异常（import 问题、编码问题……）都不能让 CI 变红。
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠️ 通知脚本异常：{type(e).__name__}: {e} → 跳过通知，CI 不受影响")
+        sys.exit(0)

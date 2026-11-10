@@ -117,6 +117,8 @@ jobs:
         python3 scripts/check-selection-persistence.py
         # 📌 **MySQL init 执行顺序** —— 种子必须排在建表之后（规则 61）
         python3 scripts/check-init-sql-exec-order.py
+        # 📌 **workflow 脚本引用**（文件存在 + job 有 checkout）
+        python3 scripts/check-workflow-script-refs.py
         python3 scripts/check-db-schema-provision.py
         python3 scripts/check-seed-table-refs.py
         python3 scripts/check-seed-idempotency.py

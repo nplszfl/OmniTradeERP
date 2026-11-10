@@ -303,6 +303,10 @@ jobs:
     - name: MySQL init 执行顺序（种子必须在建表之后）
       run: python3 scripts/check-init-sql-exec-order.py
 
+    # 📌 **workflow 里引用的脚本必须真实存在，且所在 job 必须有 checkout**（规则 93 的延伸）
+    - name: workflow 脚本引用（文件存在 + job 有 checkout）
+      run: python3 scripts/check-workflow-script-refs.py
+
     # 📌 **统计口径一致性**（同一个页面上「说 N 条」和「列出 N 条」必须同一张表）
     #    📌 **为什么需要它**：
     #       2026-11-04 在 AI 客服模块抓到一个真缺陷：
@@ -811,6 +815,14 @@ jobs:
     if: always()
 
     steps:
+    # 📌 **必须先 checkout** —— 通知脚本在仓库里（`scripts/notify-deploy-status.py`），
+    #    **不 checkout 就没有这个文件** → `python3: can't open file ... No such file or directory`
+    #    → 退出码 2 → **整个 job 失败** → CI/CD 变红。
+    #    📌 实测（11-10 15:15）：这一条是我加通知时漏的 → CI 从绿变红，
+    #    而报错信息看起来像「脚本坏了」，极具误导性。
+    - name: Checkout code
+      uses: actions/checkout@v4
+
     # 📌 **不能把 job 的 `success()` 直接翻译成「部署成功」** ——
     #    `deploy-k8s` 在**没配 KUBE_CONFIG** 时会**跳过所有真实部署 step**
     #    （含 `Verify deployment`），但 job 结论仍然是 `success`
@@ -823,6 +835,9 @@ jobs:
     #    webhook URL **只从 secret 读**，仓库里不出现任何 URL。
     - name: Send notification (已部署)
       if: needs.deploy-k8s.outputs.deployed == 'true' && success()
+      # 📌 **通知失败不许把 CI 拖红**（硬规则 2）：通知只是「锦上添花」，
+      #    部署本身可能已经成功 → 不能因为发不出去就让整个 workflow 失败。
+      continue-on-error: true
       env:
         FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -833,6 +848,8 @@ jobs:
 
     - name: Send notification (未部署 —— 跳过，不谎报成功)
       if: needs.deploy-k8s.outputs.deployed != 'true' && success()
+      # 📌 同上：通知失败不许拖红 CI
+      continue-on-error: true
       env:
         FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -846,6 +863,8 @@ jobs:
     # 📌 **失败分支更要发通知** —— 通知最该起作用的时刻就是「CI 挂了」
     - name: Send failure notification
       if: failure()
+      # 📌 同上
+      continue-on-error: true
       env:
         FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
