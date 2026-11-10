@@ -286,6 +286,10 @@ jobs:
     - name: 内部细节泄露（SQL 栈 / 表名 / 列名不得直达前端）
       run: python3 scripts/check-internal-detail-leak.py
 
+    # 📌 **组件扫描不到 = 死代码**（规则 21）—— 静默失效，编译期查不出来
+    - name: 组件扫描 / 自动装配（erp-common 的组件必须被注册）
+      run: python3 scripts/check-component-scan-deadcode.py
+
     # 📌 **MySQL init 执行顺序** —— 种子必须排在建表之后（规则 61）
     #    📌 **为什么需要它**：docker-entrypoint 按**目标文件名**字母序执行 initdb.d，
     #      每个文件是独立 mysql 会话，**一条语句报错 → 该文件剩余语句全部不执行**，

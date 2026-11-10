@@ -111,6 +111,8 @@ jobs:
         python3 scripts/check-db-sql-config.py
         # 📌 **内部细节不得泄露给前端**（规则 14）
         python3 scripts/check-internal-detail-leak.py
+        # 📌 **组件扫描不到 = 死代码**（规则 21）
+        python3 scripts/check-component-scan-deadcode.py
         # 📌 **MySQL init 执行顺序** —— 种子必须排在建表之后（规则 61）
         python3 scripts/check-init-sql-exec-order.py
         python3 scripts/check-db-schema-provision.py
