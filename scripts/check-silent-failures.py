@@ -14,6 +14,20 @@
 
 本脚本扫 1/2/3；4 由 check-placeholder-syntax.py 负责。
 
+📌 **判据覆盖面**（2026-11-10 扩）：「返零值」现在认全了所有等价写法 ——
+   `0` / `0L` / `0.0` / `0.0f` / `false` / `""` / `null` /
+   `Collections.emptyList/Set/Map()` / `new ArrayList<>` 等 /
+   `List.of()` / `Set.of()` / `Map.of()` / `Optional.empty()`。
+   ⚠️ 之前只认 `Collections.emptyList()` / `Map.of()`，**漏掉 `List.of()`** ——
+   而全仓有 **10 处** `catch` → `return List.of()`（AnalyticsRepository）→ **完全失明**。
+   → 这就是规则 100：「同一个 API 的等价写法必须一起认」，**不对称 = 双向失明**。
+
+📌 **「不提异常」才算吞**（规则 12 的本质）：catch 里写了 log.warn / log.error
+   → 异常**有交代**，降级是有意为之（规则 11 / 43），不算静默失败。
+   ⚠️ 只看「返零值」会误伤一整类合法代码 → **假阳性比假阴性危险**（规则 99）。
+📌 剩下的「预期失败路径」用 `BENIGN_CATCH_OWNERS` **显式白名单 + 逐条写清理由** ——
+   判据无法从「catch 里返零值」推断出「这个失败是不是预期的」。
+
 用法：python3 scripts/check-silent-failures.py
 退出码：0 = 干净，1 = 有可疑项（需人工确认，不一定都是缺陷）
 """
@@ -27,6 +41,19 @@ SKIP_DIRS = {'target', 'node_modules', '.git', 'dist', 'build', 'test'}
 BENIGN_RETURNERS = {
     'toLong', 'asLong', 'toInt', 'asInt', 'toDouble', 'parseDate',
     'parseDateTime', 'toLocationStatus', 'toWarehouseStatus',
+}
+
+# 📌 **「预期失败路径」白名单**（规则 12 / 99）
+#
+#   有些 catch 捕获的异常是**这个方法本来就在等的** —— 比如校验 token 有效性，
+#   签名不对就**应该**返回 false，而不是抛出去。这类代码不是「吞异常」。
+#
+#   ⚠️ 为什么要单独列：判据无法从「catch 里返零值」推断出「这个失败是不是预期的」
+#      —— 判据太宽会误伤一整类合法代码（假阳性比假阴性危险，规则 99）。
+#      → 只能**显式白名单 + 逐条写清理由**。
+BENIGN_CATCH_OWNERS = {
+    'validateToken': 'JWT 签名/过期校验失败本就应返回 false，不是静默失败',
+    'convertToEntityAttribute': '脏数据降级成空列表（注释已说明「不该让整个查询失败」）',
 }
 
 
@@ -127,6 +154,9 @@ def scan_file(path, findings):
         owner = enclosing_method(ranges, m.start())
         if owner in BENIGN_RETURNERS:
             continue
+        # 📌 预期失败路径豁免（catch 里的异常是这个方法本来就在等的）
+        if owner in BENIGN_CATCH_OWNERS:
+            continue
         start = m.end()
         depth, i = 1, start
         while i < len(src) and depth:
@@ -142,9 +172,19 @@ def scan_file(path, findings):
         joined = ' '.join(lines)
         uses_var = re.search(r'\b' + re.escape(var) + r'\b', joined)
         returns_zero = re.search(
-            r'return\s+(0\b|0\.0\b|""|null\b|Collections\.emptyList\(\)'
-            r'|new\s+ArrayList<|Collections\.emptyMap\(\)|Map\.of\(\))', joined)
-        if returns_zero and not uses_var:
+            r'return\s+(0[Ll]?\b|0\.0[fFdD]?\b|false\b|""|null\b'
+            r'|Collections\.empty(?:List|Set|Map)\(\)'
+            r'|new\s+(?:ArrayList|HashMap|HashSet|LinkedList|LinkedHashMap|LinkedHashSet)<'
+            r'|(?:List|Set|Map)\.of\(\)|Optional\.empty\(\))', joined)
+        # 📌 **「不提异常」才算吞**（规则 12 的本质）：catch 里写了 log.warn / log.error
+        #    → 异常**有交代**，降级是有意为之（规则 11 / 43），不算静默失败。
+        #    ⚠️ 只看「返零值」会误伤一整类合法代码：
+        #      · JwtUtil.validateToken → catch → return false（签名校验失败本就该返 false）
+        #      · StringListJsonConverter → 脏数据降级成空列表（注释已说明）
+        #    → 假阳性比假阴性更危险（规则 99）：它会逼下一个人去**放松闸门**。
+        mentions_ex = bool(re.search(r'\b(log|logger|LOG|Logger)\b', joined)) \
+            or bool(re.search(r'\b' + re.escape(var) + r'\b', joined))
+        if returns_zero and not uses_var and not mentions_ex:
             lineno = src[:m.start()].count('\n') + 1
             findings.append(('catch 吞异常返零值', rel, lineno, lines[-1][:70]))
 
