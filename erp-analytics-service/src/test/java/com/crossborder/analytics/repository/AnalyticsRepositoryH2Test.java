@@ -95,6 +95,13 @@ class AnalyticsRepositoryH2Test {
                 + "internal_order_no VARCHAR(64),"
                 + "platform VARCHAR(32),"
                 + "status VARCHAR(32),"
+                // 📌 这两列**生产表有、以前的测试 schema 没有**（对照 `database/init.sql`）：
+                //    `buyer_email`   → `getCustomerDistribution()` 的 COUNT(DISTINCT buyer_email)
+                //    `payment_status` → `getPendingPaymentAmount()` 的 WHERE 条件
+                //    → 缺了它们，那两条 SQL 会**抛异常 → 被 catch 吞掉 → 静默返回空/0**
+                //    （看板「客户分布」永远空白、「待支付金额」永远是 0 —— 规则 12 静默失败）
+                + "buyer_email VARCHAR(200),"
+                + "payment_status VARCHAR(50),"
                 + "order_amount DECIMAL(18,2),"
                 + "currency_code VARCHAR(8),"
                 + "recipient_country VARCHAR(64),"
@@ -138,18 +145,22 @@ class AnalyticsRepositoryH2Test {
         LocalDateTime now = todayAnchor;
 
         // 今天：2 单 300.00
-        insertOrder(1L, "SO-T-1", "AMAZON", "COMPLETED", "100.00", "US", now);
-        insertOrder(2L, "SO-T-2", "AMAZON", "PENDING", "200.00", "US", now.minusHours(1));
+        // 📌 buyer_email / payment_status 一并种上（生产表有这两列）：
+        //    同一买家 alice 的两单 → `COUNT(DISTINCT buyer_email)` 应为 **1**（不是 2）
+        insertOrder(1L, "SO-T-1", "AMAZON", "COMPLETED", "100.00", "US",
+                "alice@example.com", "PAID", now);
+        insertOrder(2L, "SO-T-2", "AMAZON", "PENDING", "200.00", "US",
+                "alice@example.com", "PENDING", now.minusHours(1));
         // 昨天：1 单 50.00
         insertOrder(3L, "SO-Y-1", "EBAY", "COMPLETED", "50.00", "DE",
-                now.minusDays(1));
+                "bob@example.com", "PAID", now.minusDays(1));
         // 上个月（本月之外）：1 单 999.00 —— 用来验证「本月」不被它污染
         // 📌 **必须是「1 号减 2 天」，不能是「1 号减 1 天」**：
         //    「1 号减 1 天」= 上个月最后一天 = **今天恰好是本月 1 号时的「昨天」**
         //    → 两单落在同一天 → 「昨日销售额」变成 50 + 999 = 1049 → 断言红。
         //    → 「减 2 天」永远在上个月，且**永远不是昨天**。
         insertOrder(4L, "SO-M-1", "TIKTOK", "COMPLETED", "999.00", "FR",
-                today.withDayOfMonth(1).minusDays(2).atStartOfDay());
+                "carol@example.com", "PAID", today.withDayOfMonth(1).minusDays(2).atStartOfDay());
 
         insertItem(11L, 1L, "SKU-001", "无线耳机", 1, "100.00");
         insertItem(12L, 2L, "SKU-002", "蓝牙音箱", 2, "200.00");
@@ -173,14 +184,29 @@ class AnalyticsRepositoryH2Test {
                 + " VALUES (203, 'SKU-003', '手机壳', 1, 0)");
         jdbcTemplate.update("INSERT INTO erp_product.t_product (id, internal_sku, product_name, status, deleted)"
                 + " VALUES (204, 'SKU-004', '数据线', 1, 0)");
+
+        // 📌 库存记录以前**一条都没种** → `getLowStockProductCount()` 查的是**空表**，
+        //    返回 0 看起来「正常」→ 测试**永远发现不了**它其实没在数任何东西。
+        //    种 4 条：其中 2 条满足 available_quantity < safety_stock（低库存）。
+        jdbcTemplate.update("INSERT INTO erp_inventory.erp_inventory (id, sku_code, available_quantity, safety_stock, deleted)"
+                + " VALUES (301, 'SKU-001', 5, 10, 0)");
+        jdbcTemplate.update("INSERT INTO erp_inventory.erp_inventory (id, sku_code, available_quantity, safety_stock, deleted)"
+                + " VALUES (302, 'SKU-002', 20, 10, 0)");
+        jdbcTemplate.update("INSERT INTO erp_inventory.erp_inventory (id, sku_code, available_quantity, safety_stock, deleted)"
+                + " VALUES (303, 'SKU-003', 0, 5, 0)");
+        jdbcTemplate.update("INSERT INTO erp_inventory.erp_inventory (id, sku_code, available_quantity, safety_stock, deleted)"
+                + " VALUES (304, 'SKU-004', 50, 10, 0)");
     }
 
     private void insertOrder(long id, String no, String platform, String status,
-                             String amount, String country, LocalDateTime time) {
+                             String amount, String country, String buyerEmail,
+                             String paymentStatus, LocalDateTime time) {
         jdbcTemplate.update("INSERT INTO erp_order.t_order (id, internal_order_no, platform, status,"
-                        + " order_amount, currency_code, recipient_country, create_time, deleted)"
-                        + " VALUES (?, ?, ?, ?, ?, 'USD', ?, ?, 0)",
-                id, no, platform, status, new BigDecimal(amount), country, time);
+                        + " buyer_email, payment_status, order_amount, currency_code,"
+                        + " recipient_country, create_time, deleted)"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, 'USD', ?, ?, 0)",
+                id, no, platform, status, buyerEmail, paymentStatus,
+                new BigDecimal(amount), country, time);
     }
 
     private void insertItem(long id, long orderId, String sku, String name, int qty, String amount) {
@@ -263,6 +289,60 @@ class AnalyticsRepositoryH2Test {
         // ⑥ 合计对得上：4 单全在窗口内
         long total = rows.stream().mapToLong(AnalyticsRepository.DailyAggregate::orderCount).sum();
         assertEquals(4L, total, "30 天窗口内应有 4 单");
+    }
+
+    @Test
+    @DisplayName("看板 KPI：6 个数字必须来自真库（以前只在 mock 里存在过）")
+    void dashboardKpiMustComeFromRealDatabase() {
+        // 📌 **这 6 个方法以前从没上过真库** —— `DashboardServiceTest` 里全被 mock 掉，
+        //    而 `AnalyticsRepositoryH2Test` 漏了它们 → SQL 写错 / 列名对不上 → **看板照样全绿**
+        //    （规则 48「别写假测试」：mock 掉的正好是风险所在的那一段）
+        // 📌 补 schema 的两列 + 库存种子时才发现：
+        //    `buyer_email` / `payment_status` 生产表有、测试 schema 没有
+        //    → 那两条 SQL 会抛异常 → 被 catch 吞掉 → **静默返回空 / 0**
+
+        // ① 在售商品数（t_product，status=1 且未删）
+        assertEquals(4, repository.getActiveProductCount(),
+                "在售商品数应为 4（4 个商品全部 status=1）");
+
+        // ② 低库存商品数（available_quantity < safety_stock）
+        assertEquals(2, repository.getLowStockProductCount(),
+                "低库存商品数应为 2（SKU-001: 5<10、SKU-003: 0<5）");
+
+        // ③ 今日订单数（今天的窗口用参数传）
+        assertEquals(2L, repository.getTodayOrderCount(), "今日订单数应为 2");
+
+        // ④ 待支付金额（payment_status IN ('PENDING','UNPAID','CREATED')）
+        assertEquals(0, repository.getPendingPaymentAmount().compareTo(new BigDecimal("200.00")),
+                "待支付金额应为 200.00（仅 SO-T-2 是 PENDING），实际 " + repository.getPendingPaymentAmount());
+
+        // ⑤ 订单状态分布（COMPLETED 3 / PENDING 1）
+        List<AnalyticsRepository.OrderStatusCount> statusRows = repository.getOrderStatusDistribution();
+        assertEquals(2, statusRows.size(), "状态分布应有 2 种，实际 " + statusRows.size());
+        AnalyticsRepository.OrderStatusCount completed = statusRows.stream()
+                .filter(s -> "COMPLETED".equals(s.status())).findFirst().orElseThrow(
+                        () -> new AssertionError("状态分布里没有 COMPLETED"));
+        assertEquals(3L, completed.count(), "COMPLETED 应为 3 单");
+        AnalyticsRepository.OrderStatusCount pending = statusRows.stream()
+                .filter(s -> "PENDING".equals(s.status())).findFirst().orElseThrow(
+                        () -> new AssertionError("状态分布里没有 PENDING"));
+        assertEquals(1L, pending.count(), "PENDING 应为 1 单");
+
+        // ⑥ 客户分布（按收货国家聚合，**买家数是 COUNT(DISTINCT buyer_email)**）
+        List<AnalyticsRepository.RegionAggregate> regions = repository.getCustomerDistribution();
+        assertEquals(3, regions.size(), "客户分布应有 3 个地区，实际 " + regions.size());
+        AnalyticsRepository.RegionAggregate us = regions.stream()
+                .filter(r -> "US".equals(r.region())).findFirst().orElseThrow(
+                        () -> new AssertionError("客户分布里没有 US"));
+        // 📌 **关键断言**：US 有 2 单，但都是同一个买家 alice → 买家数必须是 **1** 而不是 2
+        assertEquals(1L, us.customers(), "US 的买家数应为 1（两单同一邮箱 alice），实际 " + us.customers());
+        assertEquals(0, us.revenue().compareTo(new BigDecimal("300.00")),
+                "US 的营收应为 300.00，实际 " + us.revenue());
+        AnalyticsRepository.RegionAggregate fr = regions.stream()
+                .filter(r -> "FR".equals(r.region())).findFirst().orElseThrow(
+                        () -> new AssertionError("客户分布里没有 FR"));
+        assertEquals(0, fr.revenue().compareTo(new BigDecimal("999.00")),
+                "FR 的营收应为 999.00，实际 " + fr.revenue());
     }
 
     @Test
