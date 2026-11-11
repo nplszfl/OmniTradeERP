@@ -153,8 +153,29 @@ def parse_reactor_max(texts):
 
 
 def disk_gates():
+    """**当前磁盘**上的闸门（基线 = 磁盘）。"""
     d = os.path.join(ROOT, "scripts")
     return {f for f in os.listdir(d) if f.startswith("check-") and f.endswith(".py")}
+
+
+def tree_gates(sha):
+    """**该 commit 的树**上的闸门（基线 = 被核验那个 commit 的树）。
+
+    📌 **为什么必须有这个**（规则 128）：
+        核验一个**较老**的 commit 时，磁盘上可能已经多了好几道新闸门
+        → 拿磁盘当基线 → 差集 = 那几道新闸门 → **假红**（「这 commit 漏跑了」）
+        → 其实那 commit 当时**根本没有**那些闸门，漏跑的是**别人后来加的**。
+        ✅ 基线必须锚在 `git ls-tree <sha> scripts/`。
+    """
+    try:
+        out = subprocess.run(
+            ["git", "ls-tree", "-r", sha, "scripts/", "--name-only"],
+            cwd=ROOT, capture_output=True, text=True, timeout=60, check=True,
+        ).stdout
+    except Exception as e:
+        raise SystemExit(f"❌ 取不到 {sha} 的树（git ls-tree 失败：{e}）")
+    return {os.path.basename(x) for x in out.split()
+            if re.match(r"^scripts/check-.*\.py$", x)}
 
 
 def report(run_id, zpath, all_workflows=False):
@@ -280,11 +301,18 @@ def main():
     if args.all_workflows:
         sha = gh_json(["run", "view", args.run_id, "--json", "headSha"]).get("headSha")
         union, detail = union_over_workflows(sha)
+        # 📌 **基线必须锚在「被核验那个 commit 的树」**，不是当前磁盘（规则 128）：
+        #    核验较老的 commit 时，磁盘可能已多出几道新闸门 → 拿磁盘当基线 → **假红**。
+        base = tree_gates(sha)
         disk = disk_gates()
         print("🔀 跨 workflow 取并集（同一 commit 的全部 run）")
         for rid, name, g, err in detail:
             print(f"   run {rid}（{name}）→ 闸门 {len(g)} 个" + (f" ⚠️ {err}" if err else ""))
-        print(f"   **并集 = {len(union)}** ｜ 磁盘 = {len(disk)} ｜ 差集 = {sorted(disk - union) or '空 ✅'}")
+        print(f"   **并集 = {len(union)}** ｜ 基线 `{sha[:7]}` 的树 = {len(base)} ｜ 当前磁盘 = {len(disk)}")
+        print(f"   差集（树 - 并集）= {sorted(base - union) or '空 ✅'}")
+        if base != disk:
+            print(f"   ℹ️ 磁盘比树多 {len(disk - base)} 道：{sorted(disk - base)}")
+            print(f"      → 那是**后来**加的闸门，**不属于** {sha[:7]} 的核验范围（规则 128）")
         # 📌 **结论必须与数字同源**（规则 51 / 113 的工具版）：
         #   旧写法把「并集 == 磁盘 → 都真跑过」**无条件打印** →
         #   实测：某个 workflow 的日志**下载失败** → 并集 44 ≠ 磁盘 55 → 11 道闸门被报成「漏跑」
@@ -296,11 +324,21 @@ def main():
             for rid, err in failed:
                 print(f"      run {rid} → {err}")
             print("   → **重试本命令**（下载失败是偶发的）；在取全之前，**不得**断言「闸门都跑过」")
-        elif len(union) == len(disk):
-            print("   → 并集 == 磁盘 → **该 commit 的每道闸门都真在 CI 里跑过** ✅")
+        elif not base:
+            print("   ❌ **基线取不到**（该 commit 的树里没有闸门）→ 无法判定")
+        elif base - union:
+            # 📌 **判据必须比「集合」，不能只比「计数」**（规则 74）：
+            #   旧写法 `len(union) == len(disk)` → union 里多一个不存在的名字、少一道真闸门
+            #   → **数量相同** → 打印「每道闸门都真跑过 ✅」= **假绿**
+            print(f"   ❌ 树 - 并集 = {sorted(base - union)} → **这些闸门没在这个 commit 跑过**")
+            extra = sorted(union - base)
+            if extra:
+                print(f"      （另有并集里多出的名字：{extra} → 日志提到但树里没有）")
+        elif union - base:
+            print(f"   ⚠️ 并集里多出 {sorted(union - base)}（日志提到但树里没有）→ 不影响「树里的都跑了」")
+            print("   → 树里的每道闸门都真在 CI 里跑过 ✅")
         else:
-            print(f"   ❌ 并集({len(union)}) != 磁盘({len(disk)}) → **确实有闸门没在这个 commit 跑过**")
-            print(f"      差集 = {sorted(disk - union)}")
+            print("   → 并集 == 树 → **该 commit 的每道闸门都真在 CI 里跑过** ✅")
         if not detail:
             print("   ❌ **该 sha 下一个 run 都没取到** → 可能是 sha 写错 / 该 commit 还没推送；"
                   "**注意「取不到」与「跑出 0 道」必须分开**（规则 131）")
