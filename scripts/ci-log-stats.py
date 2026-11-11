@@ -45,6 +45,10 @@ REACTOR_ITEM_RE = re.compile(r"\[INFO\]\s+(.+?)\s+\[(pom|jar|war)\]\s*$")
 GATE_RE = re.compile(r"scripts/(check-[\w-]+\.py)")
 
 
+# 📌 下载整个 run 的日志 ZIP 可能**很慢**（大 run 有几十个 job）→ 超时要给足
+DOWNLOAD_TIMEOUT = 900
+
+
 def sh(cmd, timeout=300, binary=False):
     return subprocess.run(cmd, capture_output=True, text=not binary, timeout=timeout, cwd=ROOT)
 
@@ -73,24 +77,35 @@ def download_log_zip(run_id, dest, retries=3):
     """
     last_err = ""
     for attempt in range(1, retries + 1):
-        r = sh(["gh", "api", f"repos/{REPO}/actions/runs/{run_id}/logs"], binary=True)
-        if r.returncode != 0:
-            last_err = (r.stderr or b"").decode("utf-8", "replace").strip()[:300]
+        # 📌 **必须 catch `subprocess.TimeoutExpired`**（规则 88）：
+        #   它是**异常**而不是「rc != 0」→ 不 catch 就会**穿透整个重试循环**，
+        #   直接以 traceback 崩掉工具 → 上层拿不到任何结论（工具崩了 = 静默失效）。
+        #   实测（2026-11-11 21:50）：31 job 的大 run 下载超过 300s → TimeoutExpired 崩掉。
+        try:
+            r = sh(["gh", "api", f"repos/{REPO}/actions/runs/{run_id}/logs"],
+                   binary=True, timeout=DOWNLOAD_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            last_err = f"下载超时（>{DOWNLOAD_TIMEOUT}s，日志太大）"
+        except Exception as e:  # 网络抖动等其它异常也不能让工具崩掉
+            last_err = f"{type(e).__name__}: {e}"
         else:
-            data = r.stdout
-            if not data:
-                last_err = "下载到 0 字节（多半是 API 限流或 token 失效）"
+            if r.returncode != 0:
+                last_err = (r.stderr or b"").decode("utf-8", "replace").strip()[:300]
             else:
-                with open(dest, "wb") as f:
-                    f.write(data)
-                try:
-                    z = zipfile.ZipFile(dest)
-                    bad = z.testzip()
-                    if bad is None:
-                        return dest
-                    last_err = f"ZIP 损坏：坏 entry = {bad}"
-                except zipfile.BadZipFile as e:
-                    last_err = f"不是合法 ZIP：{e}"
+                data = r.stdout
+                if not data:
+                    last_err = "下载到 0 字节（多半是 API 限流或 token 失效）"
+                else:
+                    with open(dest, "wb") as f:
+                        f.write(data)
+                    try:
+                        z = zipfile.ZipFile(dest)
+                        bad = z.testzip()
+                        if bad is None:
+                            return dest
+                        last_err = f"ZIP 损坏：坏 entry = {bad}"
+                    except zipfile.BadZipFile as e:
+                        last_err = f"不是合法 ZIP：{e}"
         if attempt < retries:
             time.sleep(3 * attempt)
     raise SystemExit(
@@ -201,6 +216,9 @@ def report(run_id, zpath, all_workflows=False):
     print(f"   用例总数 **{test_sum}** ｜ 失败 {fails} / 错误 {errs} / 跳过 {skips}")
     print(f"   每测试类行 {len(per)} → 求和 {sum(n for n, _ in per)} ｜ 唯一类名 {unique_classes}")
     print(f"   ⚠️ 全 entry 求和会是 **{sum(a[0] for a in agg) + sum(n for n, _ in per)}**（双份 → 假数，别用）")
+    if not agg:
+        print("   ⚠️ **本 run 没有 Java 测试输出** —— 「0」**不等于**「0 个测试跑过」；"
+              "测试在**别的 workflow** 里跑 → 请看跨 workflow 段（规则 51 / 92）")
     print()
     print(f"🚦 闸门（口径：**按唯一脚本名去重**）")
     print(f"   本 run 内出现 **{len(gates)}** 个")
@@ -252,8 +270,16 @@ def runs_for_sha(sha):
 
 
 def union_over_workflows(sha):
-    """跨 workflow 取闸门并集 → 回答「这个 commit 的闸门**是不是都真跑了**」。"""
+    """跨 workflow 取闸门并集 → 回答「这个 commit 的闸门**是不是都真跑了**」。
+
+    📌 **顺带把每个 workflow 的测试数也收上来**（规则 51 / 92）：
+      `Code Quality Check` **不跑 Java 测试** → 它的聚合行是 **0 条**
+      → 只看「第一个 run」会打印「测试 0 条」= **假数**（读的人会以为「一个测试都没跑」）。
+      ✅ 跨 workflow 的口径 = **各 workflow 取最大值**（与 Reactor 同口径，规则 51）：
+         求和会在两个 workflow 跑**同一批测试**时翻倍 → 只能取 max。
+    """
     union, detail = set(), []
+    test_detail = []
     for r in runs_for_sha(sha):
         rid = str(r["databaseId"])
         with tempfile.TemporaryDirectory() as td:
@@ -262,14 +288,24 @@ def union_over_workflows(sha):
                 download_log_zip(rid, zp)
                 if not zipfile.is_zipfile(zp):
                     detail.append((rid, r.get("name", "?"), set(), "下载非 ZIP"))
+                    test_detail.append((rid, r.get("name", "?"), 0, 0, 0, 0, 0, "下载非 ZIP"))
                     continue
                 jl, sl = classify_entries(zp)
                 g = set(GATE_RE.findall("\n".join(jl + sl)))
                 union |= g
                 detail.append((rid, r.get("name", "?"), g, ""))
+                agg, per = parse_tests(jl)
+                test_detail.append((
+                    rid, r.get("name", "?"),
+                    len(agg), sum(a[0] for a in agg),
+                    sum(a[1] for a in agg), sum(a[2] for a in agg), sum(a[3] for a in agg),
+                    "",  # per 行数在下面补
+                ))
+                test_detail[-1] = test_detail[-1][:7] + (len(per),)
             except SystemExit as e:
                 detail.append((rid, r.get("name", "?"), set(), str(e)[:80]))
-    return union, detail
+                test_detail.append((rid, r.get("name", "?"), 0, 0, 0, 0, 0, str(e)[:80]))
+    return union, detail, test_detail
 
 
 def main():
@@ -300,7 +336,7 @@ def main():
 
     if args.all_workflows:
         sha = gh_json(["run", "view", args.run_id, "--json", "headSha"]).get("headSha")
-        union, detail = union_over_workflows(sha)
+        union, detail, test_detail = union_over_workflows(sha)
         # 📌 **基线必须锚在「被核验那个 commit 的树」**，不是当前磁盘（规则 128）：
         #    核验较老的 commit 时，磁盘可能已多出几道新闸门 → 拿磁盘当基线 → **假红**。
         base = tree_gates(sha)
@@ -321,6 +357,27 @@ def main():
         print("🔀 跨 workflow 取并集（同一 commit 的全部 run）")
         for rid, name, g, err in detail:
             print(f"   run {rid}（{name}）→ 闸门 {len(g)} 个" + (f" ⚠️ {err}" if err else ""))
+        # 📌 **测试数也要跨 workflow**（规则 51 / 92）：
+        #   `Code Quality Check` **不跑 Java 测试** → 只看「第一个 run」会打印「测试 0 条」
+        #   → **0 会被读成「一个测试都没跑」**（实测 22:5x：CQ=0 / CI-CD=1027）。
+        #   ✅ 口径 = **各 workflow 取最大值**（与 Reactor 同口径）：求和会在两个 workflow
+        #      跑**同一批测试**时翻倍 → 只能取 max。
+        if test_detail:
+            print("🧪 测试（跨 workflow 口径：**各 workflow 取最大值**）")
+            for rid, name, n_agg, tsum, f, e, sk, extra in test_detail:
+                print(f"   run {rid}（{name}）→ 聚合行 {n_agg} 条 ｜ 用例 **{tsum}**"
+                      f" ｜ 失败 {f} / 错误 {e} / 跳过 {sk}" + (f" ⚠️ {extra}" if extra else ""))
+            cross_max = max(t[3] for t in test_detail)
+            with_tests = [t for t in test_detail if t[2] > 0]
+            print(f"   → **跨 workflow 用例数 = {cross_max}**"
+                  f"（有测试的 workflow {len(with_tests)} 个）")
+            if len(with_tests) > 1:
+                vals = sorted({t[3] for t in with_tests})
+                if len(vals) > 1:
+                    print(f"   ⚠️ 多个 workflow 的用例数**不一致** {vals} → 取最大值；"
+                          f"**不得**求和（同一批测试可能被两个 workflow 各跑一遍 → 翻倍）")
+            if not with_tests:
+                print("   ⚠️ **所有 workflow 都没有 Java 测试输出** → 「0」= **取不到**，不等于「0 个测试」")
         print(f"   **并集 = {len(union)}** ｜ 基线 `{sha[:7]}` 的树 = {len(base)} ｜ 当前磁盘 = {len(disk)}")
         print(f"   差集（树 - 并集）= {sorted(base - union) or '空 ✅'}")
         if self_test:
