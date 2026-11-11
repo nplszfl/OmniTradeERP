@@ -121,6 +121,11 @@ jobs:
         # 📌 **前端「假成功 / 假删除」**（规则 80 / 82）
         #    声称做了写操作（添加/保存/删除…成功），所在函数里却没有一个请求 → 弹了提示但啥也没发生
         python3 scripts/check-frontend-fake-success.py
+        # 📌 **提交信息里不能出现工作流命令字面量**（规则 138）
+        #    提交信息原文会被 docker buildx 的 provenance JSON 带进 CI 日志
+        #    → 其中一行以工作流 error 命令开头 → GitHub 把它当成真错误
+        #    → **全绿的 CI 在页面上显示一片红**，工具也会误报「有错误」
+        python3 scripts/check-commit-message-workflow-commands.py
         # 📌 **CI 别挂在第三方 npm 镜像上**（lockfile 的 146 条 resolved 指向国内镜像）
         python3 scripts/check-npm-registry-pinning.py
         # 📌 **MySQL 配置层必填项** —— 字符集 / 注释空格 / JDBC 公钥（规则 63 / 64 / 65）
