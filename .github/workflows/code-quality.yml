@@ -112,6 +112,9 @@ jobs:
         #    「Prophet + ARIMA」「AI智能定价算法」这类对外字段 = 谎报事实
         #    → 真值来源 = 该模块 pom 是否真有 ML / LLM 依赖
         python3 scripts/check-ai-claim-honesty.py
+        # 📌 **「记了账、没改东西」**（规则 72 / 80 / 82）
+        #    写商品维度的变更历史、却不更新商品主表 → 假成功（采纳了但价格没变）
+        python3 scripts/check-history-without-master-update.py
         # 📌 **CI 别挂在第三方 npm 镜像上**（lockfile 的 146 条 resolved 指向国内镜像）
         python3 scripts/check-npm-registry-pinning.py
         # 📌 **MySQL 配置层必填项** —— 字符集 / 注释空格 / JDBC 公钥（规则 63 / 64 / 65）

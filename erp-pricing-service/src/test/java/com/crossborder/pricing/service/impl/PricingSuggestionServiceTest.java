@@ -238,6 +238,43 @@ class PricingSuggestionServiceTest {
     }
 
     @Test
+    @DisplayName("apply - **真的把商品售价改成新价**（原来只改建议+历史 → 假成功）")
+    void apply_actuallyUpdatesProductSellingPrice() {
+        AiPricingSuggestion suggestion = sampleSuggestion();
+        when(productMapper.selectOne(any())).thenReturn(sampleProduct());
+        when(suggestionMapper.selectOne(any())).thenReturn(suggestion);
+
+        service.applySuggestion("SKU-BLU-001-BLK", new BigDecimal("315.00"));
+
+        // 📌 2026-11-11 修：原来 applySuggestion **从不**写 product.selling_price
+        //    （全仓 `setSellingPrice` 生产代码 0 处调用）→ 前端弹「已采纳建议价」、
+        //    price_history 多一条变更记录，而**商品售价纹丝未动** = 假成功（规则 80/82）
+        ArgumentCaptor<Product> pc = ArgumentCaptor.forClass(Product.class);
+        verify(productMapper).updateById(pc.capture());
+        assertEquals(0, new BigDecimal("315.00").compareTo(pc.getValue().getSellingPrice()),
+                "采纳建议价必须真的把商品售价改掉");
+        assertNotNull(pc.getValue().getUpdateTime());
+    }
+
+    @Test
+    @DisplayName("apply - 历史记录的旧价取**商品当前售价**，不是建议快照里的过期价")
+    void apply_historyOldPrice_comesFromLiveProductPrice() {
+        AiPricingSuggestion suggestion = sampleSuggestion();
+        suggestion.setCurrentPrice(new BigDecimal("199.00"));   // 建议生成时的旧快照
+        Product live = sampleProduct();
+        live.setSellingPrice(new BigDecimal("299.00"));          // 商品现在的真实售价
+        when(productMapper.selectOne(any())).thenReturn(live);
+        when(suggestionMapper.selectOne(any())).thenReturn(suggestion);
+
+        service.applySuggestion("SKU-BLU-001-BLK", new BigDecimal("315.00"));
+
+        ArgumentCaptor<PriceHistory> captor = ArgumentCaptor.forClass(PriceHistory.class);
+        verify(priceHistoryMapper).insert(captor.capture());
+        assertEquals(0, new BigDecimal("299.00").compareTo(captor.getValue().getOldPrice()),
+                "旧价必须是真实售价 299，而不是建议快照里的过期价 199");
+    }
+
+    @Test
     @DisplayName("apply - 重复采纳被拒绝")
     void apply_rejectsDuplicate() {
         AiPricingSuggestion suggestion = sampleSuggestion();

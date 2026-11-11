@@ -13,6 +13,7 @@ import com.crossborder.pricing.service.PricingSuggestionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -95,6 +96,7 @@ public class PricingSuggestionServiceImpl implements PricingSuggestionService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public PricingSuggestionVO applySuggestion(String sku, BigDecimal finalPrice) {
         if (sku == null || sku.isBlank()) {
             throw new BizException("SKU 不能为空");
@@ -115,11 +117,25 @@ public class PricingSuggestionServiceImpl implements PricingSuggestionService {
         suggestion.setApplyTime(LocalDateTime.now());
         suggestionMapper.updateById(suggestion);
 
+        // 📌 **必须真的改商品价格** —— 原来这里**只**改了「建议」和「历史」，
+        //    `product.selling_price` **从头到尾没人写过**（全仓 `setSellingPrice` 0 处调用，
+        //    只有 seed SQL 和一个测试）→ 前端弹「已采纳建议价」、历史页多一条变更记录，
+        //    而**商品的实际售价纹丝未动** = **假成功**（规则 80 / 82），
+        //    而且 `price_history` 记下的是一次**根本没发生的变更**（规则 72：数字必须来自真正用的那张表）。
+        BigDecimal oldPrice = product.getSellingPrice() != null
+                ? product.getSellingPrice()
+                : suggestion.getCurrentPrice();
+        product.setSellingPrice(finalPrice);
+        product.setUpdateTime(LocalDateTime.now());
+        productMapper.updateById(product);
+
         // 同步写入价格历史，前端「历史」页能立刻看到这次变更
         PriceHistory history = new PriceHistory();
         history.setProductId(product.getId());
         history.setProductCode(product.getProductCode());
-        history.setOldPrice(suggestion.getCurrentPrice());
+        // 📌 旧价取**商品当前售价**（真实旧价），不是建议快照里的 currentPrice ——
+        //    建议可能是什么时候生成的，那时的价格未必是现在的价格（规则 72）
+        history.setOldPrice(oldPrice);
         history.setNewPrice(finalPrice);
         history.setAdjustmentType("MANUAL");
         history.setAdjustmentReason("采纳定价建议");
