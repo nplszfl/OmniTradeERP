@@ -39,6 +39,17 @@ import java.util.Map;
 @Service
 public class PricingServiceImpl implements PricingService {
 
+    /** 📌 **不要写「AI智能定价算法」** —— 那是**谎报事实**（规则 18 / 56）。
+     *  实际实现是**确定性规则**（成本 + 利润率 + 季节性 + 库存调整），**不调用任何 LLM**
+     *  → 对外字段必须说清楚「这是什么」，否则调用方会以为背后有模型在算。 */
+    private static final String STRATEGY_RULE_BASED =
+            "多因素规则定价（成本 + 利润率 + 季节性 + 库存；非 LLM）";
+
+    /** 占位数据（尚未接入真实数据源）时的说明 —— 让调用方**看得见**这不是真实数据（规则 19 / 43） */
+    private static final String REASON_PLACEHOLDER_DATA =
+            "占位数据：尚未接入商品成本 / 竞品数据源（未落库）";
+
+
     // 配置参数
     private static final BigDecimal BASE_PROFIT_MARGIN = new BigDecimal("0.20"); // 20%基础利润率
     private static final BigDecimal MAX_PRICE_INCREASE = new BigDecimal("0.15"); // 最多涨15%
@@ -111,7 +122,7 @@ public class PricingServiceImpl implements PricingService {
         response.setRecommendedPrice(finalPrice);
         response.setPriceChangePercent(priceChangePercent);
         response.setProfitMargin(profitMargin);
-        response.setPricingStrategy("AI智能定价算法 v2.0.0");
+        response.setPricingStrategy(STRATEGY_RULE_BASED);
         response.setAdjustmentReason(generateAdjustmentReason(priceChangePercent));
 
         // 8. 保存因子贡献
@@ -171,11 +182,13 @@ public class PricingServiceImpl implements PricingService {
         PricingResponse response = new PricingResponse();
         response.setProductId(productId);
         response.setRecommendedPrice(targetPrice);
-        response.setAdjustmentReason("手动调整: " + reason);
-        response.setApplied(true);
+        response.setAdjustmentReason("手动调整: " + reason
+                + "（⚠️ 仅算出目标价，**未落库**：尚未接入商品价格更新）");
+        // 📌 **不许说「已应用」** —— 这里**什么都没写**（原来这里是 `setApplied(true)` + 一个
+        //    `TODO: 实际更新数据库中的价格`）→ 调用方以为调价生效了，其实价格没变（规则 80 / 82：假成功）。
+        //    真要落库，得先有商品价格表 + 写 price_history。
+        response.setApplied(false);
         response.setCalculationTime(LocalDateTime.now());
-
-        // TODO: 实际更新数据库中的价格
 
         log.info("手动价格调整完成");
         return response;
@@ -192,7 +205,9 @@ public class PricingServiceImpl implements PricingService {
         response.setOriginalPrice(new BigDecimal("150.00"));
         response.setRecommendedPrice(new BigDecimal("145.00"));
         response.setProfitMargin(new BigDecimal("30"));
-        response.setPricingStrategy("AI智能定价算法 v2.0.0");
+        response.setPricingStrategy(STRATEGY_RULE_BASED);
+        // 📌 这几个价格是**写死的占位值**（不是从商品表读的）→ 原因要写出来，别让人当真实报价
+        response.setAdjustmentReason(REASON_PLACEHOLDER_DATA);
         response.setCalculationTime(LocalDateTime.now());
 
         return response;

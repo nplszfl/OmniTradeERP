@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -375,15 +376,50 @@ class PricingServiceImplTest {
     // ========== manualPriceAdjustment ==========
 
     @Test
-    @DisplayName("manualPriceAdjustment - 直接使用目标价并标记 applied")
+    @DisplayName("manualPriceAdjustment - 给出目标价，但**如实说没落库**（applied=false）")
     void manualPriceAdjustment_usesTargetPriceDirectly() {
         PricingResponse resp = service.manualPriceAdjustment(
                 100L, new BigDecimal("199.99"), "运营手动调价");
 
         assertEquals(100L, resp.getProductId());
         assertEquals(0, new BigDecimal("199.99").compareTo(resp.getRecommendedPrice()));
-        assertEquals("手动调整: 运营手动调价", resp.getAdjustmentReason());
-        assertEquals(Boolean.TRUE, resp.getApplied());
+        // 📌 2026-11-12：这里原来是 `assertEquals(Boolean.TRUE, resp.getApplied())` ——
+        //    也就是**测试把「假成功」当成正确行为钉住了**（服务里 applied=true 但**什么都没写**，
+        //    只留了个 `TODO: 实际更新数据库中的价格`）→ 规则 80 / 82（假成功）。
+        //    ✅ 现在如实返回 applied=false，并把「未落库」写进原因里。
+        assertEquals(Boolean.FALSE, resp.getApplied(),
+                "没有落库就不许说「已应用」");
+        assertTrue(resp.getAdjustmentReason().contains("手动调整: 运营手动调价"));
+        assertTrue(resp.getAdjustmentReason().contains("未落库"),
+                "原因里必须说明「没落库」，否则调用方无从判断");
+    }
+
+    @Test
+    @DisplayName("定价策略不许自称「AI」—— 实际是确定性规则（规则 18 / 56）")
+    void pricingStrategy_doesNotClaimAI() {
+        PricingRequest req = new PricingRequest();
+        req.setProductId(100L);
+        req.setProductCode("PROD-100");
+        req.setCurrentPrice(new BigDecimal("150.00"));
+        req.setCostPrice(new BigDecimal("100.00"));
+        req.setTargetProfitMargin(new BigDecimal("30"));
+
+        PricingResponse resp = service.calculateOptimalPrice(req);
+
+        assertNotNull(resp.getPricingStrategy());
+        assertFalse(resp.getPricingStrategy().contains("AI智能定价"),
+                "没有调用任何 LLM → 不许自称 AI 定价算法");
+        assertTrue(resp.getPricingStrategy().contains("规则"),
+                "策略名要说明这是规则定价：" + resp.getPricingStrategy());
+    }
+
+    @Test
+    @DisplayName("getProductPricingInfo - 占位数据要写明「不是真实报价」")
+    void getProductPricingInfo_marksPlaceholderData() {
+        PricingResponse resp = service.getProductPricingInfo(42L);
+
+        assertTrue(resp.getAdjustmentReason().contains("占位数据"),
+                "返回的是写死的占位值 → 原因里必须说明");
     }
 
     // ========== getProductPricingInfo ==========

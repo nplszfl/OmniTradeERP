@@ -28,6 +28,13 @@ import java.util.Random;
 @Service
 public class InventoryPredictionServiceImpl implements InventoryPredictionService {
 
+    /** 📌 **不许写「Prophet + ARIMA」** —— 那是**谎报事实**（规则 18 / 56）。
+     *  实际算法：移动平均 + 线性趋势 + 季节性因子 + 随机扰动，
+     *  而且**历史销量本身是模拟生成**的（见 {@code getHistoricalSales}）→ 没有任何机器学习模型。 */
+    private static final String MODEL_TYPE_HEURISTIC =
+            "启发式（移动平均 + 季节性因子；历史数据为模拟值，非机器学习模型）";
+
+
     private final Random random = new Random();
 
     // 服务统计
@@ -45,7 +52,7 @@ public class InventoryPredictionServiceImpl implements InventoryPredictionServic
         response.setPredictionDays(request.getPredictionDays());
         response.setStartDate(request.getStartDate() != null ? request.getStartDate() : LocalDate.now());
         response.setEndDate(response.getStartDate().plusDays(request.getPredictionDays()));
-        response.setModelType("Prophet + ARIMA");
+        response.setModelType(MODEL_TYPE_HEURISTIC);
         response.setPredictionTime(LocalDateTime.now());
 
         // 1. 获取历史销售数据
@@ -90,7 +97,9 @@ public class InventoryPredictionServiceImpl implements InventoryPredictionServic
             dailyPred.setPredictedSales(sales);
             dailyPred.setLowerBound(Math.max(0, (long) (sales * 0.8)));
             dailyPred.setUpperBound((long) (sales * 1.2));
-            dailyPred.setConfidence(0.9);
+            // 📌 **不编造置信度**：历史数据是**模拟**出来的（getHistoricalSales 里随机生成），
+            //    在模拟数据上算出来的「置信度」是个**假事实**（规则 56）→ 宁可不给数
+            dailyPred.setConfidence(null);
 
             dailyPredictions.add(dailyPred);
             totalPredictedSales += sales;

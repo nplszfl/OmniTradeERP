@@ -7,6 +7,7 @@ import com.crossborder.inventoryprediction.dto.ReplenishmentSuggestion;
 import com.crossborder.inventoryprediction.dto.ServiceStatistics;
 import com.crossborder.inventoryprediction.service.InventoryPredictionService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -29,6 +30,24 @@ class InventoryPredictionServiceImplTest {
     private InventoryPredictionServiceImpl inventoryPredictionService;
 
     private PredictionRequest request;
+
+    @Test
+    @DisplayName("预测结果不许自称「Prophet + ARIMA」，也不许编造置信度（规则 18 / 56）")
+    void prediction_doesNotClaimMLModelNorFakeConfidence() {
+        PredictionResponse resp = inventoryPredictionService.predictSales(request);
+
+        assertNotNull(resp.getModelType());
+        assertFalse(resp.getModelType().contains("Prophet"),
+                "没有调用任何 ML 模型 → 不许自称 Prophet");
+        assertFalse(resp.getModelType().contains("ARIMA"),
+                "没有调用任何 ML 模型 → 不许自称 ARIMA");
+        assertTrue(resp.getModelType().contains("模拟"),
+                "历史数据是模拟生成的 → 模型说明里必须写出来：" + resp.getModelType());
+
+        // 📌 置信度：历史数据是随机生成的 → 在它上面算「置信度」是**假事实** → 不给数
+        resp.getDailyPredictions().forEach(d ->
+                assertNull(d.getConfidence(), "模拟数据上不许给出置信度"));
+    }
 
     @BeforeEach
     void setUp() {
