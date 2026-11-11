@@ -169,6 +169,18 @@ def main() -> int:
     print(f"ℹ️  来源：{source}")
     print(f"ℹ️  待查文本：{len(items)} 份")
 
+    # 📌 **待查文本 == 0 → 不能报绿** ——
+    #    「一条都没查到」和「都干净」在输出上都长得一样（规则 43 的变体）。
+    #    实测踩过：把脚本拷到仓库外跑 → REPO_ROOT 指错 → 待查 0 份 → 报「✅ 全部干净」
+    #    → **真空绿**。✅ 这里必须直接判红。
+    if not items:
+        print("\n❌ **一条提交信息都没取到** —— 无法判定。")
+        print("   可能原因：")
+        print("     ① 不在 git 仓库里 / 仓库浅克隆且事件负载里没有 `commits[]`")
+        print("     ② `GITHUB_EVENT_PATH` 不存在或格式不对")
+        print("   📌 **「没查到」≠「没问题」** —— 闸门要么查，要么失败（规则 43）。")
+        return 1
+
     findings = []
     exempt = []
     for label, text in items:
