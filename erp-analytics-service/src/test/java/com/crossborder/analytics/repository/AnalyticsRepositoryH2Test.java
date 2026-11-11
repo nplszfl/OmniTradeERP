@@ -212,6 +212,60 @@ class AnalyticsRepositoryH2Test {
     }
 
     @Test
+    @DisplayName("按天聚合：每单必须落进正确的日期桶（这条路径以前只有 mock，没上过真库）")
+    void dailyAggregatesMustBucketByCorrectDay() {
+        // 📌 **这条路径以前完全没有 H2 覆盖** —— `getDailyAggregates` 只在
+        //    `DashboardServiceTest` 里被 mock 过，**SQL 从没在真库上跑过**
+        //    → SQL 一旦写错（H2 不认 / 分桶错位 / 补 0 断裂），测试**照样全绿**
+        //    → 这正是规则 48「别写假测试」的典型反面：mock 掉的那部分正好是风险所在。
+        int span = 30;
+        List<AnalyticsRepository.DailyAggregate> rows = repository.getDailyAggregates(span);
+
+        // ① 序列长度 = span（缺 0 的日期也要补出来，前端趋势图要连续）
+        assertEquals(span, rows.size(), "按天聚合应返回 " + span + " 天（缺 0 的日期也要补齐）");
+
+        // ② 日期必须**连续**（不能跳天）
+        for (int i = 1; i < rows.size(); i++) {
+            assertEquals(rows.get(i - 1).date().plusDays(1), rows.get(i).date(),
+                    "日期序列不应跳天：第 " + (i - 1) + " 天 " + rows.get(i - 1).date()
+                            + " 之后是 " + rows.get(i).date());
+        }
+
+        LocalDate today = LocalDate.now();
+        LocalDate yesterday = today.minusDays(1);
+        LocalDate monthStart = today.withDayOfMonth(1).minusDays(2);
+
+        AnalyticsRepository.DailyAggregate todayRow = rows.stream()
+                .filter(r -> today.equals(r.date())).findFirst().orElseThrow(
+                        () -> new AssertionError("结果里根本没有今天 " + today));
+        AnalyticsRepository.DailyAggregate yesterdayRow = rows.stream()
+                .filter(r -> yesterday.equals(r.date())).findFirst().orElseThrow(
+                        () -> new AssertionError("结果里根本没有昨天 " + yesterday));
+
+        // ③ 今天的 2 单（含 100.00 + 200.00）必须都落进**今天**这个桶
+        assertEquals(2L, todayRow.orderCount(), "今天的单数应为 2，实际 " + todayRow.orderCount());
+        assertEquals(0, todayRow.revenue().compareTo(new BigDecimal("300.00")),
+                "今天的营收应为 300.00，实际 " + todayRow.revenue());
+
+        // ④ 昨天的 1 单（50.00）必须落进**昨天**这个桶 —— 不能被算到今天
+        assertEquals(1L, yesterdayRow.orderCount(), "昨天的单数应为 1，实际 " + yesterdayRow.orderCount());
+        assertEquals(0, yesterdayRow.revenue().compareTo(new BigDecimal("50.00")),
+                "昨天的营收应为 50.00，实际 " + yesterdayRow.revenue());
+
+        // ⑤ 上个月那单（999.00）必须在**它自己的那天**，不能被算到今天
+        AnalyticsRepository.DailyAggregate monthRow = rows.stream()
+                .filter(r -> monthStart.equals(r.date())).findFirst().orElseThrow(
+                        () -> new AssertionError("结果里没有上月那单所在的 " + monthStart));
+        assertEquals(1L, monthRow.orderCount(), "上月那单的单数应为 1");
+        assertEquals(0, monthRow.revenue().compareTo(new BigDecimal("999.00")),
+                "上月那单的营收应为 999.00，实际 " + monthRow.revenue());
+
+        // ⑥ 合计对得上：4 单全在窗口内
+        long total = rows.stream().mapToLong(AnalyticsRepository.DailyAggregate::orderCount).sum();
+        assertEquals(4L, total, "30 天窗口内应有 4 单");
+    }
+
+    @Test
     @DisplayName("按小时聚合：今天的单必须能被分桶（原来恒为空）")
     void hourlyAggregatesMustNotBeEmpty() {
         List<AnalyticsRepository.HourlyAggregate> rows = repository.getHourlyAggregates();
