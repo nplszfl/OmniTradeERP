@@ -115,6 +115,9 @@ jobs:
         # 📌 **「记了账、没改东西」**（规则 72 / 80 / 82）
         #    写商品维度的变更历史、却不更新商品主表 → 假成功（采纳了但价格没变）
         python3 scripts/check-history-without-master-update.py
+        # 📌 **「写多张表却没有事务」**（规则 111 / 129）
+        #    中途失败 → 部分落库 → 数据不一致 + 假成功
+        python3 scripts/check-multi-write-without-tx.py
         # 📌 **CI 别挂在第三方 npm 镜像上**（lockfile 的 146 条 resolved 指向国内镜像）
         python3 scripts/check-npm-registry-pinning.py
         # 📌 **MySQL 配置层必填项** —— 字符集 / 注释空格 / JDBC 公钥（规则 63 / 64 / 65）
