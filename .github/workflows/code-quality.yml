@@ -118,6 +118,9 @@ jobs:
         # 📌 **「写多张表却没有事务」**（规则 111 / 129）
         #    中途失败 → 部分落库 → 数据不一致 + 假成功
         python3 scripts/check-multi-write-without-tx.py
+        # 📌 **前端「假成功 / 假删除」**（规则 80 / 82）
+        #    声称做了写操作（添加/保存/删除…成功），所在函数里却没有一个请求 → 弹了提示但啥也没发生
+        python3 scripts/check-frontend-fake-success.py
         # 📌 **CI 别挂在第三方 npm 镜像上**（lockfile 的 146 条 resolved 指向国内镜像）
         python3 scripts/check-npm-registry-pinning.py
         # 📌 **MySQL 配置层必填项** —— 字符集 / 注释空格 / JDBC 公钥（规则 63 / 64 / 65）

@@ -78,6 +78,44 @@ public class LogisticsServiceImpl implements LogisticsService {
     }
 
     @Override
+    public Long createChannel(LogisticsChannelVO channel) {
+        if (channel == null || channel.getCode() == null || channel.getCode().isBlank()) {
+            throw new BizException("渠道编码不能为空");
+        }
+        if (channel.getName() == null || channel.getName().isBlank()) {
+            throw new BizException("渠道名称不能为空");
+        }
+        if (channel.getCarrier() == null || channel.getCarrier().isBlank()) {
+            throw new BizException("承运商不能为空");
+        }
+        String code = channel.getCode().trim();
+        // 📌 `t_logistics_channel.channel_code` 有唯一索引 → **先查重、抛业务异常**，
+        //    而不是让 DB 抛 SQLIntegrityConstraintViolationException（500 + SQL 栈泄露给前端，规则 14）
+        Long exists = channelMapper.selectCount(
+                new LambdaQueryWrapper<LogisticsChannel>()
+                        .eq(LogisticsChannel::getChannelCode, code));
+        if (exists != null && exists > 0) {
+            throw new BizException("渠道编码已存在: " + code);
+        }
+        LogisticsChannel entity = new LogisticsChannel();
+        entity.setChannelCode(code);
+        entity.setChannelName(channel.getName().trim());
+        entity.setCarrier(channel.getCarrier().trim());
+        entity.setType(channel.getType() == null || channel.getType().isBlank()
+                ? "EXPRESS" : channel.getType().trim());
+        entity.setCoverage(toJsonArray(channel.getCoverage()));
+        entity.setFeatures(toJsonArray(channel.getFeatures()));
+        entity.setAvgDeliveryDays(channel.getAvgDeliveryDays() == null
+                ? 7 : channel.getAvgDeliveryDays());
+        entity.setTrackingSupport(channel.getTrackingSupport() == null
+                ? Boolean.TRUE : channel.getTrackingSupport());
+        // 📌 默认启用 —— `listChannels()` 只查 enabled=TRUE，不启用的话新增完就看不见
+        entity.setEnabled(channel.getEnabled() == null ? Boolean.TRUE : channel.getEnabled());
+        channelMapper.insert(entity);
+        return entity.getId();
+    }
+
+    @Override
     public Long createRate(LogisticsRateVO rate) {
         if (rate == null || rate.getChannelCode() == null || rate.getChannelCode().isBlank()) {
             throw new BizException("渠道编码不能为空");
@@ -317,6 +355,32 @@ public class LogisticsServiceImpl implements LogisticsService {
      *
      * <p>解析失败返回空列表，不让一条脏数据把渠道列表接口打挂。</p>
      */
+    /**
+     * 把字符串列表拼成 JSON 数组字符串（{@code ["a","b"]}）。
+     *
+     * <p>与 {@link #parseJsonArray(String)} 互为逆运算。</p>
+     */
+    private String toJsonArray(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return "[]";
+        }
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for (String v : values) {
+            if (v == null || v.isBlank()) {
+                continue;
+            }
+            if (!first) {
+                sb.append(',');
+            }
+            first = false;
+            sb.append('"')
+              .append(v.trim().replace("\\", "\\\\").replace("\"", "\\\""))
+              .append('"');
+        }
+        return sb.append(']').toString();
+    }
+
     private List<String> parseJsonArray(String json) {
         if (json == null || json.isBlank()) {
             return List.of();

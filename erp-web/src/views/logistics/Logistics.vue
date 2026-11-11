@@ -489,11 +489,32 @@ const loadRates = async () => {
 // 添加渠道
 const handleAddChannel = async () => {
   try {
+    // 📌 之前这里只是弹个「渠道添加成功」就完事，**一个请求都没发** —— 刷新就没了。
+    //    现在真的调后端落库（POST /logistics/channel）。
+    await logisticsApi.createChannel({
+      code: channelForm.code.trim(),
+      name: channelForm.name.trim(),
+      carrier: channelForm.carrier.trim(),
+      type: channelForm.type,
+      coverage: channelForm.coverageText
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => s.length > 0),
+      features: [],
+      avgDeliveryDays: channelForm.avgDeliveryDays,
+      trackingSupport: channelForm.trackingSupport,
+      enabled: true
+    } as any)
     ElMessage.success('渠道添加成功')
     showChannelDialog.value = false
+    Object.assign(channelForm, {
+      code: '', name: '', carrier: '', type: 'EXPRESS',
+      coverageText: '', avgDeliveryDays: 7, trackingSupport: true
+    })
     loadChannels()
   } catch (error) {
     console.error('添加失败', error)
+    ElMessage.error('渠道添加失败')
   }
 }
 

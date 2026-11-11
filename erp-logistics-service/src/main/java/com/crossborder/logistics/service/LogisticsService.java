@@ -38,6 +38,16 @@ public interface LogisticsService {
     long countRates(String channelCode, String fromCountry, String toCountry);
 
     /**
+     * 新增物流渠道
+     *
+     * <p>⚠️ 前端「添加渠道」按钮原来只弹「渠道添加成功」，**后端根本没有这个接口** →
+     * 纯假成功（规则 80 / 82）。本方法是那条路径的**真实落库端点**。</p>
+     *
+     * @return 新增渠道ID
+     */
+    Long createChannel(LogisticsChannelVO channel);
+
+    /**
      * 新增费率
      *
      * @return 新增费率ID

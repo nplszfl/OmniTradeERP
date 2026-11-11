@@ -229,6 +229,11 @@ export const logisticsApi = {
   getChannels: () =>
     request.get<any, LogisticsChannel[]>('/logistics/channels'),
 
+  // 📌 新增渠道：**后端真的存在这个端点**（POST /logistics/channel）。
+  //    之前前端只弹「渠道添加成功」，后端根本没有对应接口 → 假成功（规则 80 / 82）。
+  createChannel: (data: Partial<LogisticsChannel>) =>
+    request.post<any, ResultShape<string>>('/logistics/channel', data),
+
   // 运费计算
   calculateRate: (data: ShippingRateQuery) =>
     request.post<any, ShippingRateResult[]>('/logistics/calculate', data),

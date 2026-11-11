@@ -91,6 +91,20 @@ public class LogisticsController {
     }
 
     /**
+     * 新增物流渠道
+     * POST /logistics/channel
+     *
+     * <p>⚠️ 这个端点之前**不存在** —— 前端「添加渠道」只弹「渠道添加成功」，
+     * 实际什么都没存（刷新就没了）= 假成功（规则 80 / 82）。</p>
+     */
+    @PostMapping("/channel")
+    public Result<String> createChannel(@RequestBody LogisticsChannelVO channel) {
+        // 📌 返回字符串而不是 Long：渠道主键是雪花 ID（19 位），JS Number 承载不了
+        Long id = logisticsService.createChannel(channel);
+        return Result.successId(id);
+    }
+
+    /**
      * 新增费率
      * POST /logistics/rate
      */

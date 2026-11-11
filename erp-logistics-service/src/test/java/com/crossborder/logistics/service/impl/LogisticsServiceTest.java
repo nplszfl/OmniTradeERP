@@ -303,4 +303,67 @@ class LogisticsServiceTest {
         service.deleteRate(1L);
         verify(rateMapper).deleteById(1L);
     }
+
+    // ========== createChannel（2026-11-11 新增） ==========
+    // 📌 背景：前端「添加渠道」原本只弹「渠道添加成功」，**后端连端点都没有** → 假成功（规则 80 / 82）
+
+    @Test
+    @DisplayName("createChannel - 真的落库，并把默认值补齐")
+    void createChannel_fillsDefaults() {
+        when(channelMapper.selectCount(any())).thenReturn(0L);
+        when(channelMapper.insert(any())).thenAnswer(inv -> {
+            LogisticsChannel c = inv.getArgument(0);
+            c.setId(777L);
+            return 1;
+        });
+
+        LogisticsChannelVO vo = new LogisticsChannelVO();
+        vo.setCode("  SF_EXPRESS  ");
+        vo.setName("顺丰国际");
+        vo.setCarrier("SF");
+        vo.setCoverage(List.of("CN", "US"));
+
+        Long id = service.createChannel(vo);
+        assertEquals(777L, id);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(LogisticsChannel.class);
+        verify(channelMapper).insert(captor.capture());
+        LogisticsChannel saved = captor.getValue();
+        assertEquals("SF_EXPRESS", saved.getChannelCode());   // 编码去空格
+        assertEquals("EXPRESS", saved.getType());              // 默认类型
+        assertEquals(Boolean.TRUE, saved.getEnabled());        // 📌 不启用的话 listChannels() 根本看不见
+        assertEquals(7, saved.getAvgDeliveryDays());
+        assertEquals("[\"CN\",\"US\"]", saved.getCoverage());   // 列表 → JSON 数组字符串
+        assertEquals("[]", saved.getFeatures());
+    }
+
+    @Test
+    @DisplayName("createChannel - 渠道编码已存在抛业务异常（而不是让 DB 报唯一索引冲突）")
+    void createChannel_duplicateCode() {
+        when(channelMapper.selectCount(any())).thenReturn(1L);
+        LogisticsChannelVO vo = new LogisticsChannelVO();
+        vo.setCode("DHL_EXPRESS");
+        vo.setName("DHL国际快递");
+        vo.setCarrier("DHL");
+
+        BizException ex = assertThrows(BizException.class, () -> service.createChannel(vo));
+        assertTrue(ex.getMessage().contains("已存在"));
+        verify(channelMapper, never()).insert(any());
+    }
+
+    @Test
+    @DisplayName("createChannel - 编码/名称/承运商为空抛业务异常")
+    void createChannel_blankFields() {
+        LogisticsChannelVO blank = new LogisticsChannelVO();
+        assertThrows(BizException.class, () -> service.createChannel(blank));
+
+        LogisticsChannelVO noName = new LogisticsChannelVO();
+        noName.setCode("X");
+        assertThrows(BizException.class, () -> service.createChannel(noName));
+
+        LogisticsChannelVO noCarrier = new LogisticsChannelVO();
+        noCarrier.setCode("X");
+        noCarrier.setName("Y");
+        assertThrows(BizException.class, () -> service.createChannel(noCarrier));
+    }
 }
