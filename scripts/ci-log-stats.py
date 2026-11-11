@@ -304,12 +304,31 @@ def main():
         # 📌 **基线必须锚在「被核验那个 commit 的树」**，不是当前磁盘（规则 128）：
         #    核验较老的 commit 时，磁盘可能已多出几道新闸门 → 拿磁盘当基线 → **假红**。
         base = tree_gates(sha)
+        # 📌 **自检必须在「副本」上做，不能污染真数据**（规则 43 / 51）：
+        #   旧写法直接改 `union` → ① 打印的「并集」变成**假数**（48 → 49）
+        #   → ② 判定链用的也是被污染的集合 → **结论与数字不同源**。
+        #   ✅ 现在：真并集原封不动用于打印与判定；注入只在副本上做，且
+        #      **必须真去掉一道「本来就在并集里」的闸门**（否则什么都没删 → 自检是假的）。
+        probe = set(union)
+        victim = sorted(base & probe)      # ← 只能从「确实在并集里」的真闸门里挑
+        self_test = None
+        if victim:
+            probe.discard(victim[0])
+            probe.add("check-ghost-injected.py")   # 多一个不存在的名字 → 数量不变
+            still_red = bool(base - probe)
+            self_test = (victim[0], len(probe), len(base), still_red)
         disk = disk_gates()
         print("🔀 跨 workflow 取并集（同一 commit 的全部 run）")
         for rid, name, g, err in detail:
             print(f"   run {rid}（{name}）→ 闸门 {len(g)} 个" + (f" ⚠️ {err}" if err else ""))
         print(f"   **并集 = {len(union)}** ｜ 基线 `{sha[:7]}` 的树 = {len(base)} ｜ 当前磁盘 = {len(disk)}")
         print(f"   差集（树 - 并集）= {sorted(base - union) or '空 ✅'}")
+        if self_test:
+            v, psize, bsize, still_red = self_test
+            print(f"   🧪 [自检] 副本上注入「去掉真闸门 {v} + 加 1 个不存在的名字」"
+                  f" → 数量 {psize} == 树 {bsize}（相同）")
+            print(f"      → 判定仍为红？{'✅ 是（集合判据没被计数骗过）' if still_red else '❌ 否 → 假绿！'}")
+            print("      （注入只作用于副本 → 上面打印的「并集」与判定用的都是**真实**数据）")
         if base != disk:
             print(f"   ℹ️ 磁盘比树多 {len(disk - base)} 道：{sorted(disk - base)}")
             print(f"      → 那是**后来**加的闸门，**不属于** {sha[:7]} 的核验范围（规则 128）")
