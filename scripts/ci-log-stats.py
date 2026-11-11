@@ -63,15 +63,23 @@ def gh_json(args):
         raise SystemExit(f"❌ gh 输出不是合法 JSON：{e}\n{(r.stdout or '')[:300]}")
 
 
-def expected_entries(run_id):
-    """该 run 的日志 ZIP **应该**有几个 entry（= 2 × job 数）。
+def expected_job_level_entries(run_id):
+    """该 run 的日志 ZIP 里**至少**该有几个 **job 级** entry（下界 = job 数）。
 
     📌 **为什么需要**（规则 137）：
         `zipfile.testzip()` 对 **0 entry 的合法 ZIP** 返回 None → 被放行 →
         报告「0 个闸门」= **假红**（实测当场发生）。
         → 需要一道**与内容无关、只与数量有关**的强判据。
-    📌 **entry 数 == 2 × job 数**：每个 job 有「job 级」+「step 级」两份 entry
-        （脚本开头 ① 已说明）→ 恒等式成立。实测 4 个 run 全部满足（31→62 / 3→6）。
+    📌 **下界 = job 数**：每个 job **至少**产出 1 个 job 级 entry
+        （job 级 entry 含 `Runner Image Provisioner`）。
+        → **job 级 entry 数 < job 数** = **必然没下全**。
+    📌 **⚠️ 不能用「entry 总数」当判据**（实测教训）：
+        entry 总数 = job 级 + step 级，**step 数会随 workflow 改动而变**
+        → 同一批 job 31 个，entry 总数可以是 **62**（旧 run）也可以是 **359**（新 run）
+        → 「entry 总数 == 2 × job 数」是**过拟合到 4 个样本的伪恒等式**
+        → 第一版修复用它 → 立刻把**合法**下载判成「没下全」（假红）。
+        ✅ **只用「job 级 entry 数 >= job 数」**（实测 5 个 run 全满足，
+        含 entry 总数 62 与 359 两种形态）。
     📌 取不到 job 数 → 返回 None → 上层**不放行**（宁可重试，不可给半截数）。
     """
     try:
@@ -79,11 +87,28 @@ def expected_entries(run_id):
         jobs = d.get("total_count")
         if jobs is None:
             jobs = len(d.get("jobs", []))
-        return int(jobs) * 2
+        return int(jobs)
     except SystemExit:
         return None
     except Exception:
         return None
+
+
+def count_job_level_entries(zpath):
+    """数日志 ZIP 里的 **job 级** entry 数（含 `Runner Image Provisioner` 的那些）。"""
+    try:
+        z = zipfile.ZipFile(zpath)
+    except zipfile.BadZipFile:
+        return 0
+    n = 0
+    for name in z.namelist():
+        try:
+            text = z.read(name).decode("utf-8", "replace")
+        except Exception:
+            continue
+        if "Runner Image Provisioner" in text:
+            n += 1
+    return n
 
 
 def download_log_zip(run_id, dest, retries=3):
@@ -104,10 +129,12 @@ def download_log_zip(run_id, dest, retries=3):
         同一个 run 第一次下载 0 entry、第二次 62 entry / 51 个闸门）。
       - **半截 ZIP（3910 字节 vs 完整 1.77MB）** → `BadZipFile` 被 catch ✅，
         但**结构合法却内容不全**的半截包仍可能蒙混过关。
-      ✅ **必须再加一道「数量对账」**：日志 ZIP 里**每个 job 有 2 个 entry**
-         （job 级 + step 级）→ **entry 数必须 == 2 × job 数**。
-         实测 4 个 run 全部满足（31 job→62 / 3 job→6）→ 这是可用的强判据。
-         数量对不上 → 判为「没下全」→ 重下；重试仍对不上 → **报「无法判定」**，
+      ✅ **必须再加一道「数量对账」**：日志 ZIP 里**每个 job 至少产出 1 个 job 级 entry**
+         → **job 级 entry 数必须 >= job 数**。
+         ⚠️ **不能用「entry 总数」当判据** —— 总数 = job 级 + step 级，**step 数会变**
+         → 同一批 31 个 job，总数可以是 **62** 也可以是 **359** → 「2 × job 数」是
+         **过拟合的伪恒等式**（第一版修复就这么写的 → 立刻把合法下载判成假红）。
+         📌 数量对不上 → 判为「没下全」→ 重下；重试仍对不上 → **报「无法判定」**，
          **绝不**把它当成「该 workflow 没闸门」（规则 131）。
     """
     last_err = ""
@@ -139,20 +166,21 @@ def download_log_zip(run_id, dest, retries=3):
                         if bad is not None:
                             last_err = f"ZIP 损坏：坏 entry = {bad}"
                         else:
-                            # 📌 **数量对账**（规则 137）：entry 数必须 == 2 × job 数
+                            # 📌 **数量对账**（规则 137）：**job 级** entry 数必须 >= job 数
                             n_entries = len(z.namelist())
+                            n_job_level = count_job_level_entries(dest)
                             if n_entries == 0:
                                 last_err = ("ZIP 合法但**0 个 entry**（多半是 API 返回了空壳）"
                                             " → 会被误读成「该 workflow 没闸门」")
                             else:
-                                expected = expected_entries(run_id)
-                                if expected is None:
+                                need = expected_job_level_entries(run_id)
+                                if need is None:
                                     # 取不到 job 数 → 拿不到强判据 → **不盲目放行**
                                     last_err = (f"取不到 run {run_id} 的 job 数 → 无法做数量对账"
-                                                f"（entry={n_entries}）")
-                                elif n_entries != expected:
-                                    last_err = (f"**entry 数对不上**：{n_entries} != 2×{expected // 2}"
-                                                f"（期望 {expected}）→ 日志没下全")
+                                                f"（job 级 entry={n_job_level}）")
+                                elif n_job_level < need:
+                                    last_err = (f"**job 级 entry 数对不上**：{n_job_level} < job 数 {need}"
+                                                f"（entry 总数 {n_entries}）→ 日志没下全")
                                 else:
                                     return dest
                     except zipfile.BadZipFile as e:
