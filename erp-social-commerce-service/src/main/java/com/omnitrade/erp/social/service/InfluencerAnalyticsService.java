@@ -1,5 +1,6 @@
 package com.omnitrade.erp.social.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.omnitrade.erp.social.dto.InfluencerDTO;
 import com.omnitrade.erp.social.model.Cooperation;
 import com.omnitrade.erp.social.model.Influencer;
@@ -39,7 +40,7 @@ public class InfluencerAnalyticsService {
      */
     public BigDecimal getInfluencerScore(Long influencerId) {
         Influencer influencer = influencerRepository.findById(influencerId)
-                .orElseThrow(() -> new RuntimeException("达人不存在: " + influencerId));
+                .orElseThrow(() -> new BizException("达人不存在: " + influencerId));
         
         // 评分因子
         double followerScore = calculateFollowerScore(influencer);
@@ -134,7 +135,7 @@ public class InfluencerAnalyticsService {
      */
     public Map<String, Object> getInfluencerAnalyticsReport(Long influencerId) {
         Influencer influencer = influencerRepository.findById(influencerId)
-                .orElseThrow(() -> new RuntimeException("达人不存在: " + influencerId));
+                .orElseThrow(() -> new BizException("达人不存在: " + influencerId));
         
         Map<String, Object> report = new HashMap<>();
         

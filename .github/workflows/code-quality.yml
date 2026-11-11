@@ -126,6 +126,8 @@ jobs:
         python3 scripts/check-ci-timeout-guards.py
         # 📌 **降级事实的落地性**（规则 111）
         python3 scripts/check-degradation-fact-rollback.py
+        # 📌 **业务错误的状态码**（规则 28 / 44 / 107）
+        python3 scripts/check-business-error-status.py
         # 📌 **文档数字一致性**（规则 51）
         python3 scripts/check-doc-compose-counts.py
         # 📌 **MySQL init 执行顺序** —— 种子必须排在建表之后（规则 61）

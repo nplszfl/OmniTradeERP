@@ -320,6 +320,12 @@ jobs:
     - name: 降级事实落地性（标记不会被回滚冲掉）
       run: python3 scripts/check-degradation-fact-rollback.py
 
+    # 📌 **业务错误的状态码**（规则 28 / 44 / 107）：「XX不存在」抛 RuntimeException
+    #    → HTTP **500**「服务端故障」→ 监控全是假告警（真故障被淹没）+ 客户端可能重试
+    #    → 同一模块同一概念两种口径（11-11 08:15 实测 65 处）
+    - name: 业务错误状态码（XX不存在 → 400，不是 500）
+      run: python3 scripts/check-business-error-status.py
+
     # 📌 **文档数字一致性**（规则 51）：手写的数字会静默过期 —— 没人发现
     - name: 文档数字（compose 服务数 ↔ 实际 services 数）
       run: python3 scripts/check-doc-compose-counts.py

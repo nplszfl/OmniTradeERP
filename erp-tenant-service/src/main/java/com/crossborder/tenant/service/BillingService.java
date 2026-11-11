@@ -83,7 +83,7 @@ public class BillingService {
         String tenantId = TenantContext.getTenant();
         
         Bill bill = billRepository.findById(billId)
-                .orElseThrow(() -> new RuntimeException("账单不存在"));
+                .orElseThrow(() -> new BizException("账单不存在"));
         
         if (!bill.getTenantId().equals(tenantId)) {
             throw new BizException("无权限操作此账单");
@@ -142,7 +142,7 @@ public class BillingService {
     @Transactional
     public void generateMonthlyBill(String tenantId) {
         Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new RuntimeException("租户不存在"));
+                .orElseThrow(() -> new BizException("租户不存在"));
         
         YearMonth currentPeriod = YearMonth.now();
         

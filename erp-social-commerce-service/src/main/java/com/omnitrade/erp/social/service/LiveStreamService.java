@@ -1,5 +1,6 @@
 package com.omnitrade.erp.social.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.omnitrade.erp.social.dto.LiveStreamDTO;
 import com.omnitrade.erp.social.model.Influencer;
 import com.omnitrade.erp.social.model.LiveStream;
@@ -28,13 +29,13 @@ public class LiveStreamService {
     public LiveStreamDTO findById(Long id) {
         return repository.findById(id)
                 .map(this::toDTO)
-                .orElseThrow(() -> new RuntimeException("直播不存在: " + id));
+                .orElseThrow(() -> new BizException("直播不存在: " + id));
     }
     
     public LiveStreamDTO findByStreamId(String streamId) {
         return repository.findByStreamId(streamId)
                 .map(this::toDTO)
-                .orElseThrow(() -> new RuntimeException("直播不存在: " + streamId));
+                .orElseThrow(() -> new BizException("直播不存在: " + streamId));
     }
     
     public List<LiveStreamDTO> findByPlatform(String platform) {
@@ -80,7 +81,7 @@ public class LiveStreamService {
         LiveStream entity = toEntity(dto);
         if (dto.getInfluencerId() != null) {
             Influencer influencer = influencerRepository.findById(dto.getInfluencerId())
-                    .orElseThrow(() -> new RuntimeException("达人不存在: " + dto.getInfluencerId()));
+                    .orElseThrow(() -> new BizException("达人不存在: " + dto.getInfluencerId()));
             entity.setInfluencer(influencer);
         }
         entity.setStatus(LiveStream.StreamStatus.SCHEDULED);
@@ -91,14 +92,14 @@ public class LiveStreamService {
     @Transactional
     public LiveStreamDTO update(Long id, LiveStreamDTO dto) {
         LiveStream entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("直播不存在: " + id));
+                .orElseThrow(() -> new BizException("直播不存在: " + id));
         
         if (dto.getStreamId() != null) entity.setStreamId(dto.getStreamId());
         if (dto.getTitle() != null) entity.setTitle(dto.getTitle());
         if (dto.getPlatform() != null) entity.setPlatform(LiveStream.Platform.valueOf(dto.getPlatform()));
         if (dto.getInfluencerId() != null) {
             Influencer influencer = influencerRepository.findById(dto.getInfluencerId())
-                    .orElseThrow(() -> new RuntimeException("达人不存在: " + dto.getInfluencerId()));
+                    .orElseThrow(() -> new BizException("达人不存在: " + dto.getInfluencerId()));
             entity.setInfluencer(influencer);
         }
         if (dto.getStatus() != null) entity.setStatus(LiveStream.StreamStatus.valueOf(dto.getStatus()));
@@ -128,7 +129,7 @@ public class LiveStreamService {
     @Transactional
     public LiveStreamDTO startLive(Long id) {
         LiveStream entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("直播不存在: " + id));
+                .orElseThrow(() -> new BizException("直播不存在: " + id));
         entity.setStatus(LiveStream.StreamStatus.LIVE);
         entity.setActualStartTime(LocalDateTime.now());
         return toDTO(repository.save(entity));
@@ -137,7 +138,7 @@ public class LiveStreamService {
     @Transactional
     public LiveStreamDTO endLive(Long id, LiveStreamDTO dto) {
         LiveStream entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("直播不存在: " + id));
+                .orElseThrow(() -> new BizException("直播不存在: " + id));
         entity.setStatus(LiveStream.StreamStatus.ENDED);
         entity.setEndTime(LocalDateTime.now());
         if (entity.getActualStartTime() != null) {

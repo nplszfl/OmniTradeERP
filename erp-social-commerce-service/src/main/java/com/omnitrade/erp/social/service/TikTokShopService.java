@@ -1,5 +1,6 @@
 package com.omnitrade.erp.social.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.omnitrade.erp.social.dto.TikTokShopConfigDTO;
 import com.omnitrade.erp.social.model.TikTokShopConfig;
 import com.omnitrade.erp.social.repository.TikTokShopConfigRepository;
@@ -25,13 +26,13 @@ public class TikTokShopService {
     public TikTokShopConfigDTO findById(Long id) {
         return repository.findById(id)
                 .map(this::toDTO)
-                .orElseThrow(() -> new RuntimeException("TikTok店铺配置不存在: " + id));
+                .orElseThrow(() -> new BizException("TikTok店铺配置不存在: " + id));
     }
     
     public TikTokShopConfigDTO findByShopId(String shopId) {
         return repository.findByShopId(shopId)
                 .map(this::toDTO)
-                .orElseThrow(() -> new RuntimeException("TikTok店铺不存在: " + shopId));
+                .orElseThrow(() -> new BizException("TikTok店铺不存在: " + shopId));
     }
     
     @Transactional
@@ -45,7 +46,7 @@ public class TikTokShopService {
     @Transactional
     public TikTokShopConfigDTO update(Long id, TikTokShopConfigDTO dto) {
         TikTokShopConfig entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("TikTok店铺配置不存在: " + id));
+                .orElseThrow(() -> new BizException("TikTok店铺配置不存在: " + id));
         
         entity.setShopName(dto.getShopName());
         if (dto.getAccessToken() != null) entity.setAccessToken(dto.getAccessToken());
@@ -70,7 +71,7 @@ public class TikTokShopService {
     @Transactional
     public TikTokShopConfigDTO refreshToken(Long id) {
         TikTokShopConfig entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("TikTok店铺配置不存在: " + id));
+                .orElseThrow(() -> new BizException("TikTok店铺配置不存在: " + id));
         
         // TODO: 调用TikTok API刷新token
         // 这里先模拟刷新逻辑

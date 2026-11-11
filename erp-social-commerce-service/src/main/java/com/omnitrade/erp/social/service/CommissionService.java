@@ -1,5 +1,6 @@
 package com.omnitrade.erp.social.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.omnitrade.erp.social.dto.CooperationDTO;
 import com.omnitrade.erp.social.model.Cooperation;
 import com.omnitrade.erp.social.model.Influencer;
@@ -36,14 +37,14 @@ public class CommissionService {
      */
     public BigDecimal calculateOrderCommission(String orderId) {
         TikTokOrder order = orderRepository.findByOrderId(orderId)
-                .orElseThrow(() -> new RuntimeException("订单不存在: " + orderId));
+                .orElseThrow(() -> new BizException("订单不存在: " + orderId));
         
         if (order.getInfluencerId() == null) {
             return BigDecimal.ZERO;
         }
         
         Influencer influencer = influencerRepository.findById(order.getInfluencerId())
-                .orElseThrow(() -> new RuntimeException("达人不存在: " + order.getInfluencerId()));
+                .orElseThrow(() -> new BizException("达人不存在: " + order.getInfluencerId()));
         
         // 获取合作记录
         Optional<Cooperation> cooperation = cooperationRepository.findByInfluencerId(order.getInfluencerId())
@@ -80,7 +81,7 @@ public class CommissionService {
      */
     public BigDecimal calculateProjectCommission(Long cooperationId) {
         Cooperation cooperation = cooperationRepository.findById(cooperationId)
-                .orElseThrow(() -> new RuntimeException("合作不存在: " + cooperationId));
+                .orElseThrow(() -> new BizException("合作不存在: " + cooperationId));
         
         List<TikTokOrder> orders = orderRepository.findByInfluencerId(cooperation.getInfluencer().getId());
         
@@ -140,7 +141,7 @@ public class CommissionService {
                                                                LocalDateTime startDate, 
                                                                LocalDateTime endDate) {
         Influencer influencer = influencerRepository.findById(influencerId)
-                .orElseThrow(() -> new RuntimeException("达人不存在: " + influencerId));
+                .orElseThrow(() -> new BizException("达人不存在: " + influencerId));
         
         Map<String, Object> report = new HashMap<>();
         
@@ -227,7 +228,7 @@ public class CommissionService {
      */
     public List<Map<String, Object>> getCooperationCommissionDetails(Long cooperationId) {
         Cooperation cooperation = cooperationRepository.findById(cooperationId)
-                .orElseThrow(() -> new RuntimeException("合作不存在: " + cooperationId));
+                .orElseThrow(() -> new BizException("合作不存在: " + cooperationId));
         
         List<TikTokOrder> orders = orderRepository.findByInfluencerId(cooperation.getInfluencer().getId());
         

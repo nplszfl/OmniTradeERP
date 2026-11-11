@@ -1,5 +1,6 @@
 package com.crossborder.tenant.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.tenant.config.TenantContext;
 import com.crossborder.tenant.dto.platform.PlatformCredentialDTO;
 import com.crossborder.tenant.entity.platform.CredentialStatus;
@@ -71,7 +72,7 @@ public class PlatformCredentialService {
         
         PlatformCredential credential = credentialRepository.findById(id)
                 .filter(c -> c.getTenantId().equals(tenantId))
-                .orElseThrow(() -> new RuntimeException("凭证不存在"));
+                .orElseThrow(() -> new BizException("凭证不存在"));
         
         if (dto.getShopName() != null) credential.setShopName(dto.getShopName());
         if (dto.getClientId() != null) credential.setClientId(dto.getClientId());
@@ -102,7 +103,7 @@ public class PlatformCredentialService {
         String tenantId = TenantContext.getTenant();
         PlatformCredential credential = credentialRepository.findById(id)
                 .filter(c -> c.getTenantId().equals(tenantId))
-                .orElseThrow(() -> new RuntimeException("凭证不存在"));
+                .orElseThrow(() -> new BizException("凭证不存在"));
         credentialRepository.delete(credential);
     }
 

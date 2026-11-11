@@ -1,5 +1,6 @@
 package com.omnitrade.erp.social.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.omnitrade.erp.social.dto.InfluencerDTO;
 import com.omnitrade.erp.social.model.Influencer;
 import com.omnitrade.erp.social.repository.InfluencerRepository;
@@ -24,7 +25,7 @@ public class InfluencerService {
     public InfluencerDTO findById(Long id) {
         return repository.findById(id)
                 .map(this::toDTO)
-                .orElseThrow(() -> new RuntimeException("达人不存在: " + id));
+                .orElseThrow(() -> new BizException("达人不存在: " + id));
     }
     
     public List<InfluencerDTO> findByPlatform(String platform) {
@@ -68,7 +69,7 @@ public class InfluencerService {
     @Transactional
     public InfluencerDTO update(Long id, InfluencerDTO dto) {
         Influencer entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("达人不存在: " + id));
+                .orElseThrow(() -> new BizException("达人不存在: " + id));
         
         if (dto.getName() != null) entity.setName(dto.getName());
         if (dto.getPlatformId() != null) entity.setPlatformId(dto.getPlatformId());

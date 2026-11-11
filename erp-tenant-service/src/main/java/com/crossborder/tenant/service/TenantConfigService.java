@@ -1,5 +1,6 @@
 package com.crossborder.tenant.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.tenant.config.TenantContext;
 import com.crossborder.tenant.dto.*;
 import com.crossborder.tenant.dto.dashboard.DashboardDTO;
@@ -42,7 +43,7 @@ public class TenantConfigService {
     public TenantDTO getCurrentPlan() {
         String tenantId = TenantContext.getTenant();
         Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new RuntimeException("租户不存在"));
+                .orElseThrow(() -> new BizException("租户不存在"));
         return toTenantDTO(tenant);
     }
 
@@ -53,7 +54,7 @@ public class TenantConfigService {
     public TenantDTO changePlan(PlanChangeRequest request) {
         String tenantId = TenantContext.getTenant();
         Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new RuntimeException("租户不存在"));
+                .orElseThrow(() -> new BizException("租户不存在"));
 
         TenantPlan currentPlan = tenant.getPlan();
         TenantPlan targetPlan = TenantPlan.valueOf(request.getTargetPlan().toUpperCase());
@@ -149,7 +150,7 @@ public class TenantConfigService {
         
         TenantFeatureFlag flag = featureFlagRepository
                 .findByTenantIdAndFeatureKey(tenantId, featureKey)
-                .orElseThrow(() -> new RuntimeException("功能开关不存在: " + featureKey));
+                .orElseThrow(() -> new BizException("功能开关不存在: " + featureKey));
         
         flag.setEnabled(enabled);
         if (config != null) {

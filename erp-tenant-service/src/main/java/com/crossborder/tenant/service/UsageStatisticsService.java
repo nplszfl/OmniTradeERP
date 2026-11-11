@@ -1,5 +1,6 @@
 package com.crossborder.tenant.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.tenant.config.TenantContext;
 import com.crossborder.tenant.dto.dashboard.DailyUsageDTO;
 import com.crossborder.tenant.dto.dashboard.UsageStatisticsDTO;
@@ -44,7 +45,7 @@ public class UsageStatisticsService {
         String tenantId = TenantContext.getTenant();
         
         Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new RuntimeException("租户不存在"));
+                .orElseThrow(() -> new BizException("租户不存在"));
         
         TenantPlan plan = tenant.getPlan();
         

@@ -95,7 +95,7 @@ public class TikTokProductService {
     @Transactional(noRollbackFor = BizException.class)
     public TikTokProductDTO syncProductDetail(Long shopConfigId, String productId) {
         TikTokShopConfig shop = shopConfigRepository.findById(shopConfigId)
-                .orElseThrow(() -> new RuntimeException("店铺配置不存在: " + shopConfigId));
+                .orElseThrow(() -> new BizException("店铺配置不存在: " + shopConfigId));
         
         if (isTokenExpired(shop)) {
             refreshToken(shop);
@@ -136,13 +136,13 @@ public class TikTokProductService {
     public TikTokProductDTO findById(Long id) {
         return productRepository.findById(id)
                 .map(this::toDTO)
-                .orElseThrow(() -> new RuntimeException("商品不存在: " + id));
+                .orElseThrow(() -> new BizException("商品不存在: " + id));
     }
     
     public TikTokProductDTO findByProductId(String productId) {
         return productRepository.findByProductId(productId)
                 .map(this::toDTO)
-                .orElseThrow(() -> new RuntimeException("商品不存在: " + productId));
+                .orElseThrow(() -> new BizException("商品不存在: " + productId));
     }
     
     public List<TikTokProductDTO> findByShopId(String shopId) {
@@ -193,7 +193,7 @@ public class TikTokProductService {
     @Transactional
     public TikTokProductDTO createForLive(Long shopConfigId, TikTokProductDTO dto) {
         TikTokShopConfig shop = shopConfigRepository.findById(shopConfigId)
-                .orElseThrow(() -> new RuntimeException("店铺配置不存在: " + shopConfigId));
+                .orElseThrow(() -> new BizException("店铺配置不存在: " + shopConfigId));
         
         TikTokProduct product = TikTokProduct.builder()
                 .productId(dto.getProductId())
@@ -225,7 +225,7 @@ public class TikTokProductService {
     @Transactional
     public TikTokProductDTO updateLocalProductId(String productId, String localProductId) {
         TikTokProduct product = productRepository.findByProductId(productId)
-                .orElseThrow(() -> new RuntimeException("商品不存在: " + productId));
+                .orElseThrow(() -> new BizException("商品不存在: " + productId));
         
         product.setLocalProductId(localProductId);
         return toDTO(productRepository.save(product));
@@ -237,7 +237,7 @@ public class TikTokProductService {
     @Transactional
     public TikTokProductDTO markAsLiveProduct(String productId, BigDecimal commissionRate) {
         TikTokProduct product = productRepository.findByProductId(productId)
-                .orElseThrow(() -> new RuntimeException("商品不存在: " + productId));
+                .orElseThrow(() -> new BizException("商品不存在: " + productId));
         
         product.setIsLiveProduct(true);
         product.setLiveCommissionRate(commissionRate);

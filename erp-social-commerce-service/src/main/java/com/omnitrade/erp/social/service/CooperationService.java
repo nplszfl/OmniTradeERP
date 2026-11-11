@@ -1,5 +1,6 @@
 package com.omnitrade.erp.social.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.omnitrade.erp.social.dto.CooperationDTO;
 import com.omnitrade.erp.social.model.Cooperation;
 import com.omnitrade.erp.social.model.Influencer;
@@ -28,7 +29,7 @@ public class CooperationService {
     public CooperationDTO findById(Long id) {
         return repository.findById(id)
                 .map(this::toDTO)
-                .orElseThrow(() -> new RuntimeException("合作不存在: " + id));
+                .orElseThrow(() -> new BizException("合作不存在: " + id));
     }
     
     public List<CooperationDTO> findByInfluencerId(Long influencerId) {
@@ -79,7 +80,7 @@ public class CooperationService {
     public CooperationDTO create(CooperationDTO dto) {
         Cooperation entity = toEntity(dto);
         Influencer influencer = influencerRepository.findById(dto.getInfluencerId())
-                .orElseThrow(() -> new RuntimeException("达人不存在: " + dto.getInfluencerId()));
+                .orElseThrow(() -> new BizException("达人不存在: " + dto.getInfluencerId()));
         entity.setInfluencer(influencer);
         entity.setStatus(Cooperation.CooperationStatus.DRAFT);
         Cooperation saved = repository.save(entity);
@@ -89,7 +90,7 @@ public class CooperationService {
     @Transactional
     public CooperationDTO update(Long id, CooperationDTO dto) {
         Cooperation entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("合作不存在: " + id));
+                .orElseThrow(() -> new BizException("合作不存在: " + id));
         
         if (dto.getProductId() != null) entity.setProductId(dto.getProductId());
         if (dto.getProductName() != null) entity.setProductName(dto.getProductName());
@@ -125,7 +126,7 @@ public class CooperationService {
     @Transactional
     public CooperationDTO confirm(Long id) {
         Cooperation entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("合作不存在: " + id));
+                .orElseThrow(() -> new BizException("合作不存在: " + id));
         entity.setStatus(Cooperation.CooperationStatus.CONFIRMED);
         return toDTO(repository.save(entity));
     }
@@ -133,7 +134,7 @@ public class CooperationService {
     @Transactional
     public CooperationDTO start(Long id) {
         Cooperation entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("合作不存在: " + id));
+                .orElseThrow(() -> new BizException("合作不存在: " + id));
         entity.setStatus(Cooperation.CooperationStatus.IN_PROGRESS);
         entity.setActualStartDate(LocalDateTime.now());
         return toDTO(repository.save(entity));
@@ -142,7 +143,7 @@ public class CooperationService {
     @Transactional
     public CooperationDTO complete(Long id, CooperationDTO dto) {
         Cooperation entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("合作不存在: " + id));
+                .orElseThrow(() -> new BizException("合作不存在: " + id));
         entity.setStatus(Cooperation.CooperationStatus.COMPLETED);
         entity.setActualEndDate(LocalDateTime.now());
         
@@ -160,7 +161,7 @@ public class CooperationService {
     @Transactional
     public CooperationDTO cancel(Long id) {
         Cooperation entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("合作不存在: " + id));
+                .orElseThrow(() -> new BizException("合作不存在: " + id));
         entity.setStatus(Cooperation.CooperationStatus.CANCELLED);
         return toDTO(repository.save(entity));
     }

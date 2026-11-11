@@ -1,5 +1,6 @@
 package com.omnitrade.erp.social.service;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.omnitrade.erp.social.model.DouyinShopConfig;
 import com.omnitrade.erp.social.repository.DouyinShopConfigRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,12 +22,12 @@ public class DouyinShopService {
     
     public DouyinShopConfig findById(Long id) {
         return repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("抖音店铺配置不存在: " + id));
+                .orElseThrow(() -> new BizException("抖音店铺配置不存在: " + id));
     }
     
     public DouyinShopConfig findByShopId(String shopId) {
         return repository.findByShopId(shopId)
-                .orElseThrow(() -> new RuntimeException("抖音店铺不存在: " + shopId));
+                .orElseThrow(() -> new BizException("抖音店铺不存在: " + shopId));
     }
     
     @Transactional
@@ -38,7 +39,7 @@ public class DouyinShopService {
     @Transactional
     public DouyinShopConfig update(Long id, DouyinShopConfig entity) {
         DouyinShopConfig existing = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("抖音店铺配置不存在: " + id));
+                .orElseThrow(() -> new BizException("抖音店铺配置不存在: " + id));
         
         if (entity.getShopName() != null) existing.setShopName(entity.getShopName());
         if (entity.getAccessToken() != null) existing.setAccessToken(entity.getAccessToken());
@@ -59,7 +60,7 @@ public class DouyinShopService {
     @Transactional
     public DouyinShopConfig refreshToken(Long id) {
         DouyinShopConfig entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("抖音店铺配置不存在: " + id));
+                .orElseThrow(() -> new BizException("抖音店铺配置不存在: " + id));
         
         // TODO: 调用抖音API刷新token
         entity.setTokenExpireTime(LocalDateTime.now().plusDays(7));

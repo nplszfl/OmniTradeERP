@@ -81,7 +81,7 @@ public class TenantService {
      */
     public AuthResponse login(String username, String password) {
         TenantUser user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
+                .orElseThrow(() -> new BizException("用户不存在"));
 
         if (!passwordEncoder.matches(password, user.getPassword())) {
             throw new BizException("密码错误");
@@ -92,7 +92,7 @@ public class TenantService {
         }
 
         Tenant tenant = tenantRepository.findById(user.getTenantId())
-                .orElseThrow(() -> new RuntimeException("租户不存在"));
+                .orElseThrow(() -> new BizException("租户不存在"));
 
         // 更新最后登录
         user.setLastLoginAt(LocalDateTime.now());
@@ -113,7 +113,7 @@ public class TenantService {
     public TenantDTO getCurrentTenant() {
         String tenantId = TenantContext.getTenant();
         return toDTO(tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new RuntimeException("租户不存在")));
+                .orElseThrow(() -> new BizException("租户不存在")));
     }
 
     /**
@@ -122,7 +122,7 @@ public class TenantService {
     public TenantUserDTO getCurrentUser() {
         String userId = TenantContext.getUser();
         return toUserDTO(userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("用户不存在")));
+                .orElseThrow(() -> new BizException("用户不存在")));
     }
 
     /**
@@ -142,7 +142,7 @@ public class TenantService {
     public TenantDTO upgradePlan(String plan) {
         String tenantId = TenantContext.getTenant();
         Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new RuntimeException("租户不存在"));
+                .orElseThrow(() -> new BizException("租户不存在"));
         
         tenant.setPlan(TenantPlan.valueOf(plan));
         tenant = tenantRepository.save(tenant);

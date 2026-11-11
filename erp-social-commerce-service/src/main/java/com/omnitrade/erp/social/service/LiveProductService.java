@@ -36,7 +36,7 @@ public class LiveProductService {
      */
     public List<TikTokProductDTO> getAvailableProductsForLive(Long liveStreamId) {
         LiveStream liveStream = liveStreamRepository.findById(liveStreamId)
-                .orElseThrow(() -> new RuntimeException("直播不存在: " + liveStreamId));
+                .orElseThrow(() -> new BizException("直播不存在: " + liveStreamId));
         
         List<TikTokProduct> products = productRepository.findAvailableForLive(liveStream.getPlatform().name());
         
@@ -50,7 +50,7 @@ public class LiveProductService {
      */
     public List<TikTokProductDTO> getMountedProducts(Long liveStreamId) {
         LiveStream liveStream = liveStreamRepository.findById(liveStreamId)
-                .orElseThrow(() -> new RuntimeException("直播不存在: " + liveStreamId));
+                .orElseThrow(() -> new BizException("直播不存在: " + liveStreamId));
         
         // 从直播记录中获取已挂载的商品ID列表
         String productsJson = liveStream.getProducts();
@@ -82,18 +82,18 @@ public class LiveProductService {
     @Transactional(noRollbackFor = BizException.class)
     public TikTokProductDTO mountProduct(Long liveStreamId, String productId) {
         LiveStream liveStream = liveStreamRepository.findById(liveStreamId)
-                .orElseThrow(() -> new RuntimeException("直播不存在: " + liveStreamId));
+                .orElseThrow(() -> new BizException("直播不存在: " + liveStreamId));
         
         if (liveStream.getStatus() != LiveStream.StreamStatus.LIVE) {
             throw new BizException("直播不在进行中，无法挂载商品");
         }
         
         TikTokProduct product = productRepository.findByProductId(productId)
-                .orElseThrow(() -> new RuntimeException("商品不存在: " + productId));
+                .orElseThrow(() -> new BizException("商品不存在: " + productId));
         
         // 通过API挂载商品
         TikTokShopConfig shop = shopConfigRepository.findByShopId(product.getShopId())
-                .orElseThrow(() -> new RuntimeException("店铺配置不存在"));
+                .orElseThrow(() -> new BizException("店铺配置不存在"));
         
         if (isTokenExpired(shop)) {
             refreshToken(shop);
@@ -148,14 +148,14 @@ public class LiveProductService {
     @Transactional(noRollbackFor = BizException.class)
     public void unmountProduct(Long liveStreamId, String productId) {
         LiveStream liveStream = liveStreamRepository.findById(liveStreamId)
-                .orElseThrow(() -> new RuntimeException("直播不存在: " + liveStreamId));
+                .orElseThrow(() -> new BizException("直播不存在: " + liveStreamId));
         
         TikTokProduct product = productRepository.findByProductId(productId)
-                .orElseThrow(() -> new RuntimeException("商品不存在: " + productId));
+                .orElseThrow(() -> new BizException("商品不存在: " + productId));
         
         // 通过API移除商品
         TikTokShopConfig shop = shopConfigRepository.findByShopId(product.getShopId())
-                .orElseThrow(() -> new RuntimeException("店铺配置不存在"));
+                .orElseThrow(() -> new BizException("店铺配置不存在"));
         
         if (isTokenExpired(shop)) {
             refreshToken(shop);

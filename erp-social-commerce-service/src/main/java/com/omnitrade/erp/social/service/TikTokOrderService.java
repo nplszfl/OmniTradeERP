@@ -103,7 +103,7 @@ public class TikTokOrderService {
     @Transactional(noRollbackFor = BizException.class)
     public TikTokOrderDTO syncOrderDetail(Long shopConfigId, String orderId) {
         TikTokShopConfig shop = shopConfigRepository.findById(shopConfigId)
-                .orElseThrow(() -> new RuntimeException("店铺配置不存在: " + shopConfigId));
+                .orElseThrow(() -> new BizException("店铺配置不存在: " + shopConfigId));
         
         if (isTokenExpired(shop)) {
             refreshToken(shop);
@@ -144,13 +144,13 @@ public class TikTokOrderService {
     public TikTokOrderDTO findById(Long id) {
         return orderRepository.findById(id)
                 .map(this::toDTO)
-                .orElseThrow(() -> new RuntimeException("订单不存在: " + id));
+                .orElseThrow(() -> new BizException("订单不存在: " + id));
     }
     
     public TikTokOrderDTO findByOrderId(String orderId) {
         return orderRepository.findByOrderId(orderId)
                 .map(this::toDTO)
-                .orElseThrow(() -> new RuntimeException("订单不存在: " + orderId));
+                .orElseThrow(() -> new BizException("订单不存在: " + orderId));
     }
     
     public List<TikTokOrderDTO> findByShopId(String shopId) {
@@ -191,7 +191,7 @@ public class TikTokOrderService {
     @Transactional
     public TikTokOrderDTO associateWithLiveStream(String orderId, Long liveStreamId) {
         TikTokOrder order = orderRepository.findByOrderId(orderId)
-                .orElseThrow(() -> new RuntimeException("订单不存在: " + orderId));
+                .orElseThrow(() -> new BizException("订单不存在: " + orderId));
         order.setLiveStreamId(liveStreamId);
         return toDTO(orderRepository.save(order));
     }
@@ -202,7 +202,7 @@ public class TikTokOrderService {
     @Transactional
     public TikTokOrderDTO associateWithInfluencer(String orderId, Long influencerId) {
         TikTokOrder order = orderRepository.findByOrderId(orderId)
-                .orElseThrow(() -> new RuntimeException("订单不存在: " + orderId));
+                .orElseThrow(() -> new BizException("订单不存在: " + orderId));
         order.setInfluencerId(influencerId);
         return toDTO(orderRepository.save(order));
     }

@@ -185,6 +185,14 @@ public class GlobalExceptionHandler {
      * 会把原始提示原样返回 —— 否则真正的业务原因被一句「系统繁忙」盖掉，
      * 前后端都拿不到有用信息。</p>
      *
+     * <p>📌 **2026-11-11 更新**：本项目**已统一用 {@code BizException}** 表达业务错误
+     * （默认码 400 → 由上面 {@code @ExceptionHandler(BizException.class)} 分支处理，
+     * HTTP 400 而不是「服务端故障」500）。本分支因此**降级为兜底**，
+     * 只在「有业务提示但没用 BizException」的遗留代码上生效。
+     * 📌 **闸门** {@code scripts/check-business-error-status.py} 守住这条约定
+     * （「XX不存在」却抛 RuntimeException → 报红）。
+     * 📌 本分支**仍保留**：它同时挡着「NPE / SQL 栈泄露」那类真正不该透出的细节。</p>
+     *
      * <p>NPE / ClassCastException 这类「代码有 bug」的异常不在白名单内，
      * 仍然只回「系统繁忙」，避免把内部细节暴露给前端。</p>
      */
