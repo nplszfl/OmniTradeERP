@@ -244,6 +244,11 @@ public class LLMConfig {
 git clone https://github.com/nplszfl/OmniTradeERP.git
 cd OmniTradeERP
 
+# ⚠️ **先生成本地密钥**（仓库里**不留任何默认值** —— 公开的默认值等于「所有人共享的密钥」，
+#    拿到仓库的人就能伪造管理员 token。compose 会自动读项目根目录的 `.env`）
+cp .env.example .env
+echo "JWT_SECRET=$(openssl rand -base64 32)" >> .env
+
 # 一键启动（最简模式，仅需4G内存）
 docker-compose -f docker-compose.minimal.yml up -d
 
