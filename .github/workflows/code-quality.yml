@@ -190,6 +190,10 @@ jobs:
       run: |
         python3 scripts/check-k8s-images.py
         python3 scripts/check-k8s-deploy-coverage.py
+        # 📌 **k8s 探针指向的端点必须真的存在**（规则 101 / 144）
+        #    探针打 `/actuator/health` 但模块没有 actuator 依赖 → 404 → Pod 永远 NotReady
+        #    → rollout status 超时 → **首次真实部署必然失败**
+        python3 scripts/check-k8s-probe-endpoint.py
         # 📌 网关路由 ↔ 部署编排：lb://xxx 的服务必须在 k8s 和 compose 里真的存在
         python3 scripts/check-gateway-deploy-coverage.py
         python3 scripts/gen-dockerfiles.py --check
