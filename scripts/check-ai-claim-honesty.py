@@ -365,8 +365,18 @@ def main() -> int:
             if line.startswith("- [ ]") or line.startswith("* [ ]"):
                 continue
             # 豁免 3：所在章节是「规划 / 待开发」
+            # 📌 **但「已勾选完成」的清单项不放行** ——
+            #    `- [x]` 是在断言「**已经做完**」，不是「将来要做」；
+            #    章节标题叫「待开发」**不能替它免罪**。
+            #    📌 实测踩过（2026-11-12 22:55）：`## 🚧 待开发功能` 下面把 ML 项写成
+            #       「- [x] 基于 Prophet + ARIMA 的机器学习模型训练和部署」→
+            #       章节命中豁免 3 → **整行被跳过** → 闸门报绿 → **漏报**。
+            #    ✅ 修法：豁免 3 **只对未勾选的项生效**；`- [x]` 一律进入判定。
+            #    📌 误报自查：当前全仓只被豁免 3 放行的宣称行 **1 处**，且是 `- `（未勾选）→
+            #       改完仍是 0 误报（规则 99）。
             if any(r in heading.lower() for r in DOC_ROADMAP_MARKERS):
-                continue
+                if not line.startswith(("- [x]", "* [x]")):
+                    continue
             doc_checked += 1
             for token in tokens:
                 if token in ML_CLAIM_TOKENS:
