@@ -105,8 +105,26 @@ K8S_FILES = ("k8s/core-services.yaml", "k8s/extended-services.yaml",
 #    yml 的 `password:` 是**数据库口令**（内网可达、非身份冒充）→ 已知边界，见 docs/SECURITY.md；
 #    而 Java 里的 `*PASSWORD*` 常量是**能直接登录的账号口令** → 属于本闸门范围。
 #    📌 实测误报率：全仓生产代码里 `*PASSWORD*` 常量**只有 1 处** → 加上这条不会造成「一上来全红」。
+# 📌 **2026-11-12 修：只认大写 `PASSWORD` = 双向失明（规则 100）**
+#    原判据 `*PASSWORD*`（大写）**认不出**：
+#      - `FALLBACK_PWD` / `DEFAULT_PWD`      → 小写缩写形态漏掉
+#      - `fallbackPassword` / `defaultPwd`   → camelCase 漏掉
+#    → **同一条硬编码口令，换个变量名就绕过闸门**。
+#    📌 **实测的坑**：上一版的差分验证用的是 `FALLBACK_PASSWORD = "P@ssw0rd2026"`
+#       —— 那个名字**恰好含大写 PASSWORD** → 被抓 → **差分「通过」了**
+#       → 但换成 `FALLBACK_PWD` **立刻漏掉**（实测 exit 0 + 还报「✅ 没有硬编码凭证」）。
+#       📌 **教训：差分的「注入形态」必须落在判据的盲区里**（规则 123），
+#          否则测的是「判据本来就会抓的那一类」，证明不了它真的在管。
+#    ✅ 现在：`password|pwd` **不分大小写** → 大写 / 小写 / camelCase 全认。
+#    📌 **实测误报率**：放宽后全仓命中数**仍是 1 处**（就是下面白名单里的那处）
+#       → `pwd` 不分大小写新增 **0** 处、`password` 不分大小写新增 **0** 处 → **放宽不引入误报**（规则 99）。
+#    📌 **声明的边界**（规则 116）：本判据**只认**「`String` 类型 + 双引号字面量 + 名字含 password/pwd」。
+#       - `char[] PASSWORD = {'a','b'}` → **认不出**（罕见写法）
+#       - `String PASSWORD = "x" + y;`（拼接）→ **认不出**
+#       - 名字里只含 `pass`（如 `passphrase`）→ **故意不认**（语义漂移风险）
 JAVA_PWD_CONST_RE = re.compile(
-    r"\bString\s+(?P<name>[A-Za-z0-9_]*PASSWORD[A-Za-z0-9_]*)\s*=\s*\"(?P<val>[^\"]*)\""
+    r"\bString\s+(?P<name>[A-Za-z0-9_]*(?:password|pwd)[A-Za-z0-9_]*)\s*=\s*\"(?P<val>[^\"]*)\"",
+    re.IGNORECASE,
 )
 
 # 📌 **已知待整改（整行精确匹配，不做子串豁免 —— 规则 139）**
