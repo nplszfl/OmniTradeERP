@@ -219,6 +219,38 @@ private static final String DEFAULT_PASSWORD = "admin123";
 
 ---
 
+### 风险 6：重置密码的口令可以走 **URL 查询串** → 明文进 nginx 访问日志
+
+`POST /user/{id}/reset-password` 的口令参数是 **`@RequestParam`**：
+
+```java
+// erp-user-service/.../controller/UserController.java
+@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+@PostMapping("/{id}/reset-password")
+public void resetPassword(@PathVariable Long id,
+                          @RequestParam(required = false) String defaultPassword) { ... }
+```
+
+→ 调用方可以这样指定新口令：
+`POST /api/user/1/reset-password?defaultPassword=Secret123`
+
+📌 **口令会进访问日志**：`nginx/nginx.conf` 与 `docker/nginx.conf` 的
+`log_format main '... "$request" ...'` 里的 **`$request` = 完整请求行（含 query string）**
+→ nginx / ingress / 网关的访问日志里会出现**明文口令**（也可能进浏览器历史、代理日志、审计日志）。
+📌 这条**不在**上面 5 条风险里 —— 那 5 条讲的是「口令**值**弱 / 兜底常量」，
+这条讲的是「口令**传输通道**会把它抄下来」。
+
+📌 **现状说明（避免夸大）**：前端 `userApi.resetPassword(id)` **不传**这个参数
+→ 走的是 `DEFAULT_PASSWORD` 兜底（= 风险 2）→ **这条路径目前只有直接调 API 的调用方会踩到**。
+但它**是可达的**，且**没有闸门覆盖**。
+
+✅ **修法**（二选一）：
+1. 改成 **request body**：`@RequestBody(required = false) Map<String,String> body` → 口令不再进 URL；
+2. 更彻底：**服务端随机生成**口令并**只回传一次**（前端弹窗让管理员复制）→ 调用方根本不需要传口令
+   → 顺带把风险 2 的 `DEFAULT_PASSWORD` 兜底也一起消掉。
+
+---
+
 ### 📌 整改清单（第 60 道闸门「已知边界」的落点）
 
 | # | 风险 | 档位 | 建议动作 | 状态 |
@@ -228,6 +260,7 @@ private static final String DEFAULT_PASSWORD = "admin123";
 | 3 | 数据库口令硬编码（28 处） | 中低（内网） | 统一走 Secret 注入 | ⬜ 清单已列 |
 | 4 | 网关零鉴权 | 中 | 网关加一层 JWT 校验 | ⬜ 待决策 |
 | 5 | 24 个服务无认证 | **高**（按服务逐个） | 照 `erp-user-service` 抄 | ⬜ 进行中 |
+| 6 | 重置口令可走 URL query → 明文进访问日志 | 中（需 ADMIN 角色；前端目前不踩） | 改 `@RequestBody`；或服务端随机生成只回传一次 | ⬜ 待决策 |
 
 📌 **第 60 道闸门只守住第 2 条**（且是「新增的不许再犯」）；
 第 1/3/4/5 条是**它够不着的地方** —— 如实记在文档里，而不是硬塞进闸门凑数（规则 42 / 55）。
