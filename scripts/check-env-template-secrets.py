@@ -39,8 +39,12 @@
 
 📌 **已知边界（诚实记录，不藏）**：
     - 本闸门只看**被 git 跟踪**的 `.env*` 模板 → `.env` 本体（未跟踪）不管
-    - 只看**键名在凭证名单里**的行 → 一个叫 `FOO` 的键装了真密钥，本闸门认不出
+    - 只看**键名指向凭证**的行 → 一个叫 `FOO` 的键装了真密钥，本闸门认不出
     - **不检查 git 历史**（已经提交过的真密钥，本闸门管不了 → 那是轮换密钥的事，不是本闸门的事）
+    - 📌 **占位符判定是「包含标记词」** → 值里**恰好含有** `example` / `placeholder` /
+      `todo` 等字样的**真密钥会被放过**（如 `placeholderAKIAIOSFODNN7EXAMPLE`）。
+      这是**故意**的宽容（与第 45 道同源）—— 宁可漏报也不误报（规则 99），
+      但**知道这个边界**比不知道强。
 
 用法：
     python3 scripts/check-env-template-secrets.py
@@ -70,11 +74,59 @@ CREDENTIAL_KEYS = {
     "token", "password", "passwd", "pwd",
 }
 
+# ── **带前缀**的凭证键（真实环境变量几乎都带前缀）────────────────────
+#    📌 **实测踩过的坑（2026-11-13 02:40）**：只认精确名 →
+#       `DB_PASSWORD=...` / `AUTH_TOKEN=...` **全部漏掉** → 真密钥照样进仓库。
+#       （规则 100：「闸门只认一种写法」= 双向失明 —— 等价写法必须一起认。）
+#    📌 为什么用「**后缀**匹配」而不是「任意子串」：
+#       子串会把 `max-tokens` / `token-expiration` / `password-policy` 之类
+#       **不是密钥**的键误判成密钥 → 假阳性 → 逼下一个人放松闸门（规则 99）。
+#       ✅ 后缀匹配只命中「**以凭证词结尾**」的键 → 语义准确。
+#    📌 **白名单例外**：`password-policy` / `token-expiration` / `secret-ttl`
+#       这类**不是密钥**，显式排除（规则 100：等价写法要一起认，但反例也要一起认）。
+CREDENTIAL_SUFFIXES = ("secret", "password", "passwd", "pwd", "token", "apikey", "api-key", "api_key")
+
+NOT_A_CREDENTIAL_SUFFIX = (
+    "password-policy", "password-policy-enabled", "password-min-length",
+    "token-expiration", "token-expire", "token-ttl", "secret-ttl",
+    "secret-enabled", "token-enabled", "password-reset-enabled",
+)
+
+
+def is_credential_key(key: str) -> bool:
+    """键名是否指向凭证。
+
+    📌 两条路：① 精确命中名单 ② **后缀**命中（CREDENTIAL_SUFFIXES）。
+    📌 但**排除**已知不是密钥的后缀（`password-policy` 之类）→ 防假阳性。
+    """
+    k = key.lower().strip()
+    if k in CREDENTIAL_KEYS:
+        return True
+    for bad in NOT_A_CREDENTIAL_SUFFIX:
+        if k == bad or k.endswith("_" + bad) or k.endswith("-" + bad):
+            return False
+    for suf in CREDENTIAL_SUFFIXES:
+        if k == suf or k.endswith("_" + suf) or k.endswith("-" + suf):
+            return True
+    return False
+
 # ── 明显不是密钥的占位符 ────────────────────────────────────────────
 PLACEHOLDER_MARKERS = (
     "PLACEHOLDER", "CHANGE_ME", "SET_BY", "TODO", "REPLACE",
     "example", "your-", "your_", "xxxx", "<",
 )
+
+# ── 「整串就是占位符」的短值 ─────────────────────────────────────────
+#    📌 **实测踩过的坑（2026-11-13 02:45）**：`REDIS_PASSWORD=xxx` 被判成真密钥
+#       → 假阳性。理由：标记表里只有 `"xxxx"`（4 个 x），而 `xxx`（3 个）不匹配。
+#    📌 修法：值**整体**就是这类「显然不是密钥」的短串时也算占位符
+#       （而不是把 `"xxx"` 加进标记表 → 那样 `xxxxxxxsecret` 这种也会被放过）。
+#    📌 用**整串相等**而不是子串 → `xxx` 放行，但 `xxxabc123` 仍会被判红。
+PLACEHOLDER_EXACT = {
+    "xxx", "xxxx", "xxxxx", "xxxxxx", "tbd", "todo", "fixme", "none", "null",
+    "changeme", "change_me", "change-me", "placeholder", "example", "sample",
+    "default", "dummy", "fake", "test", "your-secret", "your_secret",
+}
 
 # ── 环境变量模板文件名 ──────────────────────────────────────────────
 #    📌 只认**根目录**的 `.env*` → 模块目录下的同名文件不算（避免误报）
@@ -89,6 +141,9 @@ def is_placeholder(value: str) -> bool:
     if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
         v = v[1:-1]
     if not v.strip():
+        return True
+    # 📌 整串就是占位符短串 → 放行（见 PLACEHOLDER_EXACT 的说明）
+    if v.lower() in PLACEHOLDER_EXACT:
         return True
     up = v.upper()
     return any(m.upper() in up for m in PLACEHOLDER_MARKERS)
@@ -143,7 +198,7 @@ def main() -> int:
             if not m:
                 continue
             key, val = m.group(1), m.group(2)
-            if key.lower() not in CREDENTIAL_KEYS:
+            if not is_credential_key(key):
                 continue
             if is_placeholder(val):
                 continue
