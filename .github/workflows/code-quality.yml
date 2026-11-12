@@ -115,6 +115,11 @@ jobs:
         #    「Prophet + ARIMA」「AI智能定价算法」这类对外字段 = 谎报事实
         #    → 真值来源 = 该模块 pom 是否真有 ML / LLM 依赖
         python3 scripts/check-ai-claim-honesty.py
+        # 📌 **JWT 密钥在运行时是不是真的随机**（规则 140 同族，Critical）
+        #    清单里放着占位符 + deploy.sh 的 apply 顺序 → 占位符覆盖随机值
+        #    → 运行时密钥 = 仓库里公开的字符串 → 任何人可伪造管理员 token
+        python3 scripts/check-jwt-secret-runtime.py
+
         # 📌 **「记了账、没改东西」**（规则 72 / 80 / 82）
         #    写商品维度的变更历史、却不更新商品主表 → 假成功（采纳了但价格没变）
         python3 scripts/check-history-without-master-update.py

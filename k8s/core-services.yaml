@@ -1,27 +1,24 @@
 ---
-# 🔴 **JWT 签名密钥**（2026-11-12 新增）
-#    📌 之前 erp-user-service 的 `jwt.secret` 是**仓库里的字面量** → 任何人可签出管理员 token
-#    （实测已用该密钥伪造 token 并被真实 JwtUtil 校验通过）→ 鉴权形同虚设。
-#    📌 现在应用侧写成 `${JWT_SECRET}`（**故意不写默认值** → 缺变量就启动失败，
-#      而不是「带着已知密钥上线」）。
-#    ✅ **这个文件里故意不提供可用密钥**（只有占位符）——
-#      否则「apply 一下就用上了仓库里的已知密钥」= 漏洞原样保留。
-#    ✅ 正确做法（生产）：
-#        kubectl -n erp create secret generic erp-jwt-secret \
-#          --from-literal=jwt-secret='<随机 32+ 字节>'
-#        （`k8s/deploy.sh` 已经会自动做这件事：环境变量有就用，没有就随机生成）
-#    📌 换密钥 = 所有人重新登录（旧 token 全部失效），这是预期行为。
-apiVersion: v1
-kind: Secret
-metadata:
-  name: erp-jwt-secret
-  namespace: erp
-type: Opaque
-stringData:
-  # 📌 **占位符，不是可用密钥** —— deploy.sh 会用真实随机值覆盖它。
-  #    直接 apply 这个文件而不跑 deploy.sh → 应用会带着这个占位符启动 →
-  #    第 60 道闸门 `check-hardcoded-secret.py` 会报错（它认识这个占位符）。
-  jwt-secret: "PLACEHOLDER_SET_BY_deploy_sh"
+# 🔴 **JWT 签名密钥（2026-11-12 17:30 再修一处）**
+#
+#    📌 **这个文件里现在【没有】Secret 定义了** —— 这是**故意的**。
+#    📌 之前这里放着一个占位符：
+#        stringData:
+#          jwt-secret: "PLACEHOLDER_SET_BY_deploy_sh"
+#        而 `k8s/deploy.sh` 的执行顺序是：
+#            ① kubectl create secret generic erp-jwt-secret --from-literal=jwt-secret=$RANDOM
+#            ② for f in k8s/*.yaml; do kubectl apply -f "$f"; done   ← **这一步会把 ① 覆盖掉**
+#        `kubectl apply` 是三方合并：last-applied（原=随机值）≠ 新清单（=占位符）
+#        → **占位符胜出** → 集群里最终的密钥 = **仓库里公开的那个字符串**
+#        → 任何拿到仓库的人都能伪造管理员 token → **未认证即可接管账号**（规则 140，Critical）。
+#
+#    ✅ **现在清单里不放任何密钥** → 清单 apply 覆盖不了 deploy.sh 生成的随机值。
+#    ✅ 真实值只由 `k8s/deploy.sh` 现场随机生成（`openssl rand`）。
+#    ✅ **fail-closed**：直接 `kubectl apply -f k8s/` 而没先建 Secret 时 →
+#       Pod 卡在 `CreateContainerConfigError` → ** loudly 失败**，
+#       而不是「带着仓库里公开的密钥启动」。
+#       建法：`kubectl -n erp create secret generic erp-jwt-secret --from-literal=jwt-secret='<随机 32+ 字节>'`
+#    📌 第 64 道闸门 `check-jwt-secret-runtime.py` 专管这类（清单里不许有值 + 顺序 + 应用侧无默认值）。
 ---
 # 用户服务
 apiVersion: apps/v1
