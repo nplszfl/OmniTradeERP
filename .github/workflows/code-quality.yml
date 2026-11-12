@@ -118,6 +118,12 @@ jobs:
         # 📌 **「写多张表却没有事务」**（规则 111 / 129）
         #    中途失败 → 部分落库 → 数据不一致 + 假成功
         python3 scripts/check-multi-write-without-tx.py
+        # 📌 **账户系统鉴权**（2026-11-12 · Critical 漏洞的守门人）
+        #    `anyRequest().permitAll()` → 整个账户系统不用带 token
+        #    → 配合「调用方指定 defaultPassword」→ **未认证即可接管任意账号**
+        #    → ① 不许 permitAll ② 敏感写操作必须 @PreAuthorize
+        #    ③ @PreAuthorize 里的角色码必须**存在于种子数据**（否则管理员被锁在门外）
+        python3 scripts/check-account-authz.py
         # 📌 **前端「假成功 / 假删除」**（规则 80 / 82）
         #    声称做了写操作（添加/保存/删除…成功），所在函数里却没有一个请求 → 弹了提示但啥也没发生
         python3 scripts/check-frontend-fake-success.py

@@ -6,6 +6,7 @@ import com.crossborder.erp.user.service.RoleService;
 import com.crossborder.erp.user.vo.RoleVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -59,6 +60,7 @@ public class RoleController {
     /**
      * 创建角色
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @PostMapping
     public RoleVO create(@RequestBody RoleVO role) {
         return roleService.createRole(role);
@@ -67,6 +69,7 @@ public class RoleController {
     /**
      * 更新角色
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @PutMapping
     public RoleVO update(@RequestBody RoleVO role) {
         return roleService.updateRole(role);
@@ -75,6 +78,7 @@ public class RoleController {
     /**
      * 删除角色
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @DeleteMapping("/{id}")
     public void delete(@PathVariable Long id) {
         roleService.deleteRole(id);
@@ -83,6 +87,7 @@ public class RoleController {
     /**
      * 分配权限（整体覆盖）
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @PostMapping("/{roleId}/permissions")
     public void assignPermissions(@PathVariable Long roleId, @RequestBody Map<String, List<Long>> body) {
         roleService.assignPermissions(roleId, body.get("permissionIds"));

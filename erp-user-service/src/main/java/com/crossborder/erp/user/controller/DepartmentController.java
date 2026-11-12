@@ -4,6 +4,7 @@ import com.crossborder.erp.user.service.DepartmentService;
 import com.crossborder.erp.user.vo.DepartmentVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -43,6 +44,7 @@ public class DepartmentController {
     /**
      * 创建部门
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @PostMapping
     public DepartmentVO create(@RequestBody DepartmentVO department) {
         return departmentService.createDepartment(department);
@@ -51,6 +53,7 @@ public class DepartmentController {
     /**
      * 更新部门
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @PutMapping
     public DepartmentVO update(@RequestBody DepartmentVO department) {
         return departmentService.updateDepartment(department);
@@ -59,6 +62,7 @@ public class DepartmentController {
     /**
      * 删除部门
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @DeleteMapping("/{id}")
     public void delete(@PathVariable Long id) {
         departmentService.deleteDepartment(id);

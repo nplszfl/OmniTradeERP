@@ -11,6 +11,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import com.crossborder.erp.user.util.JwtUtil;
 
 import java.nio.charset.StandardCharsets;
 
@@ -41,6 +43,12 @@ class UserManageControllerTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    /** 管理员的真实 token（不是 mock principal）—— 走完整链路：filter 验签 → 查库取角色 → 授权判定 */
+    private String adminToken;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
@@ -60,10 +68,19 @@ class UserManageControllerTest {
         jdbcTemplate.update("INSERT INTO t_department (id, dept_code, dept_name, parent_id, sort_order, status) VALUES (1, 'HQ', '总公司', 0, 1, 1)");
         jdbcTemplate.update("INSERT INTO t_department (id, dept_code, dept_name, parent_id, sort_order, status) VALUES (2, 'OPS', '运营部', 1, 2, 1)");
         jdbcTemplate.update("INSERT INTO t_user (id, username, password, real_name, email, phone, status) VALUES (1, 'admin', 'x', '系统管理员', 'a@b.com', '13800138000', 1)");
+        // 📌 **给 admin 挂上 ADMIN 角色** —— 授权判定查的是库里的真实角色，不是 token 里的快照
+        jdbcTemplate.update("INSERT INTO t_user_role (id, user_id, role_id) VALUES (1, 1, 1)");
+
+        adminToken = jwtUtil.generateToken(1L, "admin");
+    }
+
+    /** 给请求带上管理员 token */
+    private MockHttpServletRequestBuilder authed(MockHttpServletRequestBuilder builder) {
+        return builder.header("Authorization", "Bearer " + adminToken);
     }
 
     private JsonNode getJson(String url) throws Exception {
-        String body = mockMvc.perform(get(url))
+        String body = mockMvc.perform(authed((get(url))))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         return objectMapper.readTree(body);
@@ -161,9 +178,9 @@ class UserManageControllerTest {
     @DisplayName("创建用户 → 密码加密存储，响应不含密码")
     void createUserHashesPassword() throws Exception {
         String body = "{\"username\":\"newuser\",\"password\":\"secret123\",\"realName\":\"新人\",\"email\":\"n@b.com\"}";
-        String response = mockMvc.perform(post("/user")
+        String response = mockMvc.perform(authed((post("/user")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body))))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JsonNode json = objectMapper.readTree(response);
@@ -180,18 +197,18 @@ class UserManageControllerTest {
     @DisplayName("用户名重复 → 400")
     void duplicateUsernameRejected() throws Exception {
         String body = "{\"username\":\"admin\",\"password\":\"secret123\"}";
-        mockMvc.perform(post("/user")
+        mockMvc.perform(authed((post("/user")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body))))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     @DisplayName("分配角色后，用户列表里的 roles 字段被填充")
     void assignRolesFillsUserRoles() throws Exception {
-        mockMvc.perform(post("/user/1/roles")
+        mockMvc.perform(authed((post("/user/1/roles")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"roleIds\":[1,2]}"))
+                        .content("{\"roleIds\":[1,2]}"))))
                 .andExpect(status().isOk());
 
         JsonNode json = getJson("/user/list?current=1&size=10");
@@ -202,17 +219,17 @@ class UserManageControllerTest {
     @Test
     @DisplayName("分配权限后，角色详情的 permissions 被刷新")
     void assignPermissionsReplacesOldOnes() throws Exception {
-        mockMvc.perform(post("/role/1/permissions")
+        mockMvc.perform(authed((post("/role/1/permissions")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"permissionIds\":[1,2]}"))
+                        .content("{\"permissionIds\":[1,2]}"))))
                 .andExpect(status().isOk());
         assertEquals(2, jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM t_role_permission WHERE role_id = 1", Integer.class));
 
         // 整体覆盖：重新分配后旧关联应被清掉
-        mockMvc.perform(post("/role/1/permissions")
+        mockMvc.perform(authed((post("/role/1/permissions")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"permissionIds\":[2]}"))
+                        .content("{\"permissionIds\":[2]}"))))
                 .andExpect(status().isOk());
         assertEquals(1, jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM t_role_permission WHERE role_id = 1", Integer.class));
@@ -221,16 +238,16 @@ class UserManageControllerTest {
     @Test
     @DisplayName("删除有子部门的部门 → 400")
     void deleteDepartmentWithChildrenRejected() throws Exception {
-        mockMvc.perform(delete("/department/1"))
+        mockMvc.perform(authed((delete("/department/1"))))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     @DisplayName("修改状态 → 数据库同步")
     void updateStatusPersists() throws Exception {
-        mockMvc.perform(put("/user/1/status")
+        mockMvc.perform(authed((put("/user/1/status")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"status\":0}"))
+                        .content("{\"status\":0}"))))
                 .andExpect(status().isOk());
         assertEquals(0, jdbcTemplate.queryForObject(
                 "SELECT status FROM t_user WHERE id = 1", Integer.class));

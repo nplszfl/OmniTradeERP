@@ -7,6 +7,7 @@ import com.crossborder.erp.user.util.JwtUtil;
 import com.crossborder.erp.user.vo.UserVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -61,6 +62,7 @@ public class UserController {
     /**
      * 创建用户
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @PostMapping
     public UserVO create(@RequestBody UserVO user) {
         return userService.createUser(user);
@@ -69,6 +71,7 @@ public class UserController {
     /**
      * 更新用户
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @PutMapping
     public UserVO update(@RequestBody UserVO user) {
         return userService.updateUser(user);
@@ -77,6 +80,7 @@ public class UserController {
     /**
      * 删除用户
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @DeleteMapping("/{id}")
     public void delete(@PathVariable Long id) {
         userService.deleteUser(id);
@@ -85,6 +89,7 @@ public class UserController {
     /**
      * 重置密码（重置为默认密码 admin123）
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @PostMapping("/{id}/reset-password")
     public void resetPassword(@PathVariable Long id,
                               @RequestParam(required = false) String defaultPassword) {
@@ -94,34 +99,43 @@ public class UserController {
     /**
      * 修改自己的密码
      *
-     * <p>⚠️ 前端 {@code user.ts} 的 axios 实例<b>没有</b>带 Authorization 头，
-     * 所以这里同时接受 body 里的 userId 和请求头里的 token，
-     * 两个都拿不到就明确报错，而不是偷偷改错用户的密码。</p>
+     * <p>📌 <b>身份只认 token</b>：body 里的 {@code userId} <b>不再</b>当身份用
+     * —— 之前是「body 优先、token 兜底」，等于登录用户可以指定**任意 userId**
+     * 去改别人的密码（虽然还要过「原密码」这一关，但方向是错的）。
+     * 现在：<b>token 才是身份</b>；body 里带了 {@code userId} 且和 token 对不上 → 直接报错。</p>
+     *
+     * <p>📌 前端 {@code user.ts} 的 axios 实例<b>是</b>带 Authorization 头的
+     * （request 拦截器统一加 {@code Bearer <token>}），所以身份一定拿得到。</p>
      */
     @PostMapping("/change-password")
     public void changePassword(@RequestBody Map<String, String> body,
                                 @RequestHeader(value = "Authorization", required = false) String authorization) {
-        Long userId = null;
-        Object bodyUserId = body.get("userId");
-        if (bodyUserId != null) {
-            try {
-                userId = Long.valueOf(String.valueOf(bodyUserId));
-            } catch (NumberFormatException ignored) {
-                log.warn("changePassword 收到非法 userId: {}", bodyUserId);
-            }
+        Long tokenUserId = null;
+        if (authorization != null) {
+            tokenUserId = jwtUtil.getUserIdFromToken(authorization.replaceFirst("(?i)^Bearer\\s+", ""));
         }
-        if (userId == null && authorization != null) {
-            userId = jwtUtil.getUserIdFromToken(authorization.replaceFirst("(?i)^Bearer\\s+", ""));
-        }
-        if (userId == null) {
+        if (tokenUserId == null) {
             throw new com.crossborder.erp.common.exception.BizException("未获取到当前用户，请重新登录");
         }
-        userService.changePassword(userId, body.get("oldPassword"), body.get("newPassword"));
+        String bodyUserId = body.get("userId");
+        if (bodyUserId != null && !bodyUserId.isBlank()) {
+            Long parsed;
+            try {
+                parsed = Long.valueOf(bodyUserId.trim());
+            } catch (NumberFormatException e) {
+                throw new com.crossborder.erp.common.exception.BizException("userId 非法");
+            }
+            if (!parsed.equals(tokenUserId)) {
+                throw new com.crossborder.erp.common.exception.BizException("不能修改其他用户的密码");
+            }
+        }
+        userService.changePassword(tokenUserId, body.get("oldPassword"), body.get("newPassword"));
     }
 
     /**
      * 修改用户状态（启用/禁用）
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @PutMapping("/{id}/status")
     public void updateStatus(@PathVariable Long id, @RequestBody Map<String, Integer> body) {
         userService.updateStatus(id, body.get("status"));
@@ -130,6 +144,7 @@ public class UserController {
     /**
      * 分配角色（整体覆盖）
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @PostMapping("/{userId}/roles")
     public void assignRoles(@PathVariable Long userId, @RequestBody Map<String, List<Long>> body) {
         userService.assignRoles(userId, body.get("roleIds"));
@@ -138,6 +153,7 @@ public class UserController {
     /**
      * 分配部门（整体覆盖）
      */
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @PostMapping("/{userId}/departments")
     public void assignDepartments(@PathVariable Long userId, @RequestBody Map<String, List<Long>> body) {
         userService.assignDepartments(userId, body.get("departmentIds"));

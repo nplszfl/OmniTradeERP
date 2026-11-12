@@ -19,7 +19,20 @@ request.interceptors.request.use(config => {
 request.interceptors.response.use(
   response => response.data,
   error => {
-    ElMessage.error(error.message || '请求失败')
+    // 📌 **401 要跳登录页**（2026-11-12 账户系统加鉴权后补上）
+    //    后端现在对 /api/user/** 要求带 token → token 过期/没登录会返回 401
+    //    之前这里只弹一句「请求失败」→ **用户看着正常页面却什么都干不了**，
+    //    根本不知道是登录过期了。
+    //    📌 与 `api/index.ts` 的全局实例保持一致（那边早就有这段，这里漏了）。
+    if (error.response && error.response.status === 401) {
+      if (window.location.pathname !== '/login') {
+        localStorage.removeItem('token')
+        window.location.href = '/login'
+      }
+    } else {
+      // 📌 优先用后端给的业务原因（如「原密码错误」「不能修改其他用户的密码」）
+      ElMessage.error(error.response?.data?.message || error.message || '请求失败')
+    }
     return Promise.reject(error)
   }
 )
