@@ -11,11 +11,13 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -53,6 +55,9 @@ class UserAuthzTest {
 
     @Autowired
     private JwtUtil jwtUtil;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -92,15 +97,37 @@ class UserAuthzTest {
     }
 
     @Test
-    @DisplayName("🔴 匿名带 defaultPassword 参数 → 仍然 401（参数不是通行证）")
+    @DisplayName("🔴 匿名带 defaultPassword（请求体）→ 仍然 401（参数不是通行证）")
     void anonymousResetPasswordWithParamIsRejected() throws Exception {
         mockMvc.perform(post("/user/1/reset-password")
-                        .param("defaultPassword", "attacker-known"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"defaultPassword\":\"attacker-known\"}"))
                 .andExpect(status().isUnauthorized());
 
         String stored = jdbcTemplate.queryForObject(
                 "SELECT password FROM t_user WHERE id = 1", String.class);
         assertEquals("x", stored, "未认证 + 自带 defaultPassword → 密码不许变");
+    }
+
+    @Test
+    @DisplayName("🔴 口令走 URL 查询串 → **必须被忽略**（明文口令不许进访问日志）")
+    void resetPasswordViaQueryStringIsIgnored() throws Exception {
+        // 📌 2026-11-12 修：口令原来用 @RequestParam → 可以走 query string
+        //    → nginx / ingress / 网关的访问日志里 `$request` = 完整请求行（含 query）
+        //    → **明文口令进访问日志**。现在口令只认请求体。
+        String adminToken = jwtUtil.generateToken(1L, "admin");
+        mockMvc.perform(post("/user/1/reset-password")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .param("defaultPassword", "leaked-in-url"))
+                .andExpect(status().isOk());
+
+        String stored = jdbcTemplate.queryForObject(
+                "SELECT password FROM t_user WHERE id = 1", String.class);
+        // 查询串里的口令**不许**生效 → 落库的应该是「默认口令」的 BCrypt，而不是 "leaked-in-url" 的
+        assertTrue(stored != null && stored.startsWith("$2a$"), "必须 BCrypt 存储，实际: " + stored);
+        assertTrue(!stored.equals("leaked-in-url"), "不能明文存密码");
+        assertFalse(passwordEncoder.matches("leaked-in-url", stored),
+                "❌ query string 里的口令居然生效了 → 它仍然能被写进访问日志");
     }
 
     @Test
@@ -187,12 +214,13 @@ class UserAuthzTest {
     }
 
     @Test
-    @DisplayName("✅ 管理员带 defaultPassword → 200 且密码按参数落库")
+    @DisplayName("✅ 管理员带 defaultPassword（请求体）→ 200 且密码按参数落库")
     void adminCanResetPasswordToGivenValue() throws Exception {
         String adminToken = jwtUtil.generateToken(1L, "admin");
         mockMvc.perform(post("/user/1/reset-password")
                         .header("Authorization", "Bearer " + adminToken)
-                        .param("defaultPassword", "admin-set-pwd"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"defaultPassword\":\"admin-set-pwd\"}"))
                 .andExpect(status().isOk());
 
         String stored = jdbcTemplate.queryForObject(

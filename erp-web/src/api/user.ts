@@ -94,8 +94,12 @@ export const userApi = {
     request.delete<any, void>(`/user/${id}`),
 
   // 重置密码
-  resetPassword: (id: string) =>
-    request.post<any, void>(`/user/${id}/reset-password`),
+  // 📌 **口令只走请求体，绝不走 URL 查询串**（2026-11-12 修）：
+  //    `?defaultPassword=xxx` 会进 nginx / ingress / 网关的访问日志
+  //    （`$request` = 完整请求行，含 query）→ **明文口令进日志**。
+  //    后端现在只认 body；不传 = 重置为默认口令。
+  resetPassword: (id: string, defaultPassword?: string) =>
+    request.post<any, void>(`/user/${id}/reset-password`, { defaultPassword }),
 
   // 修改密码
   changePassword: (oldPassword: string, newPassword: string) =>

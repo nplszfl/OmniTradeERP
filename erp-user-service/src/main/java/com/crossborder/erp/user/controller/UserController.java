@@ -2,6 +2,7 @@ package com.crossborder.erp.user.controller;
 
 import com.crossborder.erp.common.result.PageResult;
 import com.crossborder.erp.common.result.Result;
+import com.crossborder.erp.user.dto.ResetPasswordRequest;
 import com.crossborder.erp.user.service.UserService;
 import com.crossborder.erp.user.util.JwtUtil;
 import com.crossborder.erp.user.vo.UserVO;
@@ -87,13 +88,23 @@ public class UserController {
     }
 
     /**
-     * 重置密码（重置为默认密码 admin123）
+     * 重置密码（不传口令 = 重置为默认口令）
+     *
+     * <p>📌 <b>口令只能走请求体，不能走 URL 查询串</b>（2026-11-12 修）：
+     * <pre>
+     *   ❌ POST /api/user/1/reset-password?defaultPassword=Secret123
+     *   ✅ POST /api/user/1/reset-password   body: {"defaultPassword":"Secret123"}
+     * </pre>
+     * nginx / ingress / 网关的访问日志里有 {@code $request} = <b>完整请求行（含 query string）</b>
+     * → 口令走 query → <b>明文口令进访问日志</b>。
+     * 📌 之前用 {@code @RequestParam}，现在用 {@code @RequestBody}（body 不进访问日志）。
+     * 📌 body 可选 → 前端不传时仍是「重置为默认口令」，契约兼容。</p>
      */
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     @PostMapping("/{id}/reset-password")
     public void resetPassword(@PathVariable Long id,
-                              @RequestParam(required = false) String defaultPassword) {
-        userService.resetPassword(id, defaultPassword);
+                              @RequestBody(required = false) ResetPasswordRequest request) {
+        userService.resetPassword(id, request == null ? null : request.getDefaultPassword());
     }
 
     /**

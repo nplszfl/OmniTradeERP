@@ -27,6 +27,11 @@ import java.util.Map;
  * （<b>密码由调用方指定</b>）和 permitAll 的 {@code POST /api/v1/auth/register}
  * → <b>未认证即可接管任意账号</b>。见 {@code docs/SECURITY.md}。</p>
  *
+ * <p>📌 <b>2026-11-12 再修一处</b>：口令原来用 {@code @RequestParam} → 可以走
+ * <b>URL 查询串</b> → nginx / ingress / 网关访问日志里的 {@code $request}
+ * = 完整请求行（含 query）→ <b>明文口令进访问日志</b>。
+ * 现在口令<b>只认请求体</b>（{@code ResetPasswordRequest}），走 query 的会被<b>忽略</b>。</p>
+ *
  * <p>✅ 现在：除「登录/注册/刷新」和 actuator 外，<b>一律要认证</b>；
  * 管理类操作（改人、建角色、删人、重置密码）额外要求 {@code ROLE_ADMIN}
  * （由 {@code UserJwtAuthenticationFilter} 按库里的真实角色给出）。</p>

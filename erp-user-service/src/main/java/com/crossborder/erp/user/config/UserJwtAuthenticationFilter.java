@@ -33,6 +33,11 @@ import java.util.List;
  * （再配合 {@code POST /api/v1/auth/register} 是 permitAll → 注册一个账号就能改管理员密码）=
  * <b>未认证即可完成账号接管</b>。见 {@code docs/SECURITY.md}。</p>
  *
+ * <p>📌 <b>2026-11-12 再修一处</b>：口令原来用 {@code @RequestParam} → 可以走
+ * <b>URL 查询串</b> → <b>明文口令进 nginx / ingress / 网关访问日志</b>
+ * （{@code $request} = 完整请求行，含 query）。
+ * 现在口令<b>只认请求体</b>，走 query 的会被<b>忽略</b>。</p>
+ *
  * <p>本过滤器把 {@link JwtUtil} 签发的 token 转成 SecurityContext 里的 Authentication，
  * 并**按数据库里的真实角色**（{@code t_user_role} → {@code t_role.role_code}）给出权限，
  * 这样「角色」不是写在 token 里的快照 —— <b>管理员在界面上改掉某个人的角色，立刻生效</b>，
