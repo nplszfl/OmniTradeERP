@@ -120,6 +120,19 @@ jobs:
     - name: 环境变量契约（compose/k8s 注入 ↔ 应用读取）
       run: python3 scripts/check-env-contract.py
 
+    # 📌 **环境变量模板里混进真密钥**（规则 161）
+    #    📌 为什么必须单独一道闸门：
+    #       第 45 道（`check-hardcoded-secret.py`）只扫 `src/main/resources/application*.yml`
+    #       + Java 里的 `*PASSWORD*` 常量 → **`.env.example` 不在范围内**
+    #       （规则 156：**闸门的扫描范围就是它的保护范围**）
+    #    📌 但模板恰恰是**最容易被塞真密钥**的地方：
+    #       开发者生成好密钥后，最自然的动作是「粘回模板，省得下次再生成」
+    #       而模板**被 git 跟踪**（`.env` 本体被 .gitignore 挡着）→ **真密钥直接进仓库，git 历史洗不掉**
+    #    📌 实测盲区（2026-11-13 02:30）：48 位随机串写进 `.env.example`
+    #       → **65 道闸门全部 exit 0，零失败** → 没有任何一道闸门看这个文件
+    - name: 环境变量模板无真密钥（.env.example 等）
+      run: python3 scripts/check-env-template-secrets.py
+
     # 📌 **部署脚本可执行冒烟测试** ——
     #    📌 为什么必须是「执行」而不是「grep 有没有 set -e」：
     #       `k8s/deploy.sh` 原来的缺陷是**组合**出来的 ——

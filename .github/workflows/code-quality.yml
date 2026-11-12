@@ -142,6 +142,13 @@ jobs:
         #    JWT 签名密钥 / 第三方平台密钥写在仓库里 → 拿到仓库的人就能冒充身份
         #    （实测已用仓库里的 jwt.secret 伪造出管理员 token 并被真实 JwtUtil 校验通过）
         python3 scripts/check-hardcoded-secret.py
+        # 📌 **环境变量模板里混进真密钥**（规则 161）
+        #    第 45 道闸门只扫 `src/main/resources/application*.yml` + Java 常量
+        #    → **`.env.example` 不在范围内**（规则 156：扫描范围 = 保护范围）
+        #    而模板恰恰是**最容易被塞真密钥**的地方（开发者把生成好的值粘回模板）
+        #    → 模板**被 git 跟踪** → 真密钥直接进仓库，**git 历史洗不掉**
+        #    实测盲区：48 位随机串写进 `.env.example` → **65 道闸门全绿、零失败**
+        python3 scripts/check-env-template-secrets.py
         # 📌 **安全文档的声明 ↔ 仓库现实**（规则 51 / 93：手写结论会静默过期）
         #    docs/SECURITY.md 第六节「残余风险」是一份**手写的风险登记表**
         #    → 有人把 admin123 修掉了、文档还写着 → **文档开始骗人**
