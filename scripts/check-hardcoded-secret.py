@@ -127,6 +127,25 @@ JAVA_PWD_CONST_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 📌 **名字是「策略 / 长度 / 格式」的常量，不是凭证**（2026-11-12 修）
+#    判据是**纯按名字**含 password/pwd → `MAX_PASSWORD_LENGTH = "8"` 这种
+#    「口令最小长度」也会被判成「硬编码凭证」→ **假阳性**。
+#    📌 **假阳性比假阴性更危险**（规则 99）：下一个人加个 `PASSWORD_MIN_LENGTH = "6"`
+#    就被红 → 按惯例去「放松闸门」 → 那才是真事故。
+#    ✅ 修法：**按名字的后缀形状**排除（排除的是**语义**，不是**强度**）。
+#    ⚠️ **千万别改成「按值过滤」**（比如「值是数字就不算」）→
+#       那会把 `DEFAULT_PASSWORD = "123456"` 这种**弱但真实的凭证**放过去（假阴性）。
+#    📌 这些后缀都不可能是凭证的**值**：它们描述的是**规则**，不是**秘密**。
+NON_CREDENTIAL_NAME_SUFFIXES = (
+    "LENGTH", "PATTERN", "FORMAT", "RULE", "POLICY", "TTL", "EXPIRY",
+)
+
+
+def is_non_credential_name(name: str) -> bool:
+    """常量名是否表示「策略/长度/格式」而不是「凭证值」。"""
+    up = name.upper()
+    return any(up.endswith(sfx) for sfx in NON_CREDENTIAL_NAME_SUFFIXES)
+
 # 📌 **已知待整改（整行精确匹配，不做子串豁免 —— 规则 139）**
 #    每加一个例外，都必须在 docs/SECURITY.md 的整改清单里有一行对应说明。
 KNOWN_PENDING_JAVA_PWD = {
@@ -312,6 +331,9 @@ def scan_java_password_constants(findings, exempted=None):
                 name = m.group("name")
                 val = m.group("val")
                 if not val.strip() or is_placeholder(val):
+                    continue
+                # 📌 **名字是「策略/长度/格式」的常量不是凭证**（如 `MAX_PASSWORD_LENGTH = "8"`）
+                if is_non_credential_name(name):
                     continue
                 if (rel, name) in KNOWN_PENDING_JAVA_PWD:
                     if exempted is not None:
