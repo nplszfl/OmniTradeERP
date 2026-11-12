@@ -76,7 +76,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB_API = ROOT / "erp-web/src/api"
-WEB_VIEWS = ROOT / "erp-web/src/views"
+# 📌 **扫整个 `erp-web/src`，不是只扫 `src/views/`**（2026-11-12 修）
+#    原来只扫 `src/views/**.vue` → **`src/layout/index.vue` 里的调用完全看不见**
+#    → 「用户在界面里改密码」这种**活着的接口**被报成「死接口」
+#    → 清单里出现「明明接了却报死」的条目 → 照着清单干活的人会**重复实现一遍**。
+#    📌 **同类闸门（check-frontend-fake-success / fake-fallback / direct-http / fake-success / fake-delete）
+#    扫的都是整个 `erp-web/src`** → 只有本脚本是例外（规则 100：判据只认一种写法 = 双向失明）。
+WEB_SRC = ROOT / "erp-web/src"
+WEB_VIEWS = WEB_SRC  # 保留旧名以免影响其它引用，但**语义已改成「整个前端源码」**
 JAVA_ROOT = ROOT
 
 
@@ -632,10 +639,10 @@ def verify_claims(claims, dead, frontend_used, backend_callers, endpoints):
             continue
         # 断言「它是死的」—— 若它不在死接口清单里，说明已经有调用方了
         if (http, path) not in dead_keys:
-            reason = "现在已经有调用方了（前端视图 / 其他服务）"
+            reason = "现在已经有调用方了（前端代码 / 其他服务）"
             for m, url in frontend_used:
                 if m == http and url_matches_backend(url, path, None, m):
-                    reason = f"前端视图已经在调它了（{url}）"
+                    reason = f"前端代码已经在调它了（{url}）"
                     break
             stale.append((http, path, reason))
     return stale
@@ -671,7 +678,7 @@ def verify_exhaustive(claims, endpoints, dead):
 # 📌 文档头部「统计」块的字段 → 文档里的声明格式
 DOC_STAT_PATTERNS = [
     ("后端 HTTP 接口", r"^- 后端 HTTP 接口：\*\*(\d+)\*\* 个", "endpoints"),
-    ("前端视图真正调用", r"^- 前端视图真正调用：\*\*(\d+)\*\* 处", "frontend_used"),
+    ("前端代码真正调用", r"^- 前端代码真正调用：\*\*(\d+)\*\* 处", "frontend_used"),
     ("服务间引用", r"^- 服务间引用：\*\*(\d+)\*\* 处", "backend_callers"),
     ("网关路由", r"^- 网关路由：\*\*(\d+)\*\* 条", "routes"),
     ("疑似死接口", r"^- 疑似死接口：\*\*(\d+)\*\* 个", "dead"),
@@ -757,7 +764,7 @@ def write_markdown(dead, endpoints, frontend_used, backend_callers, routes, path
         "## 统计",
         "",
         f"- 后端 HTTP 接口：**{len(endpoints)}** 个",
-        f"- 前端视图真正调用：**{len(frontend_used)}** 处",
+        f"- 前端代码真正调用：**{len(frontend_used)}** 处",
         f"- 服务间引用：**{len(backend_callers)}** 处",
         f"- 网关路由：**{len(routes)}** 条",
         f"- 疑似死接口：**{len(dead)}** 个",
@@ -809,7 +816,7 @@ def main():
     view_calls, raw_axios_calls = parse_view_api_calls()
     backend_callers = collect_backend_callers(endpoints)
 
-    # 前端视图真正调用到的 URL（方法 + URL）
+    # 前端代码真正调用到的 URL（方法 + URL）
     frontend_used = set()
     for name in view_calls:
         segs = name.split(".")
@@ -822,9 +829,9 @@ def main():
     frontend_used.update(raw_axios_calls)
 
     print("=" * 78)
-    print("死接口巡检：后端 HTTP 接口 ↔ 调用方（前端视图 / 其他服务 / 定时任务）")
+    print("死接口巡检：后端 HTTP 接口 ↔ 调用方（前端代码 / 其他服务 / 定时任务）")
     print("=" * 78)
-    print(f"后端接口 {len(endpoints)} 个 | 前端视图真正调用 {len(frontend_used)} 处 | "
+    print(f"后端接口 {len(endpoints)} 个 | 前端代码真正调用 {len(frontend_used)} 处 | "
           f"服务间引用 {len(backend_callers)} 处 | 网关路由 {len(routes)} 条")
 
     if not endpoints:
@@ -846,7 +853,7 @@ def main():
         print("\n✅ 没有发现疑似死接口")
         return 0
 
-    print(f"\n⚠️ 疑似死接口 {len(dead)} 个（没有任何前端视图/其他服务调用）:\n")
+    print(f"\n⚠️ 疑似死接口 {len(dead)} 个（没有任何前端代码/其他服务调用）:\n")
     by_module = {}
     for module, java, http, path, sched in dead:
         by_module.setdefault(module, []).append((http, path, sched))

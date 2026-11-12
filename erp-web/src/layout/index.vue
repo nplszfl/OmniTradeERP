@@ -140,6 +140,10 @@
             </span>
             <template #dropdown>
               <el-dropdown-menu>
+                <!-- 📌 **修改密码** —— 后端 `POST /user/change-password` + api 层 `userApi.changePassword`
+                     都已就绪，但**原来没有任何视图调用它** → 用户在界面上改不了自己的密码。
+                     （2026-11-12 接上：死接口清单里「api 层写了但视图没调」的一类。） -->
+                <el-dropdown-item @click="handleChangePassword">修改密码</el-dropdown-item>
                 <el-dropdown-item>退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -151,18 +155,87 @@
         <router-view />
       </el-main>
     </el-container>
+
+    <!-- 📌 修改密码对话框（自助）—— 旧密码 + 新密码 + 确认新密码 -->
+    <el-dialog v-model="pwdDialogVisible" title="修改密码" width="440px" :close-on-click-modal="false">
+      <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdFormRules" label-width="90px">
+        <el-form-item label="当前密码" prop="oldPassword">
+          <el-input v-model="pwdForm.oldPassword" type="password" show-password placeholder="请输入当前密码" />
+        </el-form-item>
+        <el-form-item label="新密码" prop="newPassword">
+          <el-input v-model="pwdForm.newPassword" type="password" show-password placeholder="至少 6 位" />
+        </el-form-item>
+        <el-form-item label="确认新密码" prop="confirmPassword">
+          <el-input v-model="pwdForm.confirmPassword" type="password" show-password placeholder="再输入一次新密码" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="pwdDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="pwdSubmitting" @click="submitChangePassword">确认修改</el-button>
+      </template>
+    </el-dialog>
   </el-container>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { userApi } from '@/api/user'
 import { DataAnalysis, Document, Goods, User, OfficeBuilding, Box, House, Van, Setting, Money, UserFilled, ArrowDown, DataLine, MagicStick, ShoppingCart, Share, Key } from '@element-plus/icons-vue'
 
 const route = useRoute()
 
 const activeMenu = computed(() => route.path)
 const pageTitle = computed(() => route.meta.title || '首页')
+
+// ====== 修改密码（自助）======
+const pwdDialogVisible = ref(false)
+const pwdSubmitting = ref(false)
+const pwdFormRef = ref()
+const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
+
+const pwdFormRules = {
+  oldPassword: [{ required: true, message: '请输入当前密码', trigger: 'blur' }],
+  newPassword: [
+    { required: true, message: '请输入新密码', trigger: 'blur' },
+    { min: 6, message: '新密码至少 6 位', trigger: 'blur' }
+  ],
+  // 📌 **两次输入必须一致** —— 不校验的话用户会以为改成功了，其实后端拒了
+  confirmPassword: [
+    { required: true, message: '请再次输入新密码', trigger: 'blur' },
+    {
+      validator: (_rule: unknown, value: string, cb: (e?: Error) => void) => {
+        if (value !== pwdForm.newPassword) cb(new Error('两次输入的新密码不一致'))
+        else cb()
+      },
+      trigger: 'blur'
+    }
+  ]
+}
+
+const handleChangePassword = () => {
+  pwdForm.oldPassword = ''
+  pwdForm.newPassword = ''
+  pwdForm.confirmPassword = ''
+  pwdDialogVisible.value = true
+}
+
+const submitChangePassword = async () => {
+  const valid = await pwdFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+  pwdSubmitting.value = true
+  try {
+    await userApi.changePassword(pwdForm.oldPassword, pwdForm.newPassword)
+    ElMessage.success('密码修改成功')
+    pwdDialogVisible.value = false
+  } catch (error) {
+    // 📌 **不自己拼错误文案** —— 后端已经返回了「旧密码错误」等具体原因
+    console.error('修改密码失败:', error)
+  } finally {
+    pwdSubmitting.value = false
+  }
+}
 </script>
 
 <style scoped>

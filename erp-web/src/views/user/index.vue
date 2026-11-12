@@ -56,10 +56,14 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="180" fixed="right">
+            <el-table-column label="操作" width="240" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="handleEditUser(row)">编辑</el-button>
                 <el-button link type="warning" size="small" @click="handleAssignRole(row)">分配角色</el-button>
+                <!-- 📌 **重置密码** —— 后端 `POST /user/{id}/reset-password` + api 层 `userApi.resetPassword`
+                     都已就绪，但**原来没有任何视图调用它** → 管理员在界面上无法重置别人密码。
+                     （2026-11-12 接上。） -->
+                <el-button link type="warning" size="small" @click="handleResetPassword(row)">重置密码</el-button>
                 <el-button link type="danger" size="small" @click="handleDeleteUser(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -552,6 +556,24 @@ const handleDeleteUser = (row: SysUser) => {
       loadUsers()
     } catch (error) {
       console.error('删除用户失败:', error)
+    }
+  }).catch(() => {})
+}
+
+/**
+ * 📌 **重置密码** —— 管理员把某个用户的密码重置成初始密码。
+ * 📌 **必须真的调后端** —— 不能弹个「已重置」就完事（规则 80 / 82：假成功）。
+ *    这里 await 真实接口，失败时由 axios 拦截器统一弹错误，绝不自己报成功。
+ */
+const handleResetPassword = (row: SysUser) => {
+  ElMessageBox.confirm(`确定重置用户 ${row.username} 的密码吗？`, '提示', {
+    type: 'warning'
+  }).then(async () => {
+    try {
+      await userApi.resetPassword(row.id)
+      ElMessage.success('密码已重置为初始密码')
+    } catch (error) {
+      console.error('重置密码失败:', error)
     }
   }).catch(() => {})
 }

@@ -6,10 +6,10 @@
 ## 统计
 
 - 后端 HTTP 接口：**473** 个
-- 前端视图真正调用：**206** 处
+- 前端代码真正调用：**208** 处
 - 服务间引用：**2** 处
 - 网关路由：**36** 条
-- 疑似死接口：**259** 个
+- 疑似死接口：**257** 个
 
 ## 怎么读这份清单
 
@@ -399,16 +399,14 @@
 | POST | `/api/v1/tenant/upgrade` |  |
 | GET | `/api/v1/tenant/users` |  |
 
-### erp-user-service（7 个）
+### erp-user-service（5 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
 | POST | `/auth/logout` |  |
 | POST | `/auth/refresh` |  |
 | GET | `/department/list` |  |
-| POST | `/user/change-password` |  |
 | GET | `/user/{id}` |  |
-| POST | `/user/{id}/reset-password` |  |
 | POST | `/user/{userId}/departments` |  |
 
 ### erp-warehouse-service（45 个）
