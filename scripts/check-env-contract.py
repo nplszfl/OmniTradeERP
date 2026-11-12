@@ -109,6 +109,13 @@ NATIVE_ENV = {
 BAD_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::[^}]*)?\}")
+# 📌 **无默认值**的占位符 —— `${VAR}`（后面**没有** `:默认值`）
+#    → 缺这个环境变量时，Spring **启动就失败**：
+#       `Could not resolve placeholder 'VAR' in value "${VAR}"`
+#    → 与「有默认值」的性质完全不同（有默认值 = 降级；无默认值 = 硬失败）。
+# 📌 判据必须**区分这两者**（规则 100：判据只认一种写法 = 双向失明）。
+#    正则要求名字后面**紧跟** `}`，所以 `${VAR:default}` 不会被误当成「无默认值」。
+REQUIRED_PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 # Spring Boot 原生 relaxed binding 的环境变量 → 对应的配置路径
 NATIVE_BINDING = {
@@ -182,16 +189,19 @@ def dig(doc, path):
 
 
 def app_config(module):
-    """应用侧 application.yml → (读到的变量集合, {基础设施路径: 值})。"""
+    """应用侧 application.yml → (读到的变量集合, {基础设施路径: 值}, **无默认值**的变量集合)。"""
     yml = os.path.join(ROOT, module, "src", "main", "resources", "application.yml")
     if not os.path.exists(yml):
-        return set(), {}
+        return set(), {}, set()
     text = open(yml, encoding="utf-8").read()
     merged = {}
     for d in yaml.safe_load_all(text):
         if isinstance(d, dict):
             merged = deep_merge(merged, d)
     reads = set(PLACEHOLDER_RE.findall(text))
+    # 📌 **无默认值的变量** —— 只要**有一处**是无默认值，就算「必需」
+    #    （保守：宁可多查一处，也不要放过「启动就失败」的那一处）
+    required = set(REQUIRED_PLACEHOLDER_RE.findall(text))
 
     infra = {}
     for spec in INFRA_KINDS.values():
@@ -199,7 +209,7 @@ def app_config(module):
             val = dig(merged, path)
             if val is not None:
                 infra[path] = str(val)
-    return reads, infra
+    return reads, infra, required
 
 
 def check_nacos_config_addr(module):
@@ -388,7 +398,7 @@ def main():
     k8s_kinds = k8s_deployed()
 
     for target, module, injected, filename in targets:
-        reads, infra = app_config(module)
+        reads, infra, required = app_config(module)
         files = [filename]
 
         # 这个目标**实际部署了**哪些基础设施
@@ -465,6 +475,29 @@ def main():
                 f"但部署层**没有注入** `{var}`（{', '.join(files)}）\n"
                 f"      → 应用会用默认值，容器里连不到 {kind}"
                 f"（该目标**部署了** {kind}）")
+
+        # ── 检查 4：应用读了**无默认值**的变量 → 部署层必须注入它 ────────
+        # 📌 **为什么单独一条**：检查 2 只管**基础设施类**变量（`VAR_TO_KIND` 里的那些），
+        #    而像 `JWT_SECRET` 这种**应用自己的**变量根本不在那个名单里 →
+        #    → 检查 2 看不见 → 部署层没注入 → **容器启动就失败**
+        #    （实测：`Could not resolve placeholder 'JWT_SECRET' in value "${JWT_SECRET}"`）
+        # 📌 **本闸门自己的总结行以前写着「应用读的每个变量部署层都注入了」——
+        #    那句话比代码实际做的更宽**（规则 93：文档/结论也会撒谎）→ 现在让代码配得上它。
+        # 📌 **只查「无默认值」的**：有默认值的变量缺了只是**降级**，不该拦 CI（规则 99：宁可漏报不要误报）。
+        for var in sorted(required):
+            if var in injected:
+                continue
+            if var in NATIVE_ENV:
+                continue
+            if framework_reads(var)[0]:
+                continue
+            errors.append(
+                f"[{target}] 应用读了 `${{{var}}}`（**无默认值**），"
+                f"但部署层**没有注入** `{var}`（{', '.join(files)}）\n"
+                f"      → 容器启动会直接失败："
+                f"`Could not resolve placeholder '{var}'`\n"
+                f"      → 部署层必须注入它（**不许在仓库里写默认值** —— "
+                f"那等于把密钥公开出去，规则 140 / 146）")
 
         # ── 检查 3：注入的变量没人读 ───────────────────────────────────────
         for var in sorted(injected):

@@ -265,6 +265,11 @@ services:
     ports:
       - "8084:8084"
     environment:
+      # 📌 **JWT 签名密钥必须显式提供** —— 仓库里**不留任何默认值**（规则 140 / 146）。
+      #    生成：openssl rand -base64 32
+      #    不提供就在 `docker compose up` 时**立刻报错**（而不是容器起来后用弱密钥）。
+      #    生产路径（k8s）由 k8s/deploy.sh 现场随机生成并写进 Secret，两者互不复用。
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 必须显式提供 —— 生成：openssl rand -base64 32}
       NACOS_HOST: nacos
       NACOS_PORT: 8848
       SENTINEL_DASHBOARD: sentinel:8858
