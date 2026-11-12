@@ -292,8 +292,15 @@ def scan_java_defaults(findings):
                 ))
 
 
-def scan_java_password_constants(findings):
-    """扫描 Java 里的 `*PASSWORD*` 常量 = 字面量（账号口令，不是数据库口令）。"""
+def scan_java_password_constants(findings, exempted=None):
+    """扫描 Java 里的 `*PASSWORD*` 常量 = 字面量（账号口令，不是数据库口令）。
+
+    📌 **豁免项也要如实报出来**（2026-11-12 修）——
+       原来豁免项直接 `continue` → **闸门输出说「✅ 没有硬编码凭证」**，
+       而仓库里**确实躺着一个已知的硬编码口令**（`DEFAULT_PASSWORD = "admin123"`）
+       → **声明与现实不一致**（规则 126 同族）→ 谁看闸门输出都会以为这事已经没了。
+       ✅ 现在：豁免项进 `exempted` 列表 → 输出里**明确列出来**并指向 docs/SECURITY.md 的整改清单。
+    """
     for path in iter_java_files():
         rel = os.path.relpath(path, REPO_ROOT)
         text = open(path, encoding="utf-8").read()
@@ -307,6 +314,13 @@ def scan_java_password_constants(findings):
                 if not val.strip() or is_placeholder(val):
                     continue
                 if (rel, name) in KNOWN_PENDING_JAVA_PWD:
+                    if exempted is not None:
+                        exempted.append((
+                            rel, lineno, name,
+                            f"**已知待整改**：`{name} = \"{val}\"` → 豁免登记在 "
+                            f"`KNOWN_PENDING_JAVA_PWD`（整行精确匹配）→ **本闸门不判红**，"
+                            f"但它**仍然是仓库里的硬编码口令** → 整改清单见 docs/SECURITY.md",
+                        ))
                     continue
                 findings.append((
                     rel, lineno, name,
@@ -368,7 +382,8 @@ def main() -> int:
 
     # C2b：Java 侧 @Value 默认值
     scan_java_defaults(findings)
-    scan_java_password_constants(findings)
+    exempted = []
+    scan_java_password_constants(findings, exempted)
 
     # C3：部署层必须真的注入
     #    📌 **必须按「服务」逐个核验，不能全局搜**（规则 92 的镜像）：
@@ -438,7 +453,14 @@ def main() -> int:
         print("   ③ Secret 本身：仓库里只放**占位符**，真实值用 `kubectl create secret` 现场生成")
         return 1
 
-    print("\n✅ 没有硬编码凭证：所有凭证都走环境变量，且部署层都真的注入了")
+    print("\n✅ 没有**未登记**的硬编码凭证：所有凭证都走环境变量，且部署层都真的注入了")
+    if exempted:
+        print(f"\n⚠️ **另有 {len(exempted)} 处「已登记待整改」的硬编码口令**（豁免 ≠ 已修复）：")
+        for rel, lineno, name, msg in exempted:
+            print(f"   {rel}:{lineno} [{name}]")
+            print(f"        {msg}")
+        print("   📌 **豁免只是让闸门不一直红着，不是说这事已经解决了** —— 整改完请从 "
+              "`KNOWN_PENDING_JAVA_PWD` 里删掉对应项。")
     print("ℹ️  数据库口令（`password:`）**不在本闸门范围** → 见 docs/SECURITY.md 的整改清单")
     return 0
 
