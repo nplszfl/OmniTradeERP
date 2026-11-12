@@ -10,8 +10,8 @@
 
 ### 1. 销售预测
 - ✅ 基于历史数据的时间序列预测
-- ✅ Prophet模型（Facebook开源）
-- ✅ ARIMA模型
+- ✅ **启发式模型**（移动平均 + 趋势 + 季节性因子）
+  —— ⚠️ **不是机器学习模型**：本模块**没有任何 ML 依赖**（无 Prophet / ARIMA / statsmodels 等）
 - ✅ 季节性因子分析
 - ✅ 趋势分解
 - ✅ 置信区间计算
@@ -129,7 +129,7 @@ curl -X POST http://localhost:8088/api/v1/inventory-prediction/predict \
   "peakDate": "2026-03-20",
   "troughDailySales": 8,
   "troughDate": "2026-03-25",
-  "modelType": "Prophet + ARIMA",
+  "modelType": "启发式（移动平均 + 季节性因子；历史数据为模拟值，非机器学习模型）",
   "accuracy": 0.92,
   "lowerBound": 382,
   "upperBound": 517
@@ -138,19 +138,24 @@ curl -X POST http://localhost:8088/api/v1/inventory-prediction/predict \
 
 ## 🧪 预测算法
 
-### Prophet模型
+### 启发式模型（移动平均 + 趋势 + 季节性因子）
 
-Facebook开源的预测算法，适用于：
-- ✅ 季节性数据
-- ✅ 趋势变化
-- ✅ 节假日效应
+**它是什么**：一组**统计启发式**的组合，不含任何机器学习模型。
+- ✅ 季节性因子
+- ✅ 趋势分解
+- ✅ 短期移动平均
 
-### ARIMA模型
+**它不是什么**：⚠️ **不是 Prophet，不是 ARIMA，不是任何训练出来的模型** ——
+本模块 pom 里**没有任何 ML / 统计学习依赖**，也没有模型训练或推理流程。
 
-经典时间序列模型，适用于：
-- ✅ 短期预测
-- ✅ 平稳序列
-- ✅ 自相关序列
+### ⚠️ 关于「历史数据」与「置信度」
+
+- 当前的**历史销量取自模拟数据**（`getHistoricalSales` 随机生成），
+  不是生产环境的真实销量。
+- 因此接口**不输出 `confidence`** —— 在模拟数据上算出来的置信度是个**假事实**，
+  宁可不给数（规则 56）。
+- `accuracy` / MAPE 等准确性指标只反映「与这份模拟数据的一致程度」，
+  **不能当成模型精度**对外宣称。
 
 ## 📊 性能指标
 

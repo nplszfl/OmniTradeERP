@@ -11,7 +11,7 @@ OmniTrade ERP 内置 **4大AI服务**，打造真正的智能ERP体验。
 - 多平台价格同步
 
 **技术实现：**
-- Python + FastAPI 微服务
+- Java 21 + Spring Boot 微服务
 - 竞品数据抓取（Amazon/eBay/Shopee）
 - 动态定价算法
 - 实时价格更新
@@ -28,16 +28,16 @@ GET  /api/v1/pricing/strategy/{productId}    - 获取定价策略
 ## 2. 📈 库存预测服务 (`erp-inventory-prediction-service`)
 
 **功能：**
-- 销售趋势预测（Prophet/ARIMA）
+- 销售趋势预测（启发式：移动平均 + 趋势 + 季节性因子，**非机器学习模型**）
 - 智能补货建议
 - 安全库存计算
 - 库存预警通知
 
 **技术实现：**
-- Python + Flask 微服务
-- 时间序列预测模型
-- 机器学习优化算法
-- 预测准确性评估
+- Java 21 + Spring Boot 微服务
+- 启发式预测（移动平均 + 趋势 + 季节性因子）—— **不是机器学习模型**，模块内无任何 ML 依赖
+- ⚠️ 历史销量目前取自**模拟数据**，故不输出「置信度」（在模拟数据上算置信度是假事实）
+- 预测准确性评估（MAPE 等指标）
 
 **API接口：**
 ```
@@ -59,7 +59,7 @@ POST /api/v1/inventory-prediction/batch-forecast           - 批量预测
 - 7×24小时自动回复
 
 **技术实现：**
-- Python + Gradio 微服务
+- Java 21 + Spring Boot 微服务
 - RAG（检索增强生成）架构
 - DeepSeek LLM 集成
 - 向量数据库（FAISS）
@@ -83,7 +83,7 @@ GET  /api/v1/ai-assistant/languages        - 支持的语言列表
 - 批量生成支持
 
 **技术实现：**
-- Python + FastAPI 微服务
+- Java 21 + Spring Boot 微服务
 - 多平台模板系统（Amazon/eBay/Shopee/Lazada/TikTok）
 - SEO优化算法
 - 批量生成队列

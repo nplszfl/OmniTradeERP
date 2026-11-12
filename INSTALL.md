@@ -184,9 +184,29 @@ lsof -i:8848
 
 ### Q: 想用 Docker 启动所有服务？
 **A:** 使用项目提供的 docker-compose.yml
+
+> ⚠️ **第一次必须先准备本地环境变量** —— `JWT_SECRET`（JWT 签名密钥）在 compose 里是
+> **必填**且**仓库里不留默认值**（公开的默认值 = 所有人共享的密钥 → 可伪造管理员 token）。
+> 不设置的话 `docker compose` 会在**启动前**直接报错（fail-closed，这是有意的）：
+> ```
+> error while interpolating services.user-service.environment.JWT_SECRET:
+>   required variable JWT_SECRET is missing a value
+> ```
+
 ```bash
+# 1) 复制环境变量模板（`.env` 已在 .gitignore 里，不会进仓库）
+cp .env.example .env
+
+# 2) 生成一个随机密钥写进 .env（每个开发者各生成一个，别互相复制）
+echo "JWT_SECRET=$(openssl rand -base64 32)" >> .env
+
+# 3) 启动（compose 会自动读取项目根目录的 .env）
 docker-compose up -d
 ```
+
+📌 之后只要 `.env` 在，**所有文档里的 `docker-compose up -d` 都能直接跑**，不需要每次 `export`。
+📌 **生产环境不走这条路**：k8s 由 `k8s/deploy.sh` 用 `openssl rand` 现场生成并写进
+Secret `erp-jwt-secret`，两者互不复用。
 
 ---
 
