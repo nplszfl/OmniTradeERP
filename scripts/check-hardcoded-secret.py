@@ -95,6 +95,29 @@ K8S_FILES = ("k8s/core-services.yaml", "k8s/extended-services.yaml",
              "k8s/ai-services.yaml", "k8s/services.yaml",
              "k8s/gateway.yaml", "k8s/mysql.yaml", "k8s/redis.yaml", "k8s/nacos.yaml")
 
+# ── C5：Java 源码里的「账号口令常量」（2026-11-12 补）──────────────────
+# 📌 **为什么单独加这一条**：C1/C2b 只管「配置键」和「@Value 默认值」，
+#    管不到 **Java 里的常量** —— 那也是一条独立的硬编码路径。
+#    实测到的真实例子：`UserServiceImpl.DEFAULT_PASSWORD = "admin123"`
+#    → 管理员重置密码时若不指定新密码，用户拿到的就是这个**写在仓库里的通用口令**
+#    → 任何拿到仓库的人都知道每个人的重置密码。
+# 📌 **为什么只管 Java 常量、不管 yml 里的 `password:`**：
+#    yml 的 `password:` 是**数据库口令**（内网可达、非身份冒充）→ 已知边界，见 docs/SECURITY.md；
+#    而 Java 里的 `*PASSWORD*` 常量是**能直接登录的账号口令** → 属于本闸门范围。
+#    📌 实测误报率：全仓生产代码里 `*PASSWORD*` 常量**只有 1 处** → 加上这条不会造成「一上来全红」。
+JAVA_PWD_CONST_RE = re.compile(
+    r"\bString\s+(?P<name>[A-Za-z0-9_]*PASSWORD[A-Za-z0-9_]*)\s*=\s*\"(?P<val>[^\"]*)\""
+)
+
+# 📌 **已知待整改（整行精确匹配，不做子串豁免 —— 规则 139）**
+#    每加一个例外，都必须在 docs/SECURITY.md 的整改清单里有一行对应说明。
+KNOWN_PENDING_JAVA_PWD = {
+    (
+        "erp-user-service/src/main/java/com/crossborder/erp/user/service/impl/UserServiceImpl.java",
+        "DEFAULT_PASSWORD",
+    ),
+}
+
 
 def iter_config_files():
     for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
@@ -251,6 +274,31 @@ def scan_java_defaults(findings):
                 ))
 
 
+def scan_java_password_constants(findings):
+    """扫描 Java 里的 `*PASSWORD*` 常量 = 字面量（账号口令，不是数据库口令）。"""
+    for path in iter_java_files():
+        rel = os.path.relpath(path, REPO_ROOT)
+        text = open(path, encoding="utf-8").read()
+        for lineno, raw in enumerate(text.split("\n"), 1):
+            stripped = raw.strip()
+            if stripped.startswith("//") or stripped.startswith("*") or stripped.startswith("/*"):
+                continue
+            for m in JAVA_PWD_CONST_RE.finditer(raw):
+                name = m.group("name")
+                val = m.group("val")
+                if not val.strip() or is_placeholder(val):
+                    continue
+                if (rel, name) in KNOWN_PENDING_JAVA_PWD:
+                    continue
+                findings.append((
+                    rel, lineno, name,
+                    f"**Java 侧的账号口令常量**：`{name} = \"{val}\"` → "
+                    f"这个**写在仓库里的通用口令**会被用于重置/初始化密码 → "
+                    f"拿到仓库的人就知道别人的密码。"
+                    f"✅ 改成**随机生成**并回传给操作人，或从环境变量读。",
+                ))
+
+
 def main() -> int:
     verbose = "--verbose" in sys.argv
     findings = []
@@ -302,6 +350,7 @@ def main() -> int:
 
     # C2b：Java 侧 @Value 默认值
     scan_java_defaults(findings)
+    scan_java_password_constants(findings)
 
     # C3：部署层必须真的注入
     #    📌 **必须按「服务」逐个核验，不能全局搜**（规则 92 的镜像）：
