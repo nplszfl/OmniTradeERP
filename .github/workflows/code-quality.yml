@@ -120,6 +120,12 @@ jobs:
         #    → 运行时密钥 = 仓库里公开的字符串 → 任何人可伪造管理员 token
         python3 scripts/check-jwt-secret-runtime.py
 
+        # 📌 **部署计划覆盖的 Deployment ⊆ CI apply 的清单**（规则 146 同族）
+        #    计划从 k8s/*.yaml 全部反推（23 个），但 CI 只 apply 4 个清单
+        #    → extended-services.yaml 的 10 个 Deployment 在集群里不存在
+        #    → `kubectl set image` 报 not found → `set -euo pipefail` → **部署 job 必然失败**
+        python3 scripts/check-deploy-plan-apply-coverage.py
+
         # 📌 **「记了账、没改东西」**（规则 72 / 80 / 82）
         #    写商品维度的变更历史、却不更新商品主表 → 假成功（采纳了但价格没变）
         python3 scripts/check-history-without-master-update.py

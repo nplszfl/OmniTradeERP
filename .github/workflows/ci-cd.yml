@@ -817,8 +817,15 @@ jobs:
         #    在集群里还不存在 → set image 报 not found。
         # 📌 **只 apply 应用清单**，不碰 mysql/redis/nacos：
         #    基础设施由 deploy.sh / 运维单独管，CI 不该碰有状态的东西。
+        # 📌 **应用清单必须【全部】apply**（2026-11-12 修）：
+        #    部署计划 `k8s-deploy-plan.py` 是从 **k8s/*.yaml 全部**反推的（23 个 Deployment），
+        #    而这里原来只 apply 4 个 → **k8s/extended-services.yaml 的 10 个服务没被 apply**
+        #    → 它们在集群里根本不存在 → 循环里第一个 `kubectl set image deployment/erp-analytics-service`
+        #    就报 **not found** → 本 step 有 `set -euo pipefail` → **整个部署 job 必然失败**。
+        #    📌 **「计划覆盖的 Deployment 集合」必须 ⊆ 「CI apply 的清单集合」** →
+        #       第 65 道闸门 `check-deploy-plan-apply-coverage.py` 专管这个。
         kubectl apply -f k8s/namespace.yaml --context=default
-        for f in k8s/gateway.yaml k8s/core-services.yaml k8s/services.yaml k8s/ai-services.yaml; do
+        for f in k8s/gateway.yaml k8s/core-services.yaml k8s/services.yaml k8s/ai-services.yaml k8s/extended-services.yaml; do
           echo "→ apply $f"
           kubectl apply -f "$f" --context=default
         done

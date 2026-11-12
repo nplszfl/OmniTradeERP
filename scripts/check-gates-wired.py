@@ -79,17 +79,28 @@ def main() -> int:
             path = os.path.join(WORKFLOW_DIR, fn)
             wf_text[fn] = open(path, encoding="utf-8", errors="replace").read()
 
-    # workflow 里被提到的所有闸门名
+    # workflow 里**真正被调用**的闸门名（不是「提到」）
+    # 📌 **2026-11-12 修**：原来只找「文件名出现过」→ **注释里提一句也算「已接线」**
+    #    → 实测踩过：新闸门只在自己的**说明注释**里出现过 → 闸门接线闸门报「65/65 全接线」
+    #    → 而它**其实一行都没跑**（规则 29：闸门不跑 = 不存在；规则 100：判据只认一种写法 = 双向失明）。
+    # ✅ 现在只认**真正的调用行**：`python3 scripts/check-xxx.py`
+    # 📌 **先剥掉注释行** —— 否则「说明注释里写了一句 `python3 scripts/check-x.py`」也算「已接线」
+    #    （实测踩过：新闸门只在自己的说明注释里出现过 → 接线闸门报「65/65 全接线」→ 其实一行没跑）
+    #    保留两种真实调用形态：① `python3 scripts/x.py` ② `run: python3 scripts/x.py`
+    INVOKE_RE = re.compile(r"python3\s+scripts/(check-[a-z0-9\-]+\.py)\b")
     mentioned = set()
     for text in wf_text.values():
-        mentioned.update(GATE_RE.findall(text))
+        code_only = "\n".join(
+            ln for ln in text.split("\n") if not ln.lstrip().startswith("#")
+        )
+        mentioned.update(m.group(1) for m in INVOKE_RE.finditer(code_only))
 
     findings = []
     for g in gates:
         if g in mentioned:
             continue
         findings.append(
-            f"[A] `{g}` **没有出现在任何 workflow 里** → **它从来不会运行**"
+            f"[A] `{g}` **没有在任何 workflow 里被真正调用** → **它从来不会运行**"
             f" → 规则 29：「闸门不跑 = 不存在」"
             f"\n     📌 真实发生过（11-10）：第 42 道闸门建好后忘了注册，"
             f"守护「SQL 栈泄露」的防线**根本没上线**。"
