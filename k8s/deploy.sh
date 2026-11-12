@@ -21,6 +21,19 @@ kubectl create namespace erp --dry-run=client -o yaml | kubectl apply -f -
 echo "🗄️  部署MySQL..."
 kubectl apply -f k8s/mysql.yaml
 
+# 🔴 **JWT 签名密钥**（2026-11-12 新增）
+#    📌 之前 erp-user-service 的 jwt.secret 是**仓库里的字面量** → 任何人可签出管理员 token
+#    📌 现在：优先用环境变量 JWT_SECRET；没有就**现场随机生成**并写入 Secret。
+#    ⚠️ **每次部署都换密钥 = 所有人被强制重新登录** → 生产环境请显式传 JWT_SECRET 固定住。
+if [ -z "${JWT_SECRET:-}" ]; then
+  echo "⚠️  未提供 JWT_SECRET → 随机生成一个（所有已登录用户将需要重新登录）"
+  JWT_SECRET="$(openssl rand -base64 32 | tr -d '\n')"
+fi
+echo "🔑 创建/更新 JWT 密钥 Secret..."
+kubectl -n erp create secret generic erp-jwt-secret \
+  --from-literal=jwt-secret="$JWT_SECRET" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
 # 等待MySQL就绪
 echo "⏳ 等待MySQL就绪..."
 kubectl wait --for=condition=ready pod -l app=mysql -n erp --timeout=300s

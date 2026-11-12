@@ -732,6 +732,12 @@ spec:
         - containerPort: 8095
           name: http
         env:
+        # 📌 **JWT 签名密钥从 Secret 注入**（不再用仓库里的字面量/默认值）
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: erp-jwt-secret
+              key: jwt-secret
         - name: NACOS_HOST
           value: "nacos-service"
         - name: NACOS_PORT

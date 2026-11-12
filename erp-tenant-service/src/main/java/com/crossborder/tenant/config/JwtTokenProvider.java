@@ -15,7 +15,15 @@ import java.util.Date;
 @Component
 public class JwtTokenProvider {
 
-    @Value("${jwt.secret:OmniTradeERP Secret Key For SaaS 2026 Multi-Tenant Platform}")
+    /**
+     * 🔴 **密钥必须由环境变量注入，不能写默认值**（2026-11-12 修）
+     *    原来这里是 `@Value("${jwt.secret:OmniTradeERP Secret Key For SaaS 2026 Multi-Tenant Platform}")`
+     *    —— **默认值就在源码里** → 任何拿到仓库的人都能签出租户管理员 token。
+     *    📌 注意：这里**光改 application.yml 不够** —— @Value 的默认值在
+     *    「配置项缺失」时会**顶上来** → 所以 Java 侧的默认值也必须一起去掉。
+     *    📌 部署侧注入见 k8s/extended-services.yaml（secretKeyRef: erp-jwt-secret / jwt-secret）
+     */
+    @Value("${jwt.secret}")
     private String jwtSecret;
 
     @Value("${jwt.expiration:86400000}")

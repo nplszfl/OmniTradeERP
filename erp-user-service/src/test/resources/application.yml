@@ -39,8 +39,11 @@ mybatis-plus:
       logic-not-delete-value: 0
 
 jwt:
-  secret: cross-border-erp-secret-key-2024
-  expiration: 86400000
+  # 📌 **测试用的假密钥**（不是生产密钥）—— 测试配置允许字面量。
+  #    📌 但**不许再写生产那个真密钥**（`cross-border-erp-secret-key-2024`）→
+  #    仓库里出现过的密钥就等于公开的密钥。
+  secret: unit-test-only-secret-key-not-used-in-production
+  expiration: 7200000
 
 management:
   endpoints:

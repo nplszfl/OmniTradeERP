@@ -33,8 +33,14 @@ spring:
         dialect: org.hibernate.dialect.MySQLDialect
 
 jwt:
-  secret: ${JWT_SECRET:OmniTradeERP Secret Key For SaaS 2026 Multi-Tenant Platform}
-  expiration: ${JWT_EXPIRATION:86400000}
+  # 📌 **密钥必须由环境变量注入，不能写死在仓库里**（2026-11-12 修）
+  #    🔴 修复前这里是 `${JWT_SECRET:OmniTradeERP Secret Key For SaaS 2026 Multi-Tenant Platform}`
+  #    —— **默认值就在仓库里** → 任何拿到仓库的人都能签出管理员 token
+  #    → 而且**部署层从来没注入过 JWT_SECRET** → 生产环境用的**就是这个默认值**。
+  #    📌 这里**故意不写默认值** —— 缺变量就让它**启动失败**，比「带着已知密钥上线」安全得多。
+  #    📌 部署侧注入见 k8s/extended-services.yaml（secretKeyRef: erp-jwt-secret / jwt-secret）
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:7200000}
 
 logging:
   level:

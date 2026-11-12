@@ -59,5 +59,15 @@ management:
         include: '*'
 
 jwt:
-  secret: cross-border-erp-secret-key-2024
-  expiration: 86400000
+  # 📌 **密钥必须由环境变量注入，不能写死在仓库里**（2026-11-12 修）
+  #    🔴 修复前这里是字面量 `cross-border-erp-secret-key-2024` → **任何拿到仓库的人都能签出
+  #    管理员 token** → 实测已用该密钥伪造 token 并被**真实的 JwtUtil 校验通过**（userId=1）
+  #    → 第 59 道闸门加的 @PreAuthorize 全部形同虚设。
+  #    📌 这里**故意不写默认值** —— 写默认值 = 生产环境悄悄用默认值 = 漏洞原样保留；
+  #      缺变量就让它**启动失败**，比「带着已知密钥上线」安全得多。
+  #    📌 部署侧注入见 k8s/core-services.yaml（secretKeyRef: erp-jwt-secret / jwt-secret）
+  #    📌 另有第 60 道闸门 `check-hardcoded-secret.py` 守着这条线。
+  secret: ${JWT_SECRET}
+  # 📌 **access token 24 小时偏长** —— 一旦泄露，攻击窗口是一整天。
+  #    生产建议 2 小时；刷新 token 走 /auth/refresh（30 天）。
+  expiration: 7200000

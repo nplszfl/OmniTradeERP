@@ -124,6 +124,10 @@ jobs:
         #    → ① 不许 permitAll ② 敏感写操作必须 @PreAuthorize
         #    ③ @PreAuthorize 里的角色码必须**存在于种子数据**（否则管理员被锁在门外）
         python3 scripts/check-account-authz.py
+        # 📌 **硬编码凭证**（规则 140）
+        #    JWT 签名密钥 / 第三方平台密钥写在仓库里 → 拿到仓库的人就能冒充身份
+        #    （实测已用仓库里的 jwt.secret 伪造出管理员 token 并被真实 JwtUtil 校验通过）
+        python3 scripts/check-hardcoded-secret.py
         # 📌 **前端「假成功 / 假删除」**（规则 80 / 82）
         #    声称做了写操作（添加/保存/删除…成功），所在函数里却没有一个请求 → 弹了提示但啥也没发生
         python3 scripts/check-frontend-fake-success.py
