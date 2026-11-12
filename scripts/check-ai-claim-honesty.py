@@ -61,6 +61,10 @@ ML_CLAIM_TOKENS = [
 # ── AI / LLM 宣称词：声称背后有模型在算 ───────────────────────────
 AI_CLAIM_TOKENS = [
     "AI智能", "AI 算法", "AI算法", "大模型", "GPT", "LLM", "智能算法",
+    # 📌 **「AI驱动」也是宣称**（2026-11-12 补）—— 与「AI智能」同类：
+    #    一个**纯规则/启发式**的模块写「AI驱动的智能定价系统」同样是夸大
+    #    → 全仓只有 4 处用它，**加进词表不会造成噪声**（先量了再改，规则 99）。
+    "AI驱动",
 ]
 
 # ── 对应的「真值」依赖：模块 pom 里声明了这些才算真 ────────────────
@@ -80,6 +84,37 @@ LLM_CALL_MARKERS = [
 # ── 否定语境：明确否认的不算谎报 ─────────────────────────────────
 NEGATION_PREFIX = ("非", "不", "无", "没有", "非")
 
+# ══════════════════════════════════════════════════════════════════
+# B4：文档层（B1–B3 只管 Java 源码 → **文档层没人管**，规则 156）
+# ══════════════════════════════════════════════════════════════════
+# 📌 **闸门的扫描范围就是它的保护范围** —— 只扫 `.java` 时，
+#    README / PROGRESS / SUMMARY 里写「通过机器学习实现…」这种谎报
+#    **一次都不会被发现**（2026-11-12 实测：根文档被修好了，
+#    但**模块 README 的开篇一句**还写着「通过机器学习和数据分析」，
+#    而该模块 pom 里 **0 个 ML 依赖**）。
+#
+# 📌 **只判「模块级文档」**（`<module>/**/*.md`）—— 模块归属明确，
+#    才好拿「这个模块到底有没有 ML/LLM 能力」当基准。
+#    ⚠️ **根目录文档（README.md / PROGRESS.md / docs/*.md）不在本判据范围**：
+#    它们描述的是**整个系统**，无法归到单个模块 → 属于**声明的边界**，
+#    必须写在这里（规则 116：可达性边界要写进 docstring）。
+#
+# 📌 **判定粒度必须是「行 + 所属章节」**（规则 10）：
+#    「机器学习模型训练和部署」这行本身是**规划**，靠的是**它上面那个标题**
+#    （「## 🚧 待开发功能」「## 🔧 后续优化建议」）→ 只看行会把**诚实的规划**判成谎报。
+
+# 行内否定 / 待办标记（同一行里明确否认或标为未完成 → 豁免）
+DOC_NEGATION_MARKERS = (
+    "非", "不是", "无", "没有", "不含", "不包含", "未", "尚未", "不再",
+    "改为", "预计", "计划", "未来", "⏳", "❌", "替代", "移除", "曾",
+)
+
+# 章节标题里的「规划」标记 → 该章节下的行都是**待办**，不算宣称
+DOC_ROADMAP_MARKERS = (
+    "后续", "待开发", "规划", "roadmap", "todo", "未来", "计划",
+    "优化建议", "展望", "下一步", "phase", "改进方向",
+)
+
 
 def iter_java_files():
     for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
@@ -89,6 +124,26 @@ def iter_java_files():
         for fn in filenames:
             if fn.endswith(".java"):
                 yield os.path.join(dirpath, fn)
+
+
+def iter_module_docs():
+    """模块级 markdown 文档：`<module>/**/*.md`（**不含**根目录文档）。
+
+    📌 模块归属 = 相对仓库根的**第一层目录**（与 module_of 一致）。
+    """
+    for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        rel_dir = os.path.relpath(dirpath, REPO_ROOT).replace(os.sep, "/")
+        if rel_dir in (".", ""):
+            continue
+        if rel_dir.startswith("target/") or "/target/" in rel_dir:
+            continue
+        module = rel_dir.split("/")[0]
+        if not module.startswith("erp-"):
+            continue
+        for fn in filenames:
+            if fn.endswith(".md"):
+                yield os.path.join(dirpath, fn), module
 
 
 def module_of(path: str) -> str:
@@ -284,8 +339,54 @@ def main() -> int:
                             ))
                         break
 
-    print(f"📋 巡检「自称 AI/ML 但其实不是」（对外算法/模型字段）")
+    print(f"📋 巡检「自称 AI/ML 但其实不是」（对外算法/模型字段 + 模块文档）")
     print(f"ℹ️  可判的算法字段赋值：{checked} 处")
+
+    # ── B4：模块级文档里的 AI/ML 宣称 ────────────────────────────
+    doc_checked = 0
+    for path, module in iter_module_docs():
+        try:
+            text = open(path, encoding="utf-8").read()
+        except Exception:
+            continue
+        rel = os.path.relpath(path, REPO_ROOT)
+        heading = ""
+        for lineno, raw in enumerate(text.splitlines(), 1):
+            line = raw.strip()
+            if line.startswith("#"):
+                heading = line          # 📌 判定粒度 = 行 + 所属章节（规则 10）
+            tokens = [t for t in ML_CLAIM_TOKENS + AI_CLAIM_TOKENS if t in line]
+            if not tokens:
+                continue
+            # 豁免 1：行内明确否认 / 标为待办
+            if any(m in line for m in DOC_NEGATION_MARKERS):
+                continue
+            # 豁免 2：未完成的清单项（`- [ ]`）
+            if line.startswith("- [ ]") or line.startswith("* [ ]"):
+                continue
+            # 豁免 3：所在章节是「规划 / 待开发」
+            if any(r in heading.lower() for r in DOC_ROADMAP_MARKERS):
+                continue
+            doc_checked += 1
+            for token in tokens:
+                if token in ML_CLAIM_TOKENS:
+                    if not module_has_ml(module, ml_cache):
+                        findings.append((
+                            rel, lineno, "B4",
+                            f"文档宣称用了「{token}」模型，但模块 {module} **没有任何 ML 依赖**"
+                            f"（pom.xml 无 {', '.join(ML_TRUTH_DEPS[:4])} 等）→ 谎报事实"
+                            f"（规则 156：声明的**每个载体**都要查，闸门的扫描范围就是保护范围）",
+                        ))
+                    break
+                if not module_has_llm(module, llm_cache):
+                    findings.append((
+                        rel, lineno, "B4",
+                        f"文档宣称「{token}」，但模块 {module} **没有 LLM 调用链路**"
+                        f"（既不依赖 erp-llm-common，源码里也没有 LLM 调用）→ 谎报事实",
+                    ))
+                break
+
+    print(f"ℹ️  模块文档里可判的宣称行：{doc_checked} 处")
     if verbose:
         for rel, idx, code, msg in findings:
             print(f"   [{code}] {rel}:{idx} {msg}")

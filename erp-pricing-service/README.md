@@ -2,9 +2,11 @@
 
 ## 🎯 简介
 
-**v1.5.0** - AI驱动的智能定价系统
+**v1.5.0** - 多因素规则驱动的智能定价系统（**非 LLM**）
 
-这是OmniTrade ERP系统的核心AI模块，通过机器学习和数据分析，实现自动化、智能化的产品定价策略。
+这是OmniTrade ERP系统的核心定价模块，通过**多因素规则**（成本 + 利润率 + 季节性 + 库存）实现自动化、智能化的产品定价策略。
+
+> 📌 **本模块没有任何 ML / LLM 依赖** —— 定价完全由**可解释的规则**算出，对外字段 `pricingStrategy` 也如实写明「非 LLM」。
 
 ## 🔥 核心功能
 
@@ -163,7 +165,7 @@ curl -X POST http://localhost:8087/api/v1/pricing/calculate \
   "competitorAvgPrice": 125.00,
   "competitorMinPrice": 115.00,
   "competitorMaxPrice": 135.00,
-  "pricingStrategy": "AI智能定价算法 v1.5.0",
+  "pricingStrategy": "多因素规则定价（成本 + 利润率 + 季节性 + 库存；非 LLM）",
   "adjustmentReason": "价格上涨4.17%，基于竞品分析和市场需求",
   "calculationTime": "2026-03-17T11:00:00"
 }
