@@ -176,6 +176,14 @@ jobs:
         python3 scripts/check-npm-registry-pinning.py
         # 📌 **MySQL 配置层必填项** —— 字符集 / 注释空格 / JDBC 公钥（规则 63 / 64 / 65）
         python3 scripts/check-db-sql-config.py
+        # 📌 **构建产物 / 机器专属文件不许进仓库**（规则 156 / 177）
+        #    实测（2026-11-14 05:20）：仓库里被跟踪了 **1175 个 `erp-pricing-service/.m2/` 文件（54 MB）**
+        #    → 是某台机器把本地 `~/.m2` 复制进模块目录后 `git add -A` 带进来的
+        #    → **没有任何 pom 引用它**（构建用 `~/.m2/repository`）→ 纯垃圾，却让 `.git` 涨到 67 MB
+        #    → 而且提交进来的版本（3.3.5）与 pom 声明的（3.1.5）**对不上** → 连当缓存都不成立
+        #    📌 判据 = `git ls-files`（**跟踪状态**，不是扫磁盘 —— 工作区里有产物是正常的）
+        #    + `.gitignore` 的忽略规则必须齐全（否则产物随时会被 `git add -A` 再带进来）
+        python3 scripts/check-build-artifacts.py
         # 📌 **内部细节不得泄露给前端**（规则 14）
         python3 scripts/check-internal-detail-leak.py
         # 📌 **组件扫描不到 = 死代码**（规则 21）
