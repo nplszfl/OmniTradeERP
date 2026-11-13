@@ -142,7 +142,7 @@ environment:
 **A:** 
 - 📖 查看 [Wiki文档](Home)
 - 🐛 提交 [Issue](https://github.com/nplszfl/OmniTradeERP/issues)
-- 💬 加入 [GitHub Discussions](https://github.com/nplszfl/OmniTradeERP/discussions)
+- 📌 本仓库**没有开启 Discussions**（`has_discussions=false`）→ 旧的 `/discussions` 链接是 **410 死链**（GitHub API 返回 `Discussions are disabled for this repo`）。
 
 ---
 

@@ -25,6 +25,7 @@ README 曾经写着：
 |---|---|
 | **C1** | 用户可见文档里的 **markdown 链接**（`[文字](url)`）→ 其 host 必须 ∈ `docs/.allowed-domains`，或指向**仓库内相对路径**。**我们不拥有的地址不许对外承诺**。|
 | **C2** | **保留/占位域名直接禁**（RFC 2606 / RFC 6761）：`example.com|.net|.org`、`*.example`、`*.test`、`*.invalid`、`*.localhost`、`*.local`、`yourdomain.com`、`mydomain.com`…… → **即使加进白名单也报红**（那是占位符，不是承诺）。|
+| **C3** | **白名单域名下的「死路径」也要禁**（2026-11-13 14:40 补）—— host 在白名单里**不等于页面存在**：`github.com` 在白名单 → `.../discussions` 一律放行 → **假绿**；而本仓库 `has_discussions=false` → 该端点 **HTTP 410 Gone**。✅ 路径黑名单 = `docs/.disabled-endpoints`。|
 
 📌 **为什么不查 DNS**：
     DNS 会**网络抖动** → 闸门时红时绿 → **假红会逼下一个人去「放松闸门」**（规则 99）。
@@ -38,8 +39,12 @@ README 曾经写着：
 
 📌 **已知边界（诚实记录，不藏）**：
     - 只判 **markdown 链接语法**（`[文字](url)`）→ 裸 URL / HTML 里的 href / 引用块里的链接**不判**。
-    - 只扫**根目录 README.md + docs/*.md** → **模块 README 不在范围**（当前实测它们没有外部链接）。
+    - 扫**根目录所有 `*.md` + `docs/*.md`**（2026-11-13 14:40 从「只有 README.md」扩过来 ——
+      原范围漏掉了 `CONTRIBUTING.md`，而它**恰好就有一个 404 死链**）；**模块 README 仍不在范围**
+      （当前实测它们没有外部链接）。
     - **不检查 DNS**（见上）→ 白名单里的域名**是否真的活着**，靠人工在加白名单时确认。
+    - **禁用端点是人工维护的路径黑名单** → 仓库**新禁用**某个端点时，**要手动加一行**到
+      `docs/.disabled-endpoints`（本闸门**不会自动发现**新的 410）。
     - **不检查 git 历史**。
 
 用法：
@@ -54,9 +59,10 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 用户可见文档的范围（📌 模块 README 不在范围，见「已知边界」）
-DOC_GLOBS = ["README.md", "docs/*.md"]
+DOC_GLOBS = ["*.md", "docs/*.md"]
 
 ALLOWLIST_PATH = os.path.join(REPO_ROOT, "docs", ".allowed-domains")
+DISABLED_PATHS_FILE = os.path.join(REPO_ROOT, "docs", ".disabled-endpoints")
 
 # ── RFC 2606 / 6761 保留域名 + 通用占位词 ──────────────────────────────
 #    📌 这些**永远不可能**是真实对外承诺 → 直接禁，加白名单也不放过（防止有人图省事）。
@@ -93,6 +99,27 @@ def load_allowlist():
                 continue
             hosts.add(line)
     return hosts
+
+
+def load_disabled_paths():
+    """读 `docs/.disabled-endpoints` —— 白名单管不到的**死路径**黑名单。
+
+    📌 **为什么需要它（2026-11-13 14:40 实测踩出来的盲区）**：
+    白名单只管 **host** → `github.com` 在白名单里 → `.../discussions` 这种
+    **白名单域名下的死路径**一律放行 → **假绿**。
+    而本仓库 `has_discussions=false` → 该端点返回 **410 Gone** → 链接点开就是死的。
+    ✅ 所以：**路径**也要查 —— host 合法 ≠ 页面存在。
+    """
+    out = []
+    try:
+        with open(DISABLED_PATHS_FILE, encoding="utf-8") as f:
+            for line in f:
+                line = line.split("#", 1)[0].strip()
+                if line:
+                    out.append(line)
+    except FileNotFoundError:
+        return out
+    return out
 
 
 def user_visible_docs():
@@ -132,6 +159,7 @@ def is_reserved(host):
 
 def main() -> int:
     allow = load_allowlist()
+    disabled = load_disabled_paths()
     docs = user_visible_docs()
     if not docs:
         print("ℹ️  取不到用户可见文档 → 本闸门无法工作（不是「通过」）")
@@ -160,12 +188,22 @@ def main() -> int:
                 elif host not in allow:
                     findings.append((rel, lineno, host, url,
                                      "不在 `docs/.allowed-domains` → 我们不拥有这个地址，不许对外承诺"))
+                else:
+                    # host 在白名单里 → **但路径可能仍然是死的**（410/404）
+                    upath = url.split("?", 1)[0].split("#", 1)[0]
+                    for bad in disabled:
+                        if upath.endswith(bad) or bad in upath:
+                            findings.append((rel, lineno, host, url,
+                                             f"路径命中 `docs/.disabled-endpoints`（`{bad}`）→ "
+                                             f"该端点对本仓库**不存在/已禁用** → 链接是死链"))
+                            break
 
     print(f"ℹ️  扫了 {len(docs)} 个用户可见文档，{total_links} 个外部 markdown 链接")
     print(f"ℹ️  白名单（docs/.allowed-domains）= {len(allow)} 个域名")
+    print(f"ℹ️  禁用端点（docs/.disabled-endpoints）= {len(disabled)} 条路径")
 
     if not findings:
-        print("✅ 用户可见文档里的外部链接都在白名单内，且没有保留/占位域名")
+        print("✅ 用户可见文档里的外部链接都在白名单内，且没有保留/占位域名/禁用端点")
         return 0
 
     print(f"❌ 发现 {len(findings)} 处对外承诺了「不存在 / 不属于我们」的地址：")
