@@ -20,7 +20,7 @@
 
 ### "这是你见过最硬核的跨境电商开源ERP"
 
-[🖥️ 在线预览](http://erp.demo.com) · [📖 详细文档](https://docs.omnitradeerp.com) · [💬 交流群](#-交流与支持) · [🚀 快速开始](#-快速开始)
+[📖 详细文档](docs/Home.md) · [💬 交流群](#-交流与支持) · [🚀 快速开始](#-快速开始)
 
 </div>
 
@@ -473,7 +473,7 @@ A: GitHub提Issue，或加微信群（见下方）。
 |------|------|
 | ⭐ GitHub Star | [点我Star](https://github.com/nplszfl/OmniTradeERP) |
 | 🐛 问题反馈 | [GitHub Issues](https://github.com/nplszfl/OmniTradeERP/issues) |
-| 📖 在线文档 | [docs.omnitradeerp.com](https://docs.omnitradeerp.com) |
+| 📖 在线文档 | [仓库内文档](docs/Home.md)（本项目**尚未部署**公网环境 → 没有可访问的在线站点） |
 
 ---
 

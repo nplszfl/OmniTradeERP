@@ -149,6 +149,15 @@ jobs:
         #    → 模板**被 git 跟踪** → 真密钥直接进仓库，**git 历史洗不掉**
         #    实测盲区：48 位随机串写进 `.env.example` → **65 道闸门全绿、零失败**
         python3 scripts/check-env-template-secrets.py
+        # 📌 **用户可见文档里的死链 / 假承诺**（规则 93：文档里的链接是「代码」，也会撒谎）
+        #    实测缺陷（2026-11-13 11:15）：README 的 `[🖥️ 在线预览](http://erp.demo.com)`、
+        #    `[📖 详细文档](https://docs.omnitradeerp.com)` → **两个域名都没有 DNS 记录**
+        #    → 点开就是死链；且 `erp.demo.com` **不是我们拥有的域名** → 点开会走到别人家去
+        #    → 同期 issue #15「老哥，你的连接打不开了」= 用户反馈的就是它
+        #    ✅ 判据：markdown 链接的 host 必须 ∈ `docs/.allowed-domains`（权威清单）
+        #    + 保留/占位域名**直接禁**（加白名单也不放行）
+        #    📌 **不查 DNS** → 不会因网络抖动假红（规则 99）；只判 markdown 链接（代码块里的 curl 示例不算）
+        python3 scripts/check-doc-links.py
         # 📌 **安全文档的声明 ↔ 仓库现实**（规则 51 / 93：手写结论会静默过期）
         #    docs/SECURITY.md 第六节「残余风险」是一份**手写的风险登记表**
         #    → 有人把 admin123 修掉了、文档还写着 → **文档开始骗人**

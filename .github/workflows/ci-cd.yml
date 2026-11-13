@@ -133,6 +133,18 @@ jobs:
     - name: 环境变量模板无真密钥（.env.example 等）
       run: python3 scripts/check-env-template-secrets.py
 
+    # 📌 **用户可见文档里的死链 / 假承诺**（规则 93：文档里的链接是「代码」，也会撒谎）
+    #    实测缺陷（2026-11-13 11:15）：README 写着
+    #      `[🖥️ 在线预览](http://erp.demo.com)` 和 `[📖 详细文档](https://docs.omnitradeerp.com)`
+    #    → **两个域名都没有 DNS 记录** → 点开就是死链；而 `erp.demo.com` **不是我们拥有的域名**
+    #    → 点开会走到别人家去。同期 issue #15「老哥，你的连接打不开了」= 用户反馈的就是它。
+    #    📌 根因：链接是 `d997f18 docs: 优化README提升收藏吸引力` 加的 → **为了好看加的，不是为了能用加的**
+    #    ✅ 判据：markdown 链接的 host 必须 ∈ `docs/.allowed-domains`（我们承诺的地址的权威清单）
+    #    + 保留/占位域名（example.com / *.example / demo.com / xxx.com）**直接禁**，加白名单也不放行
+    #    📌 **不查 DNS** → 不会因网络抖动假红（规则 99）；只判 markdown 链接，**代码块里的 curl 示例不算承诺**
+    - name: 用户可见文档无死链（对外承诺的地址必须真实）
+      run: python3 scripts/check-doc-links.py
+
     # 📌 **部署脚本可执行冒烟测试** ——
     #    📌 为什么必须是「执行」而不是「grep 有没有 set -e」：
     #       `k8s/deploy.sh` 原来的缺陷是**组合**出来的 ——
