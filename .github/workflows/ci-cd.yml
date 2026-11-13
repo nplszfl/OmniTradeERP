@@ -145,6 +145,15 @@ jobs:
     - name: 用户可见文档无死链（对外承诺的地址必须真实）
       run: python3 scripts/check-doc-links.py
 
+    # 📌 **含占位符的清单不得被原样 apply**（2026-11-14 新增，第 69 道闸门）
+    #    📌 真实缺陷：`k8s/gateway.yaml` 的 Ingress host 是占位符 `__INGRESS_HOST__`，
+    #       `k8s/deploy.sh` 会渲染它，但 **CI 这条 apply 路径原来直接 apply 原文件**
+    #       → 占位符原样进集群 → 真实域名请求匹配不到 Ingress 规则 → **全站 404**
+    #       （而且 kubectl 不报错 → job 照样 success）。
+    #    📌 **同一缺陷的兄弟分支只修一条 = 白修**（规则 107）→ 所以要有闸门守住两条路径。
+    - name: 占位符清单不得被原样 apply
+      run: python3 scripts/check-placeholder-manifest-apply.py
+
     # 📌 **部署脚本可执行冒烟测试** ——
     #    📌 为什么必须是「执行」而不是「grep 有没有 set -e」：
     #       `k8s/deploy.sh` 原来的缺陷是**组合**出来的 ——
@@ -850,10 +859,31 @@ jobs:
         #    📌 **「计划覆盖的 Deployment 集合」必须 ⊆ 「CI apply 的清单集合」** →
         #       第 65 道闸门 `check-deploy-plan-apply-coverage.py` 专管这个。
         kubectl apply -f k8s/namespace.yaml --context=default
-        for f in k8s/gateway.yaml k8s/core-services.yaml k8s/services.yaml k8s/ai-services.yaml k8s/extended-services.yaml; do
+        # 📌 **含占位符的清单必须【渲染后】再 apply**（2026-11-14 03:50 修）：
+        #    `k8s/gateway.yaml` 的 Ingress host 是占位符 `__INGRESS_HOST__`
+        #    （不是写死的域名 —— 写死保留域名 `erp.example.com` → 真实域名请求
+        #      匹配不到规则 → **全站 404**，而且 kubectl 不报错 → job 照样绿）。
+        #    📌 **同一缺陷的兄弟分支**（规则 107）：`k8s/deploy.sh` 已经会渲染了，
+        #       **但 CI 这条路径原来没有** → 只修一条 = 白修 → 真实域名一部署就 404。
+        #    📌 **故意不提供默认值** —— 默认值只能是保留域名 → 必须 fail-closed。
+        INGRESS_HOST="${{ secrets.INGRESS_HOST }}"
+        if [ -z "$INGRESS_HOST" ]; then
+          echo "❌ 未配置 secrets.INGRESS_HOST —— 不知道 Ingress 的对外域名，不能部署"
+          echo "   📌 占位符 __INGRESS_HOST__ 原样进集群 = 真实域名请求匹配不到规则 = 全站 404"
+          exit 1
+        fi
+        # 📌 **用 python 而不是 sed** —— 域名里若有 `/` 或 `&`，sed 的替换语义会出错。
+        # 📌 **渲染逻辑只有一份**（`scripts/render-ingress.py`），CI 和 `k8s/deploy.sh` 都调它
+        #    → 避免「两份实现漂移」（规则 112 的同源告警）。
+        # 📌 **不要内嵌 heredoc** —— heredoc 正文必须与 `run: |` 块**同缩进**，
+        #    少缩进 1 空格 = YAML 块标量提前结束 → **整个 workflow 被 GitHub 拒绝**。
+        python3 scripts/render-ingress.py "$INGRESS_HOST" k8s/gateway.yaml gateway.rendered.yaml
+        for f in k8s/core-services.yaml k8s/services.yaml k8s/ai-services.yaml k8s/extended-services.yaml; do
           echo "→ apply $f"
           kubectl apply -f "$f" --context=default
         done
+        echo "→ apply gateway.rendered.yaml (Ingress host=$INGRESS_HOST)"
+        kubectl apply -f gateway.rendered.yaml --context=default
 
     - name: Deploy to Kubernetes
       if: steps.kube.outputs.configured == 'true'

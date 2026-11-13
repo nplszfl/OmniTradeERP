@@ -77,7 +77,21 @@ metadata:
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
-  - host: erp.example.com
+  # 📌 **host 是部署期注入的**，不是写死的域名。
+  #
+  # ⚠️ **为什么不能写死**（2026-11-13 实测的真实缺陷）：
+  #    这里原来写的是 `host: erp.example.com` —— RFC 2606 **保留域名**，
+  #    **永远不可能解析到我们的服务**；
+  #    而且 `k8s/deploy.sh` 是 `kubectl apply -f k8s/*.yaml` **直接应用**的，
+  #    没有任何模板替换 → **这个保留域名会被硬编码进集群**
+  #    → 真实域名（比如 `erp.acme.com`）的请求**匹配不到这条 Ingress 规则**
+  #    → **全站 404**（而且 kubectl 不会报错，部署照样打印「✅ 部署完成！」）。
+  #
+  # ✅ 现在：写**占位符** `__INGRESS_HOST__`，
+  #    由 `k8s/deploy.sh` 用 python 渲染后 apply（见该脚本的「渲染 Ingress 域名」步骤）。
+  #    📌 占位符本身**不能是合法域名** —— 否则「忘了注入」会变成「静默用错域名」。
+  #    → 这里用 `__INGRESS_HOST__`（下划线形式，域名语法上非法）。
+  - host: __INGRESS_HOST__
     http:
       paths:
       - path: /

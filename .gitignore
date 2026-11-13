@@ -59,3 +59,13 @@ deploy-plan.tsv
 # 本地环境变量（含 JWT_SECRET 等密钥）—— **绝不能进仓库**
 .env
 .env.local
+
+# ── Python 字节码缓存（2026-11-13 23:45 加）────────────────────────────
+# 📌 **实测踩过**：并行 session 跑闸门时 Python 3.14 生成的
+#    `scripts/__pycache__/check-frontend-v-html.cpython-314.pyc` 被 `git add -A` 一起暂存
+#    → **机器专属产物**（换台机器就是垃圾）+ 每次跑都变 → 仓库反复 churn
+#    → 而且 **git 历史洗不掉**（规则 140 的同一类后果）
+# 📌 所以：**先忽略，再考虑加闸门**（⚠️ 仓库里**当时没有**任何闸门管「提交的构建产物」→ 覆盖缺口）
+__pycache__/
+*.py[cod]
+*.egg-info/

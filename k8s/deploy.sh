@@ -72,6 +72,23 @@ for f in k8s/*.yaml; do
   case "$base" in
     mysql.yaml|redis.yaml|nacos.yaml|namespace.yaml) continue ;;
   esac
+  # 📌 **含占位符的清单必须跳过** —— 下面「渲染 Ingress 域名」那一步会 apply 渲染后的版本。
+  #    如果这里也 apply 一次，就会**先后 apply 两个版本**：
+  #    先写进集群的是带 `__INGRESS_HOST__` 的版本（非法域名），
+  #    再 apply 渲染版覆盖它 → 中间有个**窗口期**，Ingress 路由是坏的；
+  #    万一渲染版 apply 失败，集群里就**永久留着**那个非法域名的版本。
+  #    ✅ 判据 = 清单里有没有占位符（不是硬编码文件名 → 加新清单也不会漏）。
+  if grep -q '__[A-Z_]*__' "$f"; then
+    # 📌 **必须用 ${base} 而不是 $base**（2026-11-13 实测踩到的 bash 陷阱）：
+    #    写成 `echo "… $base（含占位符…"` → bash 会把全角括号 `（` 的**首字节**
+    #    当成变量名的一部分 → 变量名变成 `base<U+FF08 的首字节>`
+    #    → `set -u` 下报 `base?: unbound variable` → **整个部署脚本在第 82 行崩掉**。
+    #    📌 判别依据：变量名后面紧跟**非 ASCII 字符**时，bash 不认边界。
+    #       （原脚本里是 `$f"` → 紧跟引号 → 没事；这次新增了一处中文括号 → 就炸了）
+    #    ✅ 解法：用 `${base}` 显式界定变量名边界。
+    echo "  ⏭️  跳过 ${base}（含占位符，稍后渲染后 apply）"
+    continue
+  fi
   echo "  → apply $f"
   # 📌 apply 失败必须**立刻停下**并说清楚是哪一份清单 ——
   #    否则 `set -e` 虽然会中断，但运维只看到一句含糊的退出码。
@@ -83,8 +100,57 @@ for f in k8s/*.yaml; do
   fi
 done
 
+# 📌 **渲染 Ingress 域名**（2026-11-13 新增）
+#
+# ⚠️ **为什么这一步必须存在**：
+#    `k8s/gateway.yaml` 的 Ingress 规则里，host 现在是**占位符** `__INGRESS_HOST__`
+#    （不是写死的域名 —— 写死 `erp.example.com` 那种保留域名 → 真实域名的请求
+#    匹配不到规则 → **全站 404**，而且 kubectl 不报错 → 部署照样打印「✅ 部署完成！」）。
+#
+#    ✅ 这里的职责：**把占位符换成调用方给的真实域名**，然后 apply 渲染后的清单。
+#    📌 真实域名从环境变量 `INGRESS_HOST` 来（生产环境由 CI / 运维显式注入）。
+#    📌 **没给就必须报错退出** —— 绝不能「用默认值糊过去」：
+#       糊过去 = 又把保留域名写进集群 = 回到原来的坑。
+echo ""
+echo "🌐 渲染 Ingress 域名..."
+INGRESS_HOST="${INGRESS_HOST:-}"
+if [ -z "$INGRESS_HOST" ]; then
+  echo "❌ 未设置 INGRESS_HOST（Ingress 的对外域名）"
+  echo "   例：INGRESS_HOST=erp.你的域名.com ./k8s/deploy.sh"
+  echo "   📌 **故意不提供默认值** —— 默认值只能是保留域名（example.com），"
+  echo "      写进集群后真实域名的请求匹配不到规则 → 全站 404（且不报错）。"
+  exit 1
+fi
+
+# 域名基本校验：必须是像域名的样子（至少一个点，且不含非法字符）
+if ! printf '%s' "$INGRESS_HOST" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$'; then
+  echo "❌ INGRESS_HOST 不是合法域名：$INGRESS_HOST"
+  echo "   （应当形如 erp.example.org —— 至少两级、且不能用保留域名）"
+  exit 1
+fi
+
+RENDERED="$(mktemp -d)/gateway.yaml"
+# 📌 用 python 而不是 envsubst —— macOS 默认没装 gettext（envsubst 经常不存在）
+# 📌 **渲染逻辑只有一份**（`scripts/render-ingress.py`）—— CI 那条路径也调它
+#    → 避免两份实现漂移（规则 112 的同源告警）。
+# 📌 不用内嵌 heredoc 是因为 heredoc 正文一旦缩进不对（这里是 shell，不涉及 YAML，
+#    但 CI 那边正是栽在 YAML 块标量上）→ 抽成脚本 = 两边都不会缩进崩。
+if ! python3 scripts/render-ingress.py "$INGRESS_HOST" k8s/gateway.yaml "$RENDERED"; then
+  echo ""
+  echo "❌ 渲染 Ingress 失败"
+  exit 1
+fi
+echo "  → Ingress host = $INGRESS_HOST"
+if ! kubectl apply -f "$RENDERED"; then
+  echo ""
+  echo "❌ apply 渲染后的 Ingress 失败"
+  exit 1
+fi
+
 echo ""
 echo "✅ 部署完成！"
+echo ""
+echo "🌐 访问地址：https://$INGRESS_HOST"
 echo ""
 echo "📋 查看Pod状态："
 echo "kubectl get pods -n erp"

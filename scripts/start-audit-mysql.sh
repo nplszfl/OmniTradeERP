@@ -45,7 +45,13 @@ for f in "$SQL_DIR"/*.sql; do
   args+=(-v "$f:/docker-entrypoint-initdb.d/$target:ro")
 done
 
-echo "→ 启动 MySQL 8.0（容器名 $CONTAINER，端口 $PORT）"
+# 📌 **必须用 ${CONTAINER} / ${PORT} 而不是 $CONTAINER、$PORT**（2026-11-13 实测）：
+#    变量名后面紧跟**全角标点**时，bash 不认变量名边界 ——
+#    它会把 `（` / `，` 的**首字节**当成变量名的一部分
+#    → 变量名变成 `CONTAINER<U+FF0C 的首字节>`
+#    → `set -u` 下报 `CONTAINER?: unbound variable` → **脚本在这一行崩掉**。
+#    ✅ 解法：用 `${...}` 显式界定边界。
+echo "→ 启动 MySQL 8.0（容器名 ${CONTAINER}，端口 ${PORT}）"
 docker run -d \
   --name "$CONTAINER" \
   -e MYSQL_ROOT_PASSWORD=root \

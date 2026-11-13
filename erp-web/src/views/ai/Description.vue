@@ -60,7 +60,15 @@
             <h3>{{ result.title }}</h3>
             <p class="subtitle">{{ result.subtitle }}</p>
             <el-divider />
-            <p class="body" v-html="result.body.replace(/\n/g, '<br/>')" />
+            <!-- 📌 **必须走 renderPlainText()，不许直接 v-html**（规则 162）
+                 修复前这里是 `v-html="result.body.replace(/\n/g, '<br/>')"` →
+                 `result.body` 是 **LLM 的原始输出**（后端只 trim 了一下）→
+                 LLM 输出里出现 `<img src=x onerror=...>` 就会被浏览器**当 HTML 执行** →
+                 而且这段内容会**先落库**（save() → t_product_description）→
+                 属于**存储型 XSS**：一次生成，全站每个打开该描述页的人都被打。
+                 提示词注入面：SKU / 关键词 / 商品名都是用户可控输入，会进 prompt。
+                 ✅ 现在只放行 `<br>`（换行），其余标签全部转义成可见文本。 -->
+            <p class="body" v-html="renderPlainText(result.body)" />
             <el-divider />
             <h4>核心卖点</h4>
             <ul>
@@ -82,6 +90,7 @@ import { ElMessage } from 'element-plus'
 import { descriptionApi } from '@/api/ai'
 import { productApi } from '@/api/product'
 import { unwrapPage } from '@/utils/response'
+import { renderPlainText } from '@/utils/sanitize'
 
 const form = reactive({
   sku: 'SKU-BLU-001-BLK',

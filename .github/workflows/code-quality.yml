@@ -207,6 +207,14 @@ jobs:
         python3 scripts/check-gate-failure-propagation.py
         # 📌 **前端绕过 api/ 层的直接网络调用必须自带 `/api` 前缀**（少写一个就是 404）
         python3 scripts/check-frontend-direct-http.py
+        # 📌 **未净化的 v-html = 存储型 XSS 入口**（第 68 道闸门）
+        #    修复前 `Description.vue` 是 `v-html="result.body.replace(/\n/g, '<br/>')"`，
+        #    而 `result.body` 是 **LLM 的原始输出**（后端只 trim 了一下）
+        #    → LLM 输出里的 `<img src=x onerror=…>` 会被浏览器**当 HTML 执行**
+        #    → 且内容**先落库** → 一次生成，全站每个打开该描述页的人都被打。
+        #    📌 `vue-tsc` / ESLint / Prettier **全都看不见它**（语法完全合法）
+        #    → 只能靠结构性约束（v-html 必须走净化函数）+ 闸门守住。
+        python3 scripts/check-frontend-v-html.py
         python3 scripts/check-action-versions.py --deep --strict
 
     # 📌 **k8s / Dockerfile 三个闸门单独一个 step** ——

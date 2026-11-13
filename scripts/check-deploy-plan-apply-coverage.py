@@ -61,17 +61,43 @@ PLAN_SCRIPT = os.path.join(REPO_ROOT, "scripts/k8s-deploy-plan.py")
 STATEFUL_MANIFESTS = ("k8s/mysql.yaml", "k8s/redis.yaml", "k8s/nacos.yaml")
 
 
+def render_source_map(text: str) -> dict[str, str]:
+    """**渲染产物文件名 → 源清单路径** 的映射。
+
+    📌 **为什么需要它**（2026-11-14 04:00 实测）：
+    `k8s/gateway.yaml` 的 Ingress host 改成了占位符 `__INGRESS_HOST__` →
+    CI **不能**再直接 apply 原文件（占位符进集群 = 全站 404）→
+    改成「先渲染成 `gateway.rendered.yaml`，再 apply 那个产物」。
+    📌 于是 CI 实际 apply 的清单集合里**看不到** `k8s/gateway.yaml` 了
+    → 本闸门会误报「CI 没 apply k8s/gateway.yaml」= **假阳性**（规则 87）。
+    ✅ 解法：把渲染产物**映射回源清单**（渲染产物里的 Deployment 与源清单**完全相同**）
+    → 覆盖判据**没有放松**（该 apply 的还是必须 apply）。
+    """
+    out = {}
+    for m in re.finditer(r"render-[a-z-]*\.py\s+\S+\s+(k8s/[\w\-.]+\.ya?ml)\s+(\S+)", text):
+        out[os.path.basename(m.group(2))] = m.group(1)
+    return out
+
+
 def extract_ci_applied_manifests() -> set[str]:
     """从 ci-cd.yml 里解析 CI 会 `kubectl apply` 的清单集合。
 
-    📌 **要认两种写法**（漏一种就会误判）：
+    📌 **要认三种写法**（漏一种就会误判）：
       ① `kubectl apply -f k8s/xxx.yaml`        —— 直接形式
       ② `for f in k8s/a.yaml k8s/b.yaml; do kubectl apply -f "$f"` —— 循环形式
+      ③ `kubectl apply -f gateway.rendered.yaml` —— **渲染产物**形式
+         → 必须**映射回源清单**（否则 ① 的正则匹配不到 `k8s/` 前缀 → 假红）
     """
     text = open(WORKFLOW, encoding="utf-8").read()
+    rmap = render_source_map(text)
     found = set(re.findall(r"kubectl apply -f (k8s/[\w\-.]+\.yaml)", text))
     for m in re.finditer(r"for f in ([^\n;]+); do", text):
         found |= set(re.findall(r"k8s/[\w\-.]+\.yaml", m.group(1)))
+    # ③ 渲染产物 → 源清单
+    for m in re.finditer(r"kubectl apply -f ([\w\-.]+\.ya?ml)", text):
+        base = os.path.basename(m.group(1))
+        if base in rmap:
+            found.add(rmap[base])
     return found
 
 

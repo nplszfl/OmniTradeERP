@@ -137,6 +137,12 @@ def run(script, cwd, env_extra=None, timeout=180):
         "DOCKER_LOG": os.path.join(env["_TMP"], "docker.log"),
         "PUSH": "false",          # build-images.sh 只构建不推送
         "FAIL_MATCH": "",         # 默认不注入失败
+        # 📌 **INGRESS_HOST 必须给**（2026-11-14 01:35 并行 session 改 deploy.sh 后）：
+        #    deploy.sh 现在把 Ingress 的 host 改成**占位符** `__INGRESS_HOST__`，
+        #    部署期由 `INGRESS_HOST` 注入 → **故意不提供默认值** → 没给就 `exit 1`（fail-closed）。
+        #    📌 所以闸门**必须提供**它，否则会误判成「deploy.sh 坏了」。
+        #    📌 用一个**格式合法**的域名（脚本会校验域名格式：至少两级、只能用字母数字和连字符）。
+        "INGRESS_HOST": "erp.gw.mycompany.dev",
     })
     if env_extra:
         env.update(env_extra)
@@ -159,7 +165,14 @@ def applied_manifests():
     for line in read_log("kubectl.log"):
         parts = line.split()
         if len(parts) >= 3 and parts[0] == "apply" and parts[1] == "-f" and parts[2] != "-":
-            out.append(parts[2])
+            path = parts[2]
+            # 📌 **渲染后的清单在临时目录**（deploy.sh 用 `mktemp -d` 渲染 gateway.yaml）
+            #    → kubectl 日志里是 `/tmp/xxx/gateway.yaml` 而不是 `k8s/gateway.yaml`
+            #    → 必须**映射回仓库内的清单**，否则误判「没 apply k8s/gateway.yaml」。
+            #    📌 判据 = 文件名是 `gateway.yaml` 且**不在 `k8s/` 下** → 就是那份渲染产物。
+            if os.path.basename(path) == "gateway.yaml" and not path.startswith("k8s/"):
+                path = "k8s/gateway.yaml"
+            out.append(path)
     return out
 
 
