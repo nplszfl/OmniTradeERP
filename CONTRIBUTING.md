@@ -36,4 +36,5 @@
 
 ## 💬 交流
 
-有问题？去 [GitHub Discussions](https://github.com/nplszfl/OmniTradeERP/discussions) 提问
+有问题？去 [GitHub Issues](https://github.com/nplszfl/OmniTradeERP/issues) 提问
+> 📌 本仓库**没有开启 Discussions**（`has_discussions=false`）→ 旧的 `/discussions` 链接是 **404 死链**。
