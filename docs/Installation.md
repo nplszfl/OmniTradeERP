@@ -153,6 +153,6 @@ lsof -i :8080
 
 ## 下一步
 
-- ✅ 完成安装 → [快速开始](Quick-Start)
-- 🏗️ 了解架构 → [系统架构](Architecture)
-- 🤖 体验AI功能 → [AI功能介绍](AI-Features)
+- ✅ 完成安装 → [快速开始](Quick-Start.md)
+- 🏗️ 了解架构 → [系统架构](Architecture.md)
+- 🤖 体验AI功能 → [AI功能介绍](AI-Features.md)

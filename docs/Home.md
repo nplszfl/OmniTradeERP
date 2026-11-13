@@ -4,13 +4,13 @@
 
 ## 📚 文档导航
 
-- [快速开始](Quick-Start) - 5分钟快速部署
-- [安装指南](Installation) - 完整安装教程
-- [架构设计](Architecture) - 系统架构详解
-- [AI功能介绍](AI-Features) - AI能力说明
-- [部署文档](Deployment) - Docker/K8s部署指南
-- [API文档](API-Documentation) - 接口说明
-- [常见问题](FAQ) - 常见问题解答
+- [快速开始](Quick-Start.md) - 5分钟快速部署
+- [安装指南](Installation.md) - 完整安装教程
+- [架构设计](Architecture.md) - 系统架构详解
+- [AI功能介绍](AI-Features.md) - AI能力说明
+- [部署文档](Deployment.md) - Docker/K8s部署指南
+- [API文档](API-Documentation.md) - 接口说明
+- [常见问题](FAQ.md) - 常见问题解答
 
 ## 🎯 项目简介
 

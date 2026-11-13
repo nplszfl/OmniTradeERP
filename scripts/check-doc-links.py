@@ -26,6 +26,7 @@ README 曾经写着：
 | **C1** | 用户可见文档里的 **markdown 链接**（`[文字](url)`）→ 其 host 必须 ∈ `docs/.allowed-domains`，或指向**仓库内相对路径**。**我们不拥有的地址不许对外承诺**。|
 | **C2** | **保留/占位域名直接禁**（RFC 2606 / RFC 6761）：`example.com|.net|.org`、`*.example`、`*.test`、`*.invalid`、`*.localhost`、`*.local`、`yourdomain.com`、`mydomain.com`…… → **即使加进白名单也报红**（那是占位符，不是承诺）。|
 | **C3** | **白名单域名下的「死路径」也要禁**（2026-11-13 14:40 补）—— host 在白名单里**不等于页面存在**：`github.com` 在白名单 → `.../discussions` 一律放行 → **假绿**；而本仓库 `has_discussions=false` → 该端点 **HTTP 410 Gone**。✅ 路径黑名单 = `docs/.disabled-endpoints`。|
+| **C4** | **仓库内相对链接必须真的指向存在的文件**（2026-11-13 21:20 补）—— **GitHub 不会自动补 `.md`**：`[快速开始](Quick-Start)` → 打开 `docs/Quick-Start` → **HTTP 404**（实测）；必须写 `Quick-Start.md` 才 200。📌 实测：文档里 **26 条相对链接有 23 条在 GitHub 上是 404** → 死链。✅ 判据 = 目标文件**精确存在**（GitHub 语义，不自动补扩展名）。|
 
 📌 **为什么不查 DNS**：
     DNS 会**网络抖动** → 闸门时红时绿 → **假红会逼下一个人去「放松闸门」**（规则 99）。
@@ -46,6 +47,8 @@ README 曾经写着：
     - **禁用端点是人工维护的路径黑名单** → 仓库**新禁用**某个端点时，**要手动加一行**到
       `docs/.disabled-endpoints`（本闸门**不会自动发现**新的 410）。
     - **不检查 git 历史**。
+    - **C4 只判「看起来像路径」的相对链接**（`./` / `../` 开头，或含 `/` 或带已知文档扩展名）→
+      纯锚点（`#section`）与 `mailto:` 不判。
 
 用法：
     python3 scripts/check-doc-links.py
@@ -85,6 +88,13 @@ RESERVED_HOST_PATTERNS = [
 
 # markdown 链接：[文字](url)  —— 只取 http(s) 的
 MD_LINK = re.compile(r"\[[^\]\n]*\]\(\s*<?(https?://[^\s)>]+)>?(?:\s+[\"'][^\"']*[\"'])?\s*\)")
+# 📌 **C4 用的相对链接正则**（2026-11-13 21:30 补）——
+#    ⚠️ **上面那个 MD_LINK 只匹配 `https?://`** → **相对链接根本不会被解析到**
+#    → 就算判据写对了也永远不会触发（规则 55 的第 7 个实例：判据写了，但压根没在读那类代码）。
+#    → 所以要**单独**一条正则：排除 scheme 与 mailto，其余都算相对链接。
+MD_LINK_REL = re.compile(
+    r"\[[^\]\n]*\]\(\s*<?((?!https?://|mailto:)[^)\s>]+)>?(?:\s+[\"'][^\"']*[\"'])?\s*\)"
+)
 
 
 def load_allowlist():
@@ -157,6 +167,48 @@ def is_reserved(host):
     return False
 
 
+# ── C4：仓库内相对链接必须真的指向存在的文件 ────────────────────────────
+#    📌 **GitHub 不会自动补 `.md`**（实测 2026-11-13 21:20）：
+#       `https://github.com/<o>/<r>/blob/master/docs/Quick-Start`      → **HTTP 404**
+#       `https://github.com/<o>/<r>/blob/master/docs/Quick-Start.md`   → HTTP 200
+#    → 所以 wiki 风格的**无扩展名**相对链接在 GitHub 上**全是死链**。
+#    📌 之前 C1 只说「或指向仓库内相对路径」→ **只查 host，不管文件在不在** → 假绿。
+#    📌 **判据用「精确存在」**（GitHub 语义）：目录也算存在（GitHub 会渲染目录页）。
+#    📌 **「看起来像路径」的判断要**包含**无扩展名的 wiki 风格链接** ——
+#       那**正是**要抓的缺陷形态（`[快速开始](Quick-Start)`）→ 早先用「必须含 `/` 或带扩展名」
+#       来筛 → **恰好把要抓的形态全漏掉** → 闸门假绿（规则 55：判据只认一种写法 = 双向失明）。
+#    📌 唯一豁免：GitHub 的**路由型**相对链接（`issues/15`、`pull/7`、`wiki/...`）→ 它们不是文件引用。
+GITHUB_ROUTE_PREFIXES = ("issues/", "pull/", "wiki/", "blob/", "tree/", "releases/", "actions/", "labels/")
+DOC_EXT_RE = re.compile(r"\.(md|markdown|png|jpe?g|gif|svg|pdf|txt|ya?ml|json|html?)$", re.I)
+
+
+def looks_like_relative_path(url: str) -> bool:
+    """这条相对链接**指向仓库里的某个东西**吗？（纯锚点 / mailto / GitHub 路由不算）"""
+    if not url or url.startswith("#"):
+        return False
+    if "://" in url or url.startswith("mailto:"):
+        return False
+    path_part = url.split("?", 1)[0].split("#", 1)[0]
+    if not path_part:
+        return False
+    if path_part.startswith(GITHUB_ROUTE_PREFIXES):
+        return False
+    return True
+
+
+def relative_target_exists(doc_rel: str, url: str) -> bool:
+    """相对链接的目标文件是否存在（相对**该文档所在目录**）。"""
+    path_part = url.split("?", 1)[0].split("#", 1)[0]
+    if not path_part:
+        return True  # 纯锚点
+    base_dir = os.path.dirname(os.path.join(REPO_ROOT, doc_rel))
+    target = os.path.normpath(os.path.join(base_dir, path_part))
+    # 防止 `../` 逃出仓库
+    if not target.startswith(os.path.abspath(REPO_ROOT)):
+        return True
+    return os.path.exists(target)
+
+
 def main() -> int:
     allow = load_allowlist()
     disabled = load_disabled_paths()
@@ -176,10 +228,26 @@ def main() -> int:
             if line.lstrip().startswith("```"):
                 continue
             clean = re.sub(r"`[^`\n]*`", "", line)
+            # ── C4：相对链接（MD_LINK 只匹配 http(s) → 相对链接要单独一条正则）
+            for m in MD_LINK_REL.finditer(clean):
+                url = m.group(1)
+                if not looks_like_relative_path(url):
+                    continue
+                total_links += 1
+                if not relative_target_exists(rel, url):
+                    findings.append((rel, lineno, "(相对链接)", url,
+                                     "相对链接指向的文件**不存在** → GitHub 上点开就是 404"
+                                     "（**GitHub 不会自动补 `.md`**）"))
             for m in MD_LINK.finditer(clean):
                 url = m.group(1)
                 host = host_of(url)
                 if not host:
+                    # ── C4：相对链接 → 目标文件必须存在 ──
+                    if looks_like_relative_path(url) and not relative_target_exists(rel, url):
+                        total_links += 1
+                        findings.append((rel, lineno, "(相对链接)", url,
+                                         "相对链接指向的文件**不存在** → GitHub 上点开就是 404"
+                                         "（**GitHub 不会自动补 `.md`**）"))
                     continue
                 total_links += 1
                 if is_reserved(host):
@@ -203,7 +271,7 @@ def main() -> int:
     print(f"ℹ️  禁用端点（docs/.disabled-endpoints）= {len(disabled)} 条路径")
 
     if not findings:
-        print("✅ 用户可见文档里的外部链接都在白名单内，且没有保留/占位域名/禁用端点")
+        print("✅ 用户可见文档里的外部链接都在白名单内，且没有保留/占位域名/禁用端点/死相对链接")
         return 0
 
     print(f"❌ 发现 {len(findings)} 处对外承诺了「不存在 / 不属于我们」的地址：")
@@ -217,6 +285,7 @@ def main() -> int:
     print("   ② 真要用外部域名 → 先确认**它真的能解析**（`dig +short <host>` 有 A 记录），")
     print("      再加进 `docs/.allowed-domains`（PR 里能看见）")
     print("   ③ **不许**用保留/占位域名（example.com / *.example / demo.com / xxx.com）")
+    print("   ④ **相对链接必须带 `.md` 扩展名** → GitHub 不会自动补 → 无扩展名 = 404")
     return 1
 
 

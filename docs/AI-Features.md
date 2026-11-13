@@ -111,6 +111,6 @@ docker-compose up -d ai-assistant-service product-description-service \
 
 ## 相关文档
 
-- [系统架构](Architecture)
-- [部署文档](Deployment)
-- [API文档](API-Documentation)
+- [系统架构](Architecture.md)
+- [部署文档](Deployment.md)
+- [API文档](API-Documentation.md)

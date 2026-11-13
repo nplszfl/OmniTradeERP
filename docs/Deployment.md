@@ -208,7 +208,7 @@ curl http://localhost:8081/actuator/health
 
 ## 相关文档
 
-- [快速开始](Quick-Start)
-- [系统架构](Architecture)
-- [AI功能介绍](AI-Features)
+- [快速开始](Quick-Start.md)
+- [系统架构](Architecture.md)
+- [AI功能介绍](AI-Features.md)
 - [死接口清单](DEAD-ENDPOINTS.md)

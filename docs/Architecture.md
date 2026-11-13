@@ -102,6 +102,6 @@
 
 ## 相关文档
 
-- [快速开始](Quick-Start)
-- [AI功能介绍](AI-Features)
-- [部署文档](Deployment)
+- [快速开始](Quick-Start.md)
+- [AI功能介绍](AI-Features.md)
+- [部署文档](Deployment.md)

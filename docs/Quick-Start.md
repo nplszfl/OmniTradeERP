@@ -69,6 +69,6 @@ docker-compose ps
 
 ## 下一步
 
-- 📖 查看 [完整安装指南](Installation)
-- 🏗️ 了解 [系统架构](Architecture)
-- 🤖 探索 [AI功能](AI-Features)
+- 📖 查看 [完整安装指南](Installation.md)
+- 🏗️ 了解 [系统架构](Architecture.md)
+- 🤖 探索 [AI功能](AI-Features.md)
