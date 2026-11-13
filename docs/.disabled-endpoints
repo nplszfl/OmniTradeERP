@@ -12,3 +12,4 @@
 #
 # ── 当前清单 ───────────────────────────────────────────────────────────
 /discussions          # 本仓库 has_discussions=false → GitHub API 返回 410 Gone
+/blob/main           # 本仓库默认分支是 **master**（不是 main）→ blob/main 下任何文件都是 404

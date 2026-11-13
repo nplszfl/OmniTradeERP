@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/nplszfl/OmniTradeERP?style=flat)](https://github.com/nplszfl/OmniTradeERP/stargazers)
 [![Forks](https://img.shields.io/github/forks/nplszfl/OmniTradeERP?style=flat)](https://github.com/nplszfl/OmniTradeERP/network)
-[![Last Commit](https://img.shields.io/github/last-commit/nplszfl/OmniTradeERP/main)](https://github.com/nplszfl/OmniTradeERP/commits/main)
+[![Last Commit](https://img.shields.io/github/last-commit/nplszfl/OmniTradeERP)](https://github.com/nplszfl/OmniTradeERP/commits/master)
 
 </div>
 

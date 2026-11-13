@@ -148,7 +148,7 @@ environment:
 
 ### Q: 如何贡献代码？
 
-**A:** 请阅读 [CONTRIBUTING.md](https://github.com/nplszfl/OmniTradeERP/blob/main/CONTRIBUTING.md)：
+**A:** 请阅读 [CONTRIBUTING.md](https://github.com/nplszfl/OmniTradeERP/blob/master/CONTRIBUTING.md)：
 1. Fork 仓库
 2. 创建特性分支
 3. 提交代码
