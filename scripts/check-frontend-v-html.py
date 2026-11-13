@@ -37,6 +37,7 @@
 | **C1** | `.vue` / `.ts` 里的 `v-html` **必须**绑定到**净化函数**（本项目约定：`renderPlainText(...)`）。裸绑定 → 报错。 |
 | **C2** | `v-html` 的值若是**字面量 HTML 字符串** → 报错（静态 HTML 同样会绕过净化，且改文案时容易漏） |
 | **C3** | 净化函数**必须在册**（`erp-web/src/utils/sanitize.ts` 存在且导出 `renderPlainText`）→ 否则「净化函数」这个约定是空的，闸门会误判成「已净化」 |
+| **C4** | **其它等价的 XSS sink**（`innerHTML` / `outerHTML` / `document.write` / `insertAdjacentHTML`）的**写入**也必须走净化函数 → 见下方「已知边界」 |
 
 📌 **为什么不复用「全部禁用 v-html」的粗暴判据**：
 
@@ -55,8 +56,18 @@
 
 📌 **已知边界（诚实记录，不藏）**：
 
-    - 只判 **`v-html` 指令**；`innerHTML` / `document.write` / `outerHTML` 不在范围
-      （本仓库实测 0 处 —— 但闸门**不保证**将来也没有）。
+    - **C4 覆盖的 sink**：`innerHTML` / `outerHTML` 的**赋值**、`document.write` / `document.writeln`、
+      `insertAdjacentHTML` —— 2026-11-14 06:30 补上（原先只判 `v-html`，
+      理由是「本仓库实测 0 处」—— 那只是**一次性快照**，不是**约束**；
+      规则 107：**同一缺陷的兄弟分支只修一条 = 白修**，`v-html` 和 `innerHTML`
+      是同一个 XSS 入口的两条路）。
+    - 📌 **C4 区分「读」和「写」**（规则 133 的同族）：`const t = el.innerHTML`（**读**）
+      不是注入点 → **不报红**；`el.innerHTML = x`（**写**）→ **报红**。
+    - 📌 **C4 的实参要按位置拆**：`insertAdjacentHTML('beforeend', html)` 的 HTML 是
+      **第 2 个**实参 → 不能把整个实参列表当一个值判（那样 `'beforeend', html`
+      看起来像「纯文本字面量」→ **假绿**）。
+    - 不判 `eval()` / `new Function()` / `setTimeout('字符串')`（不在本仓库实测出现过，
+      但**同样不保证**将来也没有）。
     - 只判**静态可判**的绑定表达式；若 `v-html` 绑的是变量
       （`v-html="html"`）→ 变量里是不是净化过的，本闸门**看不见** → 报 ℹ️ 不算失败。
     - **不判断数据来源**（是否来自 LLM / 用户）→ 只看「有没有走净化函数」。
@@ -119,6 +130,93 @@ def iter_files():
             if not fn.endswith((".vue", ".ts", ".js", ".tsx", ".jsx")):
                 continue
             yield os.path.join(dirpath, fn)
+
+
+# ── C4：其它 XSS sink（`innerHTML` / `outerHTML` / `document.write` / `insertAdjacentHTML`）────
+# 📌 **为什么补这一条**（2026-11-14 06:20 实测）：
+#    本闸门原本只判 `v-html`，docstring 里**诚实**写着：
+#    「只判 `v-html` 指令；`innerHTML` / `document.write` / `outerHTML` 不在范围
+#      （本仓库实测 0 处 —— 但闸门**不保证**将来也没有）」
+#    → 我复核了：今天确实 **0 处** → 声明是真的
+#    → **但没人拦着以后有人写** → 「实测 0 处」是**一次性快照**，不是**约束**
+#    📌 **同一缺陷的兄弟分支只修一条 = 白修**（规则 107）：
+#       `v-html` 和 `innerHTML` 是**同一个 XSS 入口的两条路** → 只关一条 = 门还开着。
+#    → 补上 C4：同样要求「**写**进去的内容必须经过净化函数」。
+#
+# 📌 **必须区分「读」和「写」**（规则 133 的同族）：
+#    `const t = el.innerHTML`（**读**）→ 本身不是注入点 → **不能报红**
+#    `el.innerHTML = userInput`（**写**）→ 注入点 → **必须报红**
+#    → 判据只认**赋值**形态：`X.innerHTML = ...` / `X.outerHTML = ...`
+#      / `document.write(...)` / `insertAdjacentHTML(...)`。
+#
+# 📌 **零假阳性**：本仓库当前 **0 处** 命中 → 补这条不会让任何现有代码变红。
+DOM_SINK_ASSIGN_RE = re.compile(
+    r"(?P<obj>[\w$.\[\]]*)\s*\.\s*(?P<prop>innerHTML|outerHTML)\s*=\s*(?P<val>[^;\n]*)"
+)
+DOM_SINK_CALL_RE = re.compile(
+    r"(?P<fn>document\s*\.\s*write(?:ln)?|(?:[\w$.\[\]]*\s*\.\s*)?insertAdjacentHTML)"
+    r"\s*\((?P<args>[^;]*)"
+)
+
+
+def split_args(args_text: str):
+    """把实参列表拆成一个个实参（**只看括号外的逗号**）。
+
+    📌 **为什么必须拆**（实测踩到的坑，2026-11-14 06:30）：
+    `insertAdjacentHTML('beforeend', result.body)` 有**两个**实参 ——
+    第一个是位置，**第二个才是 HTML**。
+    📌 我第一版把**整个实参列表**当成一个值去判 →
+       `'beforeend', result.body` 看起来像「以引号开头的字面量」→ 被判成「纯文本，安全」→ **假绿**。
+    → 拆开之后才知道该看第几个。
+    """
+    out, depth, cur = [], 0, ""
+    for ch in args_text:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        if ch == "," and depth == 0:
+            out.append(cur.strip())
+            cur = ""
+            continue
+        cur += ch
+    if cur.strip():
+        out.append(cur.strip())
+    return out
+
+
+def strip_call_tail(text: str) -> str:
+    """去掉实参文本末尾多出来的 `)`（正则捕获到的是「到分号为止」，可能多含右括号）。"""
+    t = text.strip()
+    while t.endswith(")") and t.count(")") > t.count("("):
+        t = t[:-1].rstrip()
+    return t
+# 📌 **赋值给常量再写**（`const html = userInput; el.innerHTML = html`）
+#    → 表达式里看不到来源 → **看不见** → 报 ℹ️ 不算失败（同 D 变量的处理）
+
+
+def sink_value_is_safe(val: str) -> bool:
+    """写入 DOM 的值是不是「安全」的。
+
+    ✅ 安全 = ① 走了净化函数 ② 是**不带标签**的字面量纯文本
+    """
+    v = val.strip()
+    if expr_uses_sanitizer(v):
+        return True
+    # 字面量且**不含标签** → 纯文本，安全
+    if (v.startswith("'") or v.startswith('"')) and not looks_like_literal_html(v):
+        return True
+    return False
+
+
+def sink_value_is_invisible(val: str) -> bool:
+    """值是不是「**看不见来源的纯标识符**」。
+
+    📌 与 `v-html` 的 D 类判据**保持一致**（可预测性）：
+    纯标识符 → 来源看不见 → **ℹ️ 不算失败**；
+    带属性访问（`a.b`）→ 读的是某个对象的字段 → 来源大概率是外部数据 → **必须红**。
+    """
+    return bool(re.fullmatch(r"[A-Za-z_$][\w$]*", val.strip()))
 
 
 def sanitizer_registered() -> bool:
@@ -255,6 +353,53 @@ def main() -> int:
                 "        · 若内容会落库 → 一次注入，全站每个打开该页的人都被打\n"
                 f"      → ✅ 修法：改成 `v-html=\"{SANITIZER_NAMES[0]}(...)\"`"
                 "（只放行 `<br>`，其余标签转义成可见文本）"
+            )
+
+        # ── C4：其它 XSS sink（`innerHTML` / `outerHTML` / `document.write` / `insertAdjacentHTML`）──
+        # 📌 **同一个 XSS 入口的另一条路**（规则 107：兄弟分支只修一条 = 白修）
+        # 📌 **只判「写」**（规则 133 的同族）：读 `el.innerHTML` 不是注入点 → 不报红
+        for m in DOM_SINK_ASSIGN_RE.finditer(code):
+            total += 1
+            val = m.group("val").strip()
+            line = code[:m.start()].count("\n") + 1
+            if sink_value_is_safe(val):
+                continue
+            if sink_value_is_invisible(val):
+                infos.append(
+                    f"[{rel}:{line}] `{m.group('obj')}.{m.group('prop')} = {val[:60]}` → "
+                    "本闸门看不见这个变量是否净化过（ℹ️ 不算失败，但请确认赋值处走了净化函数）"
+                )
+                continue
+            errors.append(
+                f"[{rel}:{line}] `{m.group('obj')}.{m.group('prop')} = {val[:80]}` → **未净化的 DOM 写入**\n"
+                "      → `innerHTML` / `outerHTML` 是**和 `v-html` 等价的 XSS 入口**\n"
+                "        → 写入外部数据（LLM / 用户输入 / DB）→ 标签会被浏览器执行 → **存储型 XSS**\n"
+                f"      → ✅ 修法：`{m.group('obj')}.{m.group('prop')} = {SANITIZER_NAMES[0]}(...)`"
+                "（或改用模板 `{{ }}` 插值，Vue 自动转义）"
+            )
+        for m in DOM_SINK_CALL_RE.finditer(code):
+            total += 1
+            line = code[:m.start()].count("\n") + 1
+            fn = re.sub(r"\s+", "", m.group("fn"))
+            args = split_args(strip_call_tail(m.group("args")))
+            # 📌 **第几个实参才是 HTML**：
+            #    `document.write(html)` → 第 1 个
+            #    `insertAdjacentHTML(pos, html)` → **第 2 个**（第 1 个是插入位置）
+            val = args[1] if (fn.endswith("insertAdjacentHTML") and len(args) >= 2) else (
+                args[0] if args else ""
+            )
+            if sink_value_is_safe(val):
+                continue
+            if sink_value_is_invisible(val):
+                infos.append(
+                    f"[{rel}:{line}] `{fn}(...)` 写入的是变量 `{val}` → "
+                    "本闸门看不见它是否净化过（ℹ️ 不算失败，但请确认赋值处走了净化函数）"
+                )
+                continue
+            errors.append(
+                f"[{rel}:{line}] `{fn}({strip_call_tail(m.group('args'))[:90]})` → **未净化的 DOM 写入**\n"
+                "      → 和 `v-html` 等价的 XSS 入口 → 标签会被浏览器执行\n"
+                f"      → ✅ 修法：写入的值改成 `{SANITIZER_NAMES[0]}(...)`"
             )
 
     print("📋 巡检「前端未净化的 v-html」（存储型 XSS 入口）")
