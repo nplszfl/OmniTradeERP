@@ -166,11 +166,11 @@ ON DUPLICATE KEY UPDATE
 
 -- 密码 admin123（BCrypt）
 INSERT INTO `t_user` (`id`, `username`, `password`, `real_name`, `email`, `phone`, `status`, `last_login_time`) VALUES
-(1, 'admin',      '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '系统管理员', 'admin@crossborder.com',    '13800138000', 1, NOW()),
-(2, 'ops001',     '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '张运营',    'ops001@crossborder.com',   '13800138001', 1, NOW()),
-(3, 'finance001', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '李财务',    'finance001@crossborder.com','13800138002', 1, NOW()),
-(4, 'wh001',      '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '王仓管',    'wh001@crossborder.com',    '13800138003', 1, NOW()),
-(5, 'cs001',      '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '赵客服',    'cs001@crossborder.com',   '13800138004', 1, NOW())
+(1, 'admin',      '$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree', '系统管理员', 'admin@crossborder.com',    '13800138000', 1, NOW()),
+(2, 'ops001',     '$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree', '张运营',    'ops001@crossborder.com',   '13800138001', 1, NOW()),
+(3, 'finance001', '$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree', '李财务',    'finance001@crossborder.com','13800138002', 1, NOW()),
+(4, 'wh001',      '$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree', '王仓管',    'wh001@crossborder.com',    '13800138003', 1, NOW()),
+(5, 'cs001',      '$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree', '赵客服',    'cs001@crossborder.com',   '13800138004', 1, NOW())
 -- 📌 **ON DUPLICATE KEY UPDATE → 重跑得到同一份数据**（2026-11-04 加）。
 --    本表有 UNIQUE 约束，而这条 INSERT 原来没保护
 --    → **重跑直接报 ERROR 1062 → 整个 init 脚本被腰斩**

@@ -130,4 +130,4 @@ mysql -uroot -p < database/seed-live-data.sql
 用户名: cs001     密码: admin123   角色: 客服
 ```
 
-密码字段已用 BCrypt 加密（占位 hash `$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy`），实际部署请用 erp-user-service 的真实加密逻辑重置。
+密码字段已用 BCrypt 加密（占位 hash `$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree`），实际部署请用 erp-user-service 的真实加密逻辑重置。

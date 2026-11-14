@@ -44,15 +44,15 @@ ON DUPLICATE KEY UPDATE
   `description` = VALUES(`description`),
   `status`      = VALUES(`status`);
 
--- 用户（密码 admin123 用 BCrypt 加密后的样子：$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy）
+-- 用户（密码 admin123 用 BCrypt 加密后的样子：$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree）
 INSERT INTO `t_user` (`id`, `username`, `password`, `real_name`, `email`, `phone`, `status`, `last_login_time`) VALUES
-(1, 'admin',   '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '系统管理员', 'admin@crossborder.com',   '13800138000', 1, NOW()),
-(2, 'ops001',  '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '张运营',   'ops001@crossborder.com',  '13800138001', 1, NOW()),
-(3, 'finance001','$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '李财务', 'finance001@crossborder.com','13800138002', 1, NOW()),
-(4, 'wh001',   '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '王仓管',   'wh001@crossborder.com',   '13800138003', 1, NOW()),
-(5, 'cs001',   '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '赵客服',   'cs001@crossborder.com',   '13800138004', 1, NOW()),
-(6, 'ops002',  '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '陈运营',   'ops002@crossborder.com',  '13800138005', 1, NULL),
-(7, 'ops003',  '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', '林运营',   'ops003@crossborder.com',  '13800138006', 1, NULL)
+(1, 'admin',   '$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree', '系统管理员', 'admin@crossborder.com',   '13800138000', 1, NOW()),
+(2, 'ops001',  '$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree', '张运营',   'ops001@crossborder.com',  '13800138001', 1, NOW()),
+(3, 'finance001','$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree', '李财务', 'finance001@crossborder.com','13800138002', 1, NOW()),
+(4, 'wh001',   '$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree', '王仓管',   'wh001@crossborder.com',   '13800138003', 1, NOW()),
+(5, 'cs001',   '$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree', '赵客服',   'cs001@crossborder.com',   '13800138004', 1, NOW()),
+(6, 'ops002',  '$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree', '陈运营',   'ops002@crossborder.com',  '13800138005', 1, NULL),
+(7, 'ops003',  '$2a$10$TFTY78kAORCFz.NPcDuxDOZVou3rIZhG0UiicxP3ahb.ni7Gu2Ree', '林运营',   'ops003@crossborder.com',  '13800138006', 1, NULL)
 ON DUPLICATE KEY UPDATE
   `password`        = VALUES(`password`),
   `real_name`       = VALUES(`real_name`),

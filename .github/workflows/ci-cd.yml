@@ -309,6 +309,15 @@ jobs:
     - name: 数据库连接数预算（需求 ≤ MySQL max_connections）
       run: python3 scripts/check-db-connection-budget.py
 
+    # 📌 **种子口令三方一致性**（2026-11-14 新增）
+    #    📌 **抓到的真缺陷（生产级）**：仓库里的 bcrypt hash **格式合法但不是 admin123**
+    #       → 按文档口令登录**永远失败**（接口正常返回「密码错误」，无异常、无日志）。
+    #    📌 **分工**（不重复实现 bcrypt —— 自研实现会引入「实现有 bug 却报绿」）：
+    #       JUnit 测试 `SeedPasswordHashConsistencyTest` 做**真·crypto** 验证；
+    #       本闸门做 **文档 ↔ 测试 ↔ 种子文件** 的三方口径 + 覆盖漂移检查。
+    - name: 种子口令三方一致（文档 ↔ 测试 ↔ 种子 SQL）
+      run: python3 scripts/check-seed-password-docs.py
+
     # 📌 **指标真实性**（声明了指标 ≠ 指标在说真话）
     #    📌 **2026-11-10 抓到的真缺陷**：
     #       `erp-common` 的 `MetricsConfig` 声明了 5 个 Micrometer 指标
