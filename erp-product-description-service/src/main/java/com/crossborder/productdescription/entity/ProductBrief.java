@@ -36,4 +36,19 @@ public class ProductBrief {
 
     /** 商品名称 */
     private String productName;
+
+    /**
+     * 商品描述（{@code erp_product.t_product.description}）
+     *
+     * <p>📌 <b>为什么加这个字段</b>（2026-11-15 实测）：
+     * 以前「AI 商品描述」的<b>特性 / 关键词 / 描述</b>三处全是
+     * <b>硬编码常量</b>（{@code Arrays.asList("高性能", "稳定可靠", ...)}）——
+     * 不管 {@code productId} 是 1 还是 999，返回的文案<b>一字不差</b>。
+     * → 这正是「去假数据」重构（commit {@code 646dc06}）要消灭的东西，
+     * 但 pricing 做了、AI 知识库做了，<b>描述模块漏了</b>。</p>
+     *
+     * <p>📌 商品描述是 <b>唯一真实存在的商品文案</b> ——
+     * 特性/关键词没有独立列，只能从它派生。</p>
+     */
+    private String description;
 }

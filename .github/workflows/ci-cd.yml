@@ -77,6 +77,18 @@ jobs:
         python3 scripts/check-in-memory-storage.py --self-test
         python3 scripts/check-in-memory-storage.py
 
+    # 📌 **第 76 道闸门**：硬编码常量冒充业务数据
+    #    2026-11-15 实测踩出来：commit 646dc06「去假数据」重构清了 pricing 的内存存储
+    #    和 AI 知识库的硬编码，**75 道闸门全绿** —— 但 **product-description 模块漏了**：
+    #      getProductFeatures()  return Arrays.asList("高性能","稳定可靠",...)
+    #    **完全忽略 productId** → 实测 GET /api/description/highlights/1 与 /999
+    #    返回**一字不差**的 5 条 → 假数据（规则 72 / 80 / 82 / 203）。
+    #    第 75 道抓不到：它只查「集合当存储」与「Random 造数」两类。
+    - name: 硬编码常量假数据巡检
+      run: |
+        python3 scripts/check-hardcoded-fake-data.py --self-test
+        python3 scripts/check-hardcoded-fake-data.py
+
     # 📌 种子脚本幂等性巡检
     #    主键冲突 → ERROR 1062 → docker-entrypoint **中止整个 init**
     #    （容器却照样起来 → 后面几个种子文件全没执行 → 静默失败）

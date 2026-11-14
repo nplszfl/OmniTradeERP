@@ -48,6 +48,18 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     /** 描述状态：刚生成（未审批、未发布） */
     private static final String STATUS_GENERATED = "GENERATED";
 
+    /**
+     * 从真实商品描述派生的「特性 / 关键词」上限。
+     *
+     * <p>📌 这些是<b>上限</b>，不是固定值 ——
+     * 内容全部来自 {@code t_product.description}，
+     * 商品没写描述就是<b>空</b>，不会编。</p>
+     */
+    private static final int MAX_FEATURES = 10;
+    private static final int MAX_KEYWORDS = 8;
+    private static final int MAX_PHRASE_WORDS = 6;
+    private static final int MAX_PHRASE_LENGTH = 60;
+
     // 模拟描述模板
     private final Map<String, String> templates = new HashMap<>();
 
@@ -874,6 +886,13 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     private List<String> extractKeywords(String text) {
         List<String> keywords = new ArrayList<>();
 
+        // ⚠️ null 安全（2026-11-15 修）：description 现在可能真的为 null
+        // （商品没写描述 → 不编内容）。原来这里直接 text.contains(word)
+        // → 商品没描述时 SEO 接口 **NPE 500**。
+        if (text == null || text.isBlank()) {
+            return keywords;
+        }
+
         // 简化版：提取一些常见词
         String[] commonWords = {"产品", "性能", "质量", "可靠", "技术", 
                 "工艺", "稳定", "耐用", "理想", "选择"};
@@ -1059,36 +1078,101 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
 
     /**
      * 获取产品特性
+     *
+     * <p>📌 <b>以前这里是硬编码的</b> {@code Arrays.asList("高性能", "稳定可靠", "易于使用",
+     * "节能环保", "设计精巧")} —— <b>完全忽略 productId</b>，
+     * 于是任何商品（连库里不存在的 id）拿到的都是同一批文案。
+     * 实测：{@code GET /api/description/highlights/1} 与 {@code /999} 返回<b>一字不差</b>。
+     * 这正是「去假数据」重构（{@code 646dc06}）要消灭的东西，但描述模块漏了。</p>
+     *
+     * <p>📌 <b>现在从真实商品描述派生</b>：商品表没有独立的 features 列
+     * （{@code t_product} 只有 {@code description} / {@code description_en}），
+     * 所以特性 = 把<b>真实描述</b>按常见分隔符切开后的短语列表。</p>
+     *
+     * <p>📌 <b>取不到就返回空列表，不编</b>：
+     * 下游 {@code extractHighlights(features, max)} 遇到空列表会<b>返回空列表</b>，
+     * 而不是编 5 条亮点 —— <b>「没有数据」比「假数据」诚实</b>。</p>
      */
     private List<String> getProductFeatures(Long productId) {
-        // 模拟：返回产品特性
-        return Arrays.asList(
-            "高性能",
-            "稳定可靠",
-            "易于使用",
-            "节能环保",
-            "设计精巧"
-        );
+        return splitIntoPhrases(getProductDescription(productId));
     }
 
     /**
      * 获取产品关键词
+     *
+     * <p>📌 <b>以前这里是硬编码的</b> {@code Arrays.asList("高性能", "节能", "环保", "智能")}
+     * —— 同样完全忽略 productId。</p>
+     *
+     * <p>📌 <b>现在从真实商品名 + 真实描述派生</b>：
+     * 关键词 = 描述短句 + 商品名（去重、限长）。
+     * 取不到 → 返回空列表（不编）。</p>
      */
     private List<String> getProductKeywords(Long productId) {
-        // 模拟：返回产品关键词
-        return Arrays.asList(
-            "高性能",
-            "节能",
-            "环保",
-            "智能"
-        );
+        LinkedHashSet<String> keywords = new LinkedHashSet<>();
+        keywords.addAll(splitIntoPhrases(getProductDescription(productId)));
+
+        String productName = getProductNameById(productId);
+        if (productName != null && !productName.isBlank() && !productName.startsWith("产品-")) {
+            keywords.add(productName.trim());
+        }
+
+        return keywords.stream().limit(MAX_KEYWORDS).toList();
     }
 
     /**
      * 获取产品描述
+     *
+     * <p>📌 <b>以前这里是硬编码的</b>
+     * {@code "这是一个高质量的产品，具有优秀的性能和可靠性..."} ——
+     * 一句<b>跟任何商品都无关</b>的套话。</p>
+     *
+     * <p>📌 <b>现在读真实商品主数据</b>（{@code erp_product.t_product.description}）。
+     * 查不到 → 返回 {@code null}（<b>不编</b>），由调用方决定怎么处理。</p>
      */
     private String getProductDescription(Long productId) {
-        // 模拟：返回产品描述
-        return "这是一个高质量的产品，具有优秀的性能和可靠性...";
+        try {
+            ProductBrief product = productCatalogService.findById(productId).orElse(null);
+            if (product != null && product.getDescription() != null
+                    && !product.getDescription().isBlank()) {
+                return product.getDescription().trim();
+            }
+            log.warn("商品主数据里没有 id={} 的描述 —— 本次不编内容（仅用于提示词，不落库）", productId);
+        } catch (BizException e) {
+            log.warn("查询商品描述失败（id={}），本次不编内容（仅用于提示词，不落库）：{}", productId, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 把一段文本切成短语列表（特性/关键词的来源）。
+     *
+     * <p>📌 分隔符：换行 / 中英文逗号 / 顿号 / 分号 / 句号 / 竖线。
+     * 切出来的每一段再按句内分隔符（空格）取前几个词，避免整句话当一条特性。</p>
+     */
+    private List<String> splitIntoPhrases(String text) {
+        if (text == null || text.isBlank()) {
+            return Collections.emptyList();
+        }
+        String[] parts = text.split("[\\r\\n,，、;；。|｜]+");
+        List<String> phrases = new ArrayList<>();
+        for (String part : parts) {
+            String phrase = part.trim();
+            if (phrase.isEmpty()) {
+                continue;
+            }
+            // 整句太长时取前 N 个词作为一条短语（避免把一整段当「一个特性」）
+            String[] words = phrase.split("\\s+");
+            if (words.length > MAX_PHRASE_WORDS) {
+                phrase = String.join(" ", java.util.Arrays.copyOfRange(words, 0, MAX_PHRASE_WORDS));
+            }
+            if (phrase.length() > MAX_PHRASE_LENGTH) {
+                phrase = phrase.substring(0, MAX_PHRASE_LENGTH);
+            }
+            phrases.add(phrase);
+            if (phrases.size() >= MAX_FEATURES) {
+                break;
+            }
+        }
+        return phrases;
     }
 }

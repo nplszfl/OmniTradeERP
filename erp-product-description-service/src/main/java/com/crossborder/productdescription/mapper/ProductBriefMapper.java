@@ -51,9 +51,16 @@ public interface ProductBriefMapper {
     ProductBrief findByProductSku(@Param("sku") String sku);
 
     /**
-     * 按商品ID取商品（只读，用于回填商品名）。
+     * 按商品ID取商品（只读，用于回填商品名与描述）。
+     *
+     * <p>📌 <b>为什么把 description 也带出来</b>（2026-11-15 实测）：
+     * 「AI 商品描述」的<b>特性 / 关键词 / 描述</b>三处原本全是硬编码常量，
+     * 导致任何 {@code productId} 都返回同一批文案。
+     * 商品表里唯一真实存在的文案就是 {@code t_product.description} →
+     * 特性/关键词从它派生（见
+     * {@code ProductDescriptionServiceImpl#getProductFeatures}）。</p>
      */
-    @Select("SELECT id AS id, product_name AS productName "
+    @Select("SELECT id AS id, product_name AS productName, description AS description "
             + "FROM erp_product.t_product "
             + "WHERE id = #{id} AND deleted = 0 "
             + "LIMIT 1")
