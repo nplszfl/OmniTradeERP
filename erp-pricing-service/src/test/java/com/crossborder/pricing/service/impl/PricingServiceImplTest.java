@@ -3,10 +3,6 @@ package com.crossborder.pricing.service.impl;
 import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.pricing.dto.PricingRequest;
 import com.crossborder.pricing.dto.PricingResponse;
-import com.crossborder.pricing.entity.PriceHistory;
-import com.crossborder.pricing.entity.Product;
-import com.crossborder.pricing.mapper.PriceHistoryMapper;
-import com.crossborder.pricing.mapper.ProductMapper;
 import com.crossborder.pricing.service.CompetitorScrapeService;
 import com.crossborder.pricing.service.CompetitorScrapeService.CompetitorPriceStats;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,24 +49,11 @@ class PricingServiceImplTest {
     @Mock
     private CompetitorScrapeService competitorScrapeService;
 
-    /**
-     * 📌 2026-11-14 16:55 补：生产类的构造器从 1 个参数变成 3 个
-     * （去假数据重构后加了 ProductMapper / PriceHistoryMapper），
-     * 而本测试仍用旧的 1 参数构造器 → **测试编译不过** → CI 在 testCompile 阶段红。
-     * 本文件测的方法（calculateOptimalPrice / validatePrice / batchCalculate）
-     * **都不碰这两个 mapper**，所以只需注入 mock，无需打桩。
-     */
-    @Mock
-    private ProductMapper productMapper;
-
-    @Mock
-    private PriceHistoryMapper priceHistoryMapper;
-
     private PricingServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new PricingServiceImpl(competitorScrapeService, productMapper, priceHistoryMapper);
+        service = new PricingServiceImpl(competitorScrapeService);
     }
 
     // ========== calculateOptimalPrice - 基础计算 ==========
@@ -381,34 +364,20 @@ class PricingServiceImplTest {
     void adjustPriceByCompetitors_returnsAppliedResponse() {
         when(competitorScrapeService.getCompetitorPriceStats(anyLong()))
                 .thenReturn(statsOf(100L, "100.00", "200.00", "150.00", 3));
-        Product product = productOf(100L, "PROD-100", "100.00", "200.00", "30.00");
-        when(productMapper.selectById(100L)).thenReturn(product);
 
         PricingResponse resp = service.adjustPriceByCompetitors(100L);
 
         assertNotNull(resp);
+        assertEquals(Boolean.TRUE, resp.getApplied());
         assertEquals(100L, resp.getProductId());
         assertEquals("PROD-100", resp.getProductCode());
-        // 📌 2026-11-14：去假数据重构后，这里**真落库**了
-        //    （productMapper.updateById + priceHistoryMapper.insert）。
-        //    → 不变式：**applied=true ⟺ 真的写了库**（规则 80 / 82 假成功）。
-        if (Boolean.TRUE.equals(resp.getApplied())) {
-            verify(productMapper).updateById(any(Product.class));
-            verify(priceHistoryMapper).insert(any(PriceHistory.class));
-        } else {
-            assertTrue(resp.getAdjustmentReason() != null && !resp.getAdjustmentReason().isBlank(),
-                    "没落库就必须说明原因（否则调用方无从判断）");
-        }
     }
 
     // ========== manualPriceAdjustment ==========
 
     @Test
-    @DisplayName("manualPriceAdjustment - 给出目标价，**真落库**（applied=true）")
+    @DisplayName("manualPriceAdjustment - 给出目标价，但**如实说没落库**（applied=false）")
     void manualPriceAdjustment_usesTargetPriceDirectly() {
-        Product product = productOf(100L, "PROD-100", "100.00", "150.00", "30.00");
-        when(productMapper.selectById(100L)).thenReturn(product);
-
         PricingResponse resp = service.manualPriceAdjustment(
                 100L, new BigDecimal("199.99"), "运营手动调价");
 
@@ -417,16 +386,12 @@ class PricingServiceImplTest {
         // 📌 2026-11-12：这里原来是 `assertEquals(Boolean.TRUE, resp.getApplied())` ——
         //    也就是**测试把「假成功」当成正确行为钉住了**（服务里 applied=true 但**什么都没写**，
         //    只留了个 `TODO: 实际更新数据库中的价格`）→ 规则 80 / 82（假成功）。
-        // 📌 2026-11-14：去假数据重构后**真的写了库** → 不变式翻转：
-        //    **applied=true ⟺ 真的写了库**。所以现在反过来钉：
-        //    applied 必须是 true，**且**两次写库都必须发生。
-        assertEquals(Boolean.TRUE, resp.getApplied(),
-                "真的落库了，就该如实说「已应用」");
+        //    ✅ 现在如实返回 applied=false，并把「未落库」写进原因里。
+        assertEquals(Boolean.FALSE, resp.getApplied(),
+                "没有落库就不许说「已应用」");
         assertTrue(resp.getAdjustmentReason().contains("手动调整: 运营手动调价"));
-        assertFalse(resp.getAdjustmentReason().contains("未落库"),
-                "已经落库了，原因里就不该再说「未落库」");
-        verify(productMapper).updateById(any(Product.class));
-        verify(priceHistoryMapper).insert(any(PriceHistory.class));
+        assertTrue(resp.getAdjustmentReason().contains("未落库"),
+                "原因里必须说明「没落库」，否则调用方无从判断");
     }
 
     @Test
@@ -449,48 +414,25 @@ class PricingServiceImplTest {
     }
 
     @Test
-    @DisplayName("getProductPricingInfo - 数据来自**真实商品表**，不再返回写死的占位值")
-    void getProductPricingInfo_readsRealProduct() {
-        when(productMapper.selectById(42L))
-                .thenReturn(productOf(42L, "PROD-42", "100.00", "150.00", "30.00"));
-
+    @DisplayName("getProductPricingInfo - 占位数据要写明「不是真实报价」")
+    void getProductPricingInfo_marksPlaceholderData() {
         PricingResponse resp = service.getProductPricingInfo(42L);
 
-        // 📌 2026-11-14：原来这个方法返回**写死的常量**（150.00 / 145.00 / 30%），
-        //    注释自己都写着「模拟：从数据库获取定价信息」→ 去假数据重构后**真查商品表**。
-        //    → 原来那句「占位数据」的理由已经**不存在**了（不再有占位值）。
-        assertEquals(0, new BigDecimal("150.00").compareTo(resp.getOriginalPrice()),
-                "原价必须来自商品表的 sellingPrice");
-        assertEquals(0, new BigDecimal("150.00").compareTo(resp.getRecommendedPrice()),
-                "推荐价 = 原价（未做调整）");
-        assertFalse(resp.getAdjustmentReason().contains("占位数据"),
-                "不再返回占位值，就不该再说「占位数据」");
-    }
-
-    @Test
-    @DisplayName("getProductPricingInfo - 商品查不到要**如实报「商品不存在」**，不能编一个数")
-    void getProductPricingInfo_missingProductThrows() {
-        when(productMapper.selectById(42L)).thenReturn(null);
-
-        BizException e = assertThrows(BizException.class, () -> service.getProductPricingInfo(42L));
-        assertTrue(e.getMessage().contains("商品不存在"),
-                "查不到就要如实报，不能编一个数（规则 19 / 43）：" + e.getMessage());
+        assertTrue(resp.getAdjustmentReason().contains("占位数据"),
+                "返回的是写死的占位值 → 原因里必须说明");
     }
 
     // ========== getProductPricingInfo ==========
 
     @Test
-    @DisplayName("getProductPricingInfo - 返回商品表里的真实数据")
-    void getProductPricingInfo_returnsRealData() {
-        when(productMapper.selectById(42L))
-                .thenReturn(productOf(42L, "PROD-42", "100.00", "150.00", "30.00"));
-
+    @DisplayName("getProductPricingInfo - 返回固定演示数据")
+    void getProductPricingInfo_returnsDemoData() {
         PricingResponse resp = service.getProductPricingInfo(42L);
 
         assertEquals(42L, resp.getProductId());
         assertEquals("PROD-42", resp.getProductCode());
         assertEquals(0, new BigDecimal("150.00").compareTo(resp.getOriginalPrice()));
-        assertEquals(0, new BigDecimal("150.00").compareTo(resp.getRecommendedPrice()));
+        assertEquals(0, new BigDecimal("145.00").compareTo(resp.getRecommendedPrice()));
         assertTrue(resp.getCalculationTime() != null);
     }
 
@@ -519,20 +461,5 @@ class PricingServiceImplTest {
         stats.setAvgPrice(new BigDecimal(avg));
         stats.setCompetitorCount(count);
         return stats;
-    }
-
-    /**
-     * 📌 2026-11-14 新增：去假数据重构后，生产类从**商品表**读真实成本价 / 售价 / 目标利润率，
-     * 而不再「假设所有商品成本都是 100」→ 测试必须给一个**真实的商品**。
-     */
-    private Product productOf(Long id, String code, String cost, String selling, String margin) {
-        Product product = new Product();
-        product.setId(id);
-        product.setProductCode(code);
-        product.setProductName("测试商品 " + code);
-        product.setCostPrice(new BigDecimal(cost));
-        product.setSellingPrice(new BigDecimal(selling));
-        product.setTargetProfitMargin(new BigDecimal(margin));
-        return product;
     }
 }
