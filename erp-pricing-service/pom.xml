@@ -86,6 +86,16 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- OkHttp + Jsoup：竞品抓取要真发 HTTP 请求、真解析 HTML -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+        </dependency>
+
         <!-- Swagger/OpenAPI -->
         <dependency>
             <groupId>org.springdoc</groupId>

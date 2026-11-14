@@ -24,6 +24,8 @@ public class CompetitorController {
     @PostMapping("/scrape/{productId}")
     public String scrapeCompetitorProducts(@PathVariable Long productId) {
         competitorScrapeService.scrapeCompetitorProducts(productId);
+        // 📌 这里返回「成功」是**真的**了 —— 服务会真抓取 + 真落库，
+        //    全平台失败会抛 BizException → 不会走到这一行。
         return "竞品数据抓取成功！";
     }
 
@@ -61,6 +63,7 @@ public class CompetitorController {
             @PathVariable Long productId,
             @RequestBody CompetitorProduct competitor) {
         competitorScrapeService.addCompetitor(productId, competitor);
+        // 📌 真的落库了（原来只打了条日志就说「添加成功」= 假成功）
         return "竞品添加成功！";
     }
 }

@@ -64,6 +64,19 @@ jobs:
         python3 scripts/check-bean-name-collision.py --self-test
         python3 scripts/check-bean-name-collision.py
 
+    # 📌 **第 75 道闸门**：内存存储冒充数据库 / 随机数假业务数据
+    #    2026-11-14 实测踩出来：erp-pricing-service 的 PriceHistoryServiceImpl
+    #    用 `private final List<PriceHistory> priceHistoryList = new CopyOnWriteArrayList<>()`
+    #    冒充数据库（注释写着「模拟数据库存储」）→ **服务重启即丢数据**，
+    #    实体/表/Mapper 全都在，只是没人调用。
+    #    更隐蔽的一层：CompetitorScrapeServiceImpl 用 Random 生成**随机价格**，
+    #    且 getCompetitorProducts() **每次调用现场生成新随机数**
+    #    → 同一个 productId 连查两次返回不同价格 → 建议价完全不可复现。
+    - name: 内存存储 / 随机假数据巡检
+      run: |
+        python3 scripts/check-in-memory-storage.py --self-test
+        python3 scripts/check-in-memory-storage.py
+
     # 📌 种子脚本幂等性巡检
     #    主键冲突 → ERROR 1062 → docker-entrypoint **中止整个 init**
     #    （容器却照样起来 → 后面几个种子文件全没执行 → 静默失败）

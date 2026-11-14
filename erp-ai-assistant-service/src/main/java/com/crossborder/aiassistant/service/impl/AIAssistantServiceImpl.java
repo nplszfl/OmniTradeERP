@@ -8,6 +8,7 @@ import com.crossborder.aiassistant.dto.ServiceStatistics;
 import com.crossborder.aiassistant.entity.KnowledgeBase;
 import com.crossborder.aiassistant.repository.KnowledgeBaseRepository;
 import com.crossborder.aiassistant.service.AIAssistantService;
+import com.crossborder.aiassistant.service.ChatSessionStore;
 import com.crossborder.aiassistant.service.DomainSynonyms;
 import com.crossborder.erp.llm.LLMEndpointResolver;
 import lombok.extern.slf4j.Slf4j;
@@ -68,8 +69,14 @@ public class AIAssistantServiceImpl implements AIAssistantService {
      */
     private static final double CONTAINMENT_WEIGHT = 0.9;
 
-    // 模拟对话历史存储
-    private final Map<String, List<ChatMessage>> sessionHistory = new ConcurrentHashMap<>();
+    // 📌 **2026-11-14 移除内存 sessionHistory** —— 原来是
+    //    `private final Map<String, List<ChatMessage>> sessionHistory = new ConcurrentHashMap<>();`
+    //    后果：① 服务重启即丢（用户对话上下文凭空消失）
+    //         ② 多副本部署时互相看不见（负载均衡打到不同副本 → 上下文随机丢失）
+    //         ③ 无上限 → Map 无限增长 → **内存泄漏**
+    //    → 现在改为 {@link ChatSessionStore}（Redis + TTL，跨副本共享 + 自动过期）。
+    @Autowired
+    private ChatSessionStore chatSessionStore;
 
     /**
      * 知识库仓储（表 knowledge_base）
@@ -270,11 +277,13 @@ public class AIAssistantServiceImpl implements AIAssistantService {
     public List<ChatMessage> getChatHistory(Long userId, String sessionId) {
         log.info("获取对话历史 - 用户ID: {}, 会话ID: {}", userId, sessionId);
 
-        String key = sessionId + ":" + userId;
-        List<ChatMessage> history = sessionHistory.getOrDefault(key, new ArrayList<>());
+        // 📌 **2026-11-14 改走 Redis**（原来是内存 Map → 重启即丢 / 多副本不一致）
+        List<ChatMessage> history = chatSessionStore.load(userId, sessionId);
 
         // 按时间排序（最新的在前）
-        history.sort(Comparator.comparing(ChatMessage::getCreateTime).reversed());
+        history.sort(Comparator.comparing(
+                (ChatMessage m) -> m.getCreateTime() == null
+                        ? LocalDateTime.MIN : m.getCreateTime()).reversed());
 
         return history;
     }
@@ -283,8 +292,7 @@ public class AIAssistantServiceImpl implements AIAssistantService {
     public void clearChatHistory(Long userId, String sessionId) {
         log.info("清空对话历史 - 用户ID: {}, 会话ID: {}", userId, sessionId);
 
-        String key = sessionId + ":" + userId;
-        sessionHistory.remove(key);
+        chatSessionStore.clear(userId, sessionId);
 
         log.info("对话历史已清空");
     }
@@ -492,8 +500,8 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         }
 
         // 对话历史
-        String key = request.getSessionId() + ":" + request.getUserId();
-        List<ChatMessage> history = sessionHistory.getOrDefault(key, new ArrayList<>());
+        // 📌 **2026-11-14 改走 Redis**（原来是内存 Map）
+        List<ChatMessage> history = chatSessionStore.load(request.getUserId(), request.getSessionId());
         if (history.size() > 2) { // 只取最近2轮对话
             prompt.append("对话历史：\n");
             for (ChatMessage msg : history.subList(history.size() - 2, history.size())) {
@@ -675,8 +683,8 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         message.setLanguage(language);
         message.setCreateTime(LocalDateTime.now());
 
-        String key = sessionId + ":" + userId;
-        sessionHistory.computeIfAbsent(key, k -> new ArrayList<>()).add(message);
+        // 📌 **2026-11-14 改走 Redis**（原来是 `sessionHistory.computeIfAbsent(...).add(message)`）
+        chatSessionStore.append(userId, sessionId, message);
     }
 
     /**
@@ -1017,7 +1025,8 @@ public class AIAssistantServiceImpl implements AIAssistantService {
 
         statistics.setTotalConversations(statistics.getTotalConversations());
         statistics.setKnowledgeBaseSize(knowledgeBaseRepository.countByActiveTrue());
-        statistics.setActiveSessions(sessionHistory.size());
+        // 📌 **2026-11-14 改走 Redis**（原来是 `sessionHistory.size()`）
+        statistics.setActiveSessions((int) chatSessionStore.countActiveSessions());
 
         // 计算平均响应时间
         if (responseTimeCount > 0) {
@@ -1025,15 +1034,8 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         }
 
         // 统计活跃用户
-        Set<Long> uniqueUsers = new HashSet<>();
-        for (List<ChatMessage> messages : sessionHistory.values()) {
-            for (ChatMessage msg : messages) {
-                if (msg.getUserId() != null) {
-                    uniqueUsers.add(msg.getUserId());
-                }
-            }
-        }
-        statistics.setActiveUsers(uniqueUsers.size());
+        // 📌 **2026-11-14 改走 Redis**（原来是遍历内存 Map 的所有消息）
+        statistics.setActiveUsers((int) chatSessionStore.countActiveUsers());
 
         statistics.setStatisticsTime(LocalDateTime.now());
 

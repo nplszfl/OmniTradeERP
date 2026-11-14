@@ -20,6 +20,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 定价建议服务实现
@@ -44,7 +45,13 @@ public class PricingSuggestionServiceImpl implements PricingSuggestionService {
                 new LambdaQueryWrapper<AiPricingSuggestion>()
                         .orderByDesc(AiPricingSuggestion::getCreateTime)
                         .last("LIMIT " + max));
-        return list.stream().map(this::toVO).toList();
+
+        // 📌 **2026-11-14 修 N+1**：原来这里是 `list.stream().map(this::toVO).toList()`，
+        //    而 `toVO(s)` 内部对**每一条建议**都 `productMapper.selectById(...)`
+        //    → 50 条建议 = **1 + 50 次查询**。
+        //    → 现在**一次性把涉及的商品全捞出来**，在内存里做映射 → **1 + 1 次查询**。
+        Map<Long, Product> productMap = loadProducts(list);
+        return list.stream().map(s -> toVO(s, productMap.get(s.getProductId()))).toList();
     }
 
     @Override
@@ -152,6 +159,34 @@ public class PricingSuggestionServiceImpl implements PricingSuggestionService {
     }
 
     // ---------------------------------------------------------------- 内部方法
+
+    /**
+     * 批量加载商品（消 N+1）。
+     *
+     * <p>📌 原来 {@code toVO(single)} 每次都单独 {@code selectById} → N+1。
+     * 这里改成一次 {@code IN} 查询取回全部涉及商品 → 1 次查询搞定。</p>
+     */
+    private Map<Long, Product> loadProducts(List<AiPricingSuggestion> suggestions) {
+        if (suggestions == null || suggestions.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> productIds = suggestions.stream()
+                .map(AiPricingSuggestion::getProductId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (productIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Product> products = productMapper.selectList(
+                new LambdaQueryWrapper<Product>()
+                        .in(Product::getId, productIds));
+        Map<Long, Product> map = new java.util.HashMap<>(products.size());
+        for (Product p : products) {
+            map.put(p.getId(), p);
+        }
+        return map;
+    }
 
     private Product findProductBySku(String sku) {
         Product product = productMapper.selectOne(

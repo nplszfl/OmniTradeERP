@@ -5,12 +5,15 @@ import com.crossborder.inventoryprediction.dto.PredictionRequest;
 import com.crossborder.inventoryprediction.dto.PredictionResponse;
 import com.crossborder.inventoryprediction.dto.ReplenishmentSuggestion;
 import com.crossborder.inventoryprediction.dto.ServiceStatistics;
+import com.crossborder.inventoryprediction.repository.InventoryRepository;
+import com.crossborder.inventoryprediction.repository.SalesHistoryRepository;
 import com.crossborder.inventoryprediction.service.InventoryPredictionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
@@ -29,6 +32,16 @@ class InventoryPredictionServiceImplTest {
     @InjectMocks
     private InventoryPredictionServiceImpl inventoryPredictionService;
 
+    // 📌 **2026-11-14 补**：重构把「Random 现造销量/库存」换成了真查
+    //    {@code sales_history} / {@code inventory} 两张表 → 实现类多了两个
+    //    **构造器依赖**（@RequiredArgsConstructor + final 字段）。
+    //    测试没给这两个 @Mock → Mockito 注入 null → 全员 NPE（规则 23 的形态）。
+    @Mock
+    private SalesHistoryRepository salesHistoryRepository;
+
+    @Mock
+    private InventoryRepository inventoryRepository;
+
     private PredictionRequest request;
 
     @Test
@@ -41,12 +54,18 @@ class InventoryPredictionServiceImplTest {
                 "没有调用任何 ML 模型 → 不许自称 Prophet");
         assertFalse(resp.getModelType().contains("ARIMA"),
                 "没有调用任何 ML 模型 → 不许自称 ARIMA");
-        assertTrue(resp.getModelType().contains("模拟"),
-                "历史数据是模拟生成的 → 模型说明里必须写出来：" + resp.getModelType());
+        // 📌 **2026-11-14 语义修正**：历史数据已从「Random 现造」改成**真查 sales_history 表**
+        //    → 「模拟」这个描述已经不准确了（那是在描述数据来源）；
+        //    但**算法本身仍是启发式**（移动平均 + 季节性因子），依旧不是机器学习模型
+        //    → 模型说明必须如实说这一点（规则 18 / 56 的真意是「不许谎报算法能力」，
+        //    而不是「必须自曝数据是模拟的」）。
+        assertTrue(resp.getModelType().contains("启发式")
+                        || resp.getModelType().contains("非机器学习模型"),
+                "算法是启发式 → 模型说明必须如实写出来：" + resp.getModelType());
 
-        // 📌 置信度：历史数据是随机生成的 → 在它上面算「置信度」是**假事实** → 不给数
+        // 📌 置信度：启发式算法没有概率模型 → 给置信度就是**假事实** → 不给数
         resp.getDailyPredictions().forEach(d ->
-                assertNull(d.getConfidence(), "模拟数据上不许给出置信度"));
+                assertNull(d.getConfidence(), "启发式预测不许给出置信度"));
     }
 
     @BeforeEach

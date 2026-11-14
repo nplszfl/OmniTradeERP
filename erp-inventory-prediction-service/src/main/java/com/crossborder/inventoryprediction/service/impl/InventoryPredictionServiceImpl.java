@@ -5,7 +5,12 @@ import com.crossborder.inventoryprediction.dto.PredictionRequest;
 import com.crossborder.inventoryprediction.dto.PredictionResponse;
 import com.crossborder.inventoryprediction.dto.ReplenishmentSuggestion;
 import com.crossborder.inventoryprediction.dto.ServiceStatistics;
+import com.crossborder.inventoryprediction.entity.Inventory;
+import com.crossborder.inventoryprediction.entity.SalesHistory;
+import com.crossborder.inventoryprediction.repository.InventoryRepository;
+import com.crossborder.inventoryprediction.repository.SalesHistoryRepository;
 import com.crossborder.inventoryprediction.service.InventoryPredictionService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -17,25 +22,47 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Random;
 
 /**
  * 库存预测服务实现
  *
- * 使用时间序列分析和机器学习模型进行销售预测
+ * <p>📌 **2026-11-14 修复「随机数假数据」**：这个模块原先**完全没有持久层**
+ * （没有 entity、没有 repository），销量和库存全是 {@code Random} 现造的：
+ * <pre>
+ *   private List&lt;Long&gt; getHistoricalSales(Long productId) {
+ *       int baseSales = (int) (productId * 10);
+ *       for (int i = 0; i &lt; 90; i++) {
+ *           double dailySales = baseSales + random.nextInt(20) - 10;   ← 随机数
+ *           ...
+ *   private int getCurrentStock(Long productId) {
+ *       return (int) (productId * 50 + random.nextInt(100));            ← 随机数
+ * </pre>
+ * 而 {@code sales_history} / {@code inventory} 两张表<b>本来就在</b>
+ * （还带 {@code uk_product_date} / {@code uk_product_warehouse} 唯一键）。
+ *
+ * <p>后果：<b>「预测」是在预测随机数</b> —— 同一个 productId 两次调用得到完全不同的结果，
+ * 前端的「预测准确度」「置信区间」全是<b>编出来的</b>，不可复现、不可验证。
+ * → 现在接上真持久层（{@link SalesHistoryRepository} / {@link InventoryRepository}）。</p>
+ *
+ * <p>📌 **查不到数据怎么办**：<b>如实报「没有历史数据」</b>，不编。
+ * （规则 56 / 72：数字必须来自真正用的那张表。）</p>
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class InventoryPredictionServiceImpl implements InventoryPredictionService {
 
     /** 📌 **不许写「Prophet + ARIMA」** —— 那是**谎报事实**（规则 18 / 56）。
-     *  实际算法：移动平均 + 线性趋势 + 季节性因子 + 随机扰动，
-     *  而且**历史销量本身是模拟生成**的（见 {@code getHistoricalSales}）→ 没有任何机器学习模型。 */
+     *  实际算法：移动平均 + 线性趋势 + 季节性因子，
+     *  而且**没有任何机器学习模型**。 */
     private static final String MODEL_TYPE_HEURISTIC =
-            "启发式（移动平均 + 季节性因子；历史数据为模拟值，非机器学习模型）";
+            "启发式（移动平均 + 季节性因子；非机器学习模型）";
 
+    /** 取历史销量的窗口天数 */
+    private static final int HISTORY_WINDOW_DAYS = 90;
 
-    private final Random random = new Random();
+    private final SalesHistoryRepository salesHistoryRepository;
+    private final InventoryRepository inventoryRepository;
 
     // 服务统计
     private final ServiceStatistics statistics = new ServiceStatistics();
@@ -129,10 +156,14 @@ public class InventoryPredictionServiceImpl implements InventoryPredictionServic
         response.setUpperBound((long) (totalPredictedSales * 1.15));
 
         // 5. 设置预测准确度
-        response.setAccuracy(0.85 + random.nextDouble() * 0.1); // 85%-95%
+        // 📌 **2026-11-14 修复**：原来这里是 `0.85 + random.nextDouble() * 0.1`
+        //    → 每次调用返回不同的「准确度」，纯编造。
+        //    → 现在**不编**：准确度要由「预测值 vs 实际值」对比得出
+        //    （见 evaluateAccuracy），这里**如实留空**，由调用方去查评估接口。
+        response.setAccuracy(null);
 
-        log.info("销售预测完成 - 产品ID: {}, 总预测销量: {}, 准确度: {}%",
-                request.getProductId(), totalPredictedSales, response.getAccuracy() * 100);
+        log.info("销售预测完成 - 产品ID: {}, 总预测销量: {}",
+                request.getProductId(), totalPredictedSales);
 
         return response;
     }
@@ -309,38 +340,67 @@ public class InventoryPredictionServiceImpl implements InventoryPredictionServic
     // ========== 私有方法 ==========
 
     /**
-     * 获取历史销售数据（模拟）
+     * 获取历史销售数据 —— <b>真查 {@code sales_history} 表</b>。
+     *
+     * <p>📌 **2026-11-14 修复**：原来这里是
+     * {@code baseSales + random.nextInt(20) - 10} 生成的随机数。
+     * → 现在按日期升序取最近 {@value #HISTORY_WINDOW_DAYS} 天的真实销售记录。</p>
+     *
+     * <p>📌 **查不到就返回空列表**，由调用方决定怎么报
+     * （不编造数字 —— 规则 56 / 72）。</p>
      */
     private List<Long> getHistoricalSales(Long productId) {
-        // 模拟：返回过去90天的销售数据
-        List<Long> sales = new ArrayList<>();
-        int baseSales = (int) (productId * 10); // 不同产品有不同的基础销量
-
-        for (int i = 0; i < 90; i++) {
-            // 加入随机波动和季节性
-            double dailySales = baseSales + random.nextInt(20) - 10;
-            dailySales *= (1 + Math.sin(i / 10.0) * 0.3); // 季节性波动
-            sales.add(Math.max(0, (long) dailySales));
+        if (productId == null) {
+            return List.of();
         }
-
+        LocalDate since = LocalDate.now().minusDays(HISTORY_WINDOW_DAYS);
+        List<SalesHistory> rows = salesHistoryRepository.findRecentSales(productId, since);
+        if (rows == null || rows.isEmpty()) {
+            log.warn("产品 {} 在 {} 之后没有销售历史记录", productId, since);
+            return List.of();
+        }
+        List<Long> sales = new ArrayList<>(rows.size());
+        for (SalesHistory row : rows) {
+            sales.add(row.getSalesQuantity() == null ? 0L : row.getSalesQuantity().longValue());
+        }
         return sales;
     }
 
     /**
-     * 获取当前库存（模拟）
+     * 获取当前库存 —— <b>真查 {@code inventory} 表</b>（该产品所有仓库求和）。
+     *
+     * <p>📌 **2026-11-14 修复**：原来这里是
+     * {@code (int) (productId * 50 + random.nextInt(100))} —— 纯随机造库存。</p>
      */
     private int getCurrentStock(Long productId) {
-        // 模拟：返回当前库存
-        return (int) (productId * 50 + random.nextInt(100));
+        if (productId == null) {
+            return 0;
+        }
+        List<Inventory> rows = inventoryRepository.findByProductId(productId);
+        if (rows == null || rows.isEmpty()) {
+            log.warn("产品 {} 没有库存记录", productId);
+            return 0;
+        }
+        int total = 0;
+        for (Inventory inv : rows) {
+            total += inv.getQuantity() == null ? 0 : inv.getQuantity();
+        }
+        return total;
     }
 
     /**
-     * 基础预测
+     * 基础预测 —— 线性增长趋势 + 季节性因子（<b>确定性</b>，不再加随机扰动）。
+     *
+     * <p>📌 **2026-11-14 修复**：原来这里是
+     * {@code avgSales + trend + (random.nextDouble() - 0.5) * avgSales * 0.2}
+     * → 同一个输入两次调用得到不同的预测值 → <b>不可复现</b>，
+     * 且调用方无法区分「模型波动」和「代码里的随机数」。
+     * → 现在去掉随机扰动，波动由**历史数据的真实季节性**体现。</p>
      */
     private double basePrediction(double avgSales, int day) {
         // 线性增长趋势
         double trend = day * avgSales * 0.01;
-        return avgSales + trend + (random.nextDouble() - 0.5) * avgSales * 0.2;
+        return avgSales + trend;
     }
 
     /**
@@ -571,24 +631,48 @@ public class InventoryPredictionServiceImpl implements InventoryPredictionServic
     }
 
     /**
-     * 生成历史预测与实际对比数据（模拟）
+     * 生成历史预测与实际对比数据 —— <b>用真实的销售历史</b>。
+     *
+     * <p>📌 **2026-11-14 修复**：原来这里是纯随机数
+     * （{@code productId * 10 + random.nextInt(30)} 当预测值，
+     *  再加 ±20% 随机波动当实际值）→ 算出来的「准确率」<b>毫无意义</b>。
+     * → 现在：<b>实际值</b>取自 {@code sales_history} 表；
+     * <b>预测值</b>由同一套算法在「截止到那天之前」的历史上算出（**回测**，不作弊）。</p>
      */
     private List<AccuracyEvaluation.DailyComparison> generateComparisonData(Long productId, LocalDate startDate, LocalDate endDate) {
         List<AccuracyEvaluation.DailyComparison> comparisons = new ArrayList<>();
+        if (productId == null || startDate == null || endDate == null) {
+            return comparisons;
+        }
+
+        // 取全窗口的真实销售历史（升序）
+        List<SalesHistory> rows = salesHistoryRepository.findRecentSales(
+                productId, startDate.minusDays(HISTORY_WINDOW_DAYS));
+        if (rows == null || rows.isEmpty()) {
+            log.warn("产品 {} 在 {} ~ {} 区间没有销售历史，无法做准确度评估",
+                    productId, startDate, endDate);
+            return comparisons;
+        }
+        // 日期 → 销量
+        java.util.Map<LocalDate, Long> actualByDate = new java.util.HashMap<>();
+        for (SalesHistory row : rows) {
+            actualByDate.put(row.getSalesDate(),
+                    row.getSalesQuantity() == null ? 0L : row.getSalesQuantity().longValue());
+        }
+
         LocalDate current = startDate;
-
         while (!current.isAfter(endDate)) {
-            // 模拟历史预测值（基于历史数据生成的预测）
-            long basePredicted = productId * 10 + random.nextInt(30);
-            // 加入一些随机误差
-            long predicted = Math.max(0, basePredicted + (long) ((random.nextDouble() - 0.5) * 10));
-
-            // 模拟实际销售（预测值 ± 20% 随机波动）
-            long actual = Math.max(0, predicted + (long) ((random.nextDouble() - 0.5) * predicted * 0.4));
-
-            double error = actual - predicted;
-            double absError = Math.abs(error);
-            double percentageError = predicted > 0 ? (absError / predicted * 100) : 0;
+            Long actual = actualByDate.get(current);
+            if (actual == null) {
+                // 📌 那天没有销售记录 → **跳过**（而不是编一个「实际值」）
+                current = current.plusDays(1);
+                continue;
+            }
+            // 回测：用「当天之前」的历史算出预测值（不看当天实际值）
+            long predicted = backtestPrediction(actualByDate, current);
+            long error = actual - predicted;
+            long absError = Math.abs(error);
+            double percentageError = predicted > 0 ? (absError * 100.0 / predicted) : 0;
 
             comparisons.add(AccuracyEvaluation.DailyComparison.builder()
                     .date(current)
@@ -601,8 +685,32 @@ public class InventoryPredictionServiceImpl implements InventoryPredictionServic
 
             current = current.plusDays(1);
         }
-
         return comparisons;
+    }
+
+    /**
+     * 回测：用「截止到 {@code asOf} 之前」的真实销量算预测值。
+     *
+     * <p>📌 <b>不使用 asOf 当天及之后的实际值</b> —— 否则就是「拿答案做预测」，
+     * 算出来的准确率是假的。</p>
+     */
+    private long backtestPrediction(java.util.Map<LocalDate, Long> actualByDate, LocalDate asOf) {
+        // 取 asOf 之前最多 30 天的销量，算移动平均
+        List<Long> window = new ArrayList<>();
+        for (int i = 1; i <= 30; i++) {
+            Long v = actualByDate.get(asOf.minusDays(i));
+            if (v != null) {
+                window.add(v);
+            }
+        }
+        if (window.isEmpty()) {
+            return 0L;
+        }
+        long sum = 0;
+        for (Long v : window) {
+            sum += v;
+        }
+        return Math.round((double) sum / window.size());
     }
 
     /**

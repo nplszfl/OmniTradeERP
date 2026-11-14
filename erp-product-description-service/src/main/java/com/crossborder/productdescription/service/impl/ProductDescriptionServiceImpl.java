@@ -51,16 +51,14 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     // 模拟描述模板
     private final Map<String, String> templates = new HashMap<>();
 
-    /**
-     * 生成历史（内存）
-     *
-     * <p>⚠️ 这里只用于 {@code GET /api/description/history} 的<b>本次进程内</b>回显，
-     * <b>不是</b>落库历史：真正的历史在 {@code product_description} 表里，
-     * 由 {@link ProductDescriptionRecordService} 负责读写。
-     * （服务重启后内存历史会丢，这是已知边界，不影响落库数据。）</p>
-     */
-    private final java.util.concurrent.CopyOnWriteArrayList<DescriptionGenerationResponse> history =
-            new java.util.concurrent.CopyOnWriteArrayList<>();
+    // 📌 **2026-11-14 移除内存 history** —— 原来这里是
+    //    `private final CopyOnWriteArrayList<DescriptionGenerationResponse> history`，
+    //    生成时 `history.add(response)`，查询时 `history.stream()...`。
+    //    而真正的落库历史在 {@code product_description} 表
+    //    （由 {@link ProductDescriptionRecordService} 负责读写）。
+    //    → **同一份历史有两个来源**：服务重启后内存那份没了（前端历史页变空），
+    //      在运行期间两个来源的数据又可能对不上 → **两套真相**。
+    //    → 现在统一以落库表为唯一真相（见 {@link #listHistory}）。
 
     private final LLMConfig llmConfig;
 
@@ -160,8 +158,9 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
             response.setError(e.getMessage());
         }
 
-        // 记录生成历史（前端 GET /api/description/history 要查）
-        history.add(response);
+        // 📌 **2026-11-14 移除**：`history.add(response)` —— 内存副本。
+        //    落库由下面的 {@code productDescriptionRecordService.upsert(...)} 负责，
+        //    历史查询统一以落库表为唯一真相。
 
         return response;
     }
@@ -577,13 +576,45 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     @Override
     public List<DescriptionGenerationResponse> listHistory(Long productId, int limit) {
         int max = limit <= 0 ? 20 : Math.min(limit, 200);
-        return history.stream()
-                .filter(h -> productId == null || productId.equals(h.getProductId()))
-                .sorted(Comparator.comparing(
-                        (DescriptionGenerationResponse h) -> h.getCreateTime() == null
-                                ? LocalDateTime.MIN : h.getCreateTime()).reversed())
-                .limit(max)
-                .toList();
+        // 📌 **2026-11-14 改为真查库** —— 原来查的是内存 List
+        //    （服务重启即丢，且与落库表形成两套真相）。
+        //    现在统一以 {@code product_description} 表为唯一真相。
+        List<com.crossborder.productdescription.entity.ProductDescription> rows =
+                productDescriptionRecordService.listHistory(productId, max);
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        return rows.stream().map(this::toGenerationResponse).toList();
+    }
+
+    /**
+     * 落库记录 → 前端视图。
+     *
+     * <p>📌 落库表里没有 SEO 明细（seoResult / usage 那些是生成时的临时结果），
+     * 所以这里**只填表里真有的字段**，其余留空 ——
+     * 不编造（规则 72：数字必须来自真正用的那张表）。</p>
+     */
+    private DescriptionGenerationResponse toGenerationResponse(
+            com.crossborder.productdescription.entity.ProductDescription row) {
+        DescriptionGenerationResponse out = new DescriptionGenerationResponse();
+        out.setDescriptionId(row.getId() == null ? null : String.valueOf(row.getId()));
+        out.setProductId(row.getProductId());
+        out.setProductName(row.getProductName());
+        out.setContent(row.getContent());
+        out.setShortTitle(row.getShortTitle());
+        out.setLanguage(row.getLanguage());
+        out.setPlatform(row.getPlatform());
+        out.setVersionNumber(row.getVersionNumber());
+        out.setModel(row.getModel());
+        out.setTemplateId(row.getTemplateId());
+        out.setGenerationTime(row.getGenerationTimeMs());
+        out.setCreateTime(row.getCreateTime());
+        // 📌 model == "mock" → 这次是本地模板拼的（降级），如实标出来
+        if (MOCK_MODEL_NAME.equals(row.getModel())) {
+            out.setMock(Boolean.TRUE);
+            out.setMockReason("未配置 LLM API Key，本次由本地模板生成");
+        }
+        return out;
     }
 
     /**

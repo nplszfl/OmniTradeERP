@@ -42,6 +42,8 @@
         <hutool.version>5.8.26</hutool.version>
         <fastjson2.version>2.0.49</fastjson2.version>
         <okhttp.version>4.12.0</okhttp.version>
+        <!-- Jsoup：竞品抓取要真解析 HTML（原来全是随机数假数据） -->
+        <jsoup.version>1.22.2</jsoup.version>
         <jwt.version>0.12.3</jwt.version>
     </properties>
 
@@ -208,6 +210,13 @@
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>okhttp</artifactId>
                 <version>${okhttp.version}</version>
+            </dependency>
+
+            <!-- Jsoup：竞品 HTML 解析 -->
+            <dependency>
+                <groupId>org.jsoup</groupId>
+                <artifactId>jsoup</artifactId>
+                <version>${jsoup.version}</version>
             </dependency>
 
             <!-- Micrometer Prometheus -->

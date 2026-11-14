@@ -1,5 +1,6 @@
 package com.crossborder.pricing.service.impl;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.pricing.entity.CompetitorProduct;
 import com.crossborder.pricing.service.CompetitorScrapeService;
 import com.crossborder.pricing.service.DynamicPricingService;
@@ -212,20 +213,24 @@ class DynamicPricingServiceImplTest {
     }
 
     @Test
-    void testCalculateOptimalPrice_NegativeCost_Handled() {
+    void testCalculateOptimalPrice_NegativeCost_ThrowsBizException() {
         BigDecimal negativeCost = new BigDecimal("-10.00");
-        
+
         when(competitorScrapeService.getCompetitorProducts(productId))
             .thenReturn(Collections.emptyList());
-        
+
         when(priceHistoryService.getPriceTrendAnalysis(productId, 30))
             .thenReturn(null);
 
-        // 负成本应该被处理（至少保证成本价）
-        BigDecimal result = dynamicPricingService.calculateOptimalPrice(
-            productId, negativeCost, 100, 10);
-        
-        assertNotNull(result);
+        // 📌 **2026-11-14 语义修正**：实现已改成「成本价 <= 0 → 抛 BizException(400)」。
+        //    旧用例断言的是「负成本被静默兜底成一个非空价格」—— 那正是**静默失败**
+        //    （把非法输入悄悄算成一个假价格，对外还返回 200 + 一个看起来合理的数）。
+        //    ✅ 正确语义 = 明确报错；BizException 默认码 400（规则 28：业务错误不该是 500）。
+        BizException ex = assertThrows(BizException.class, () ->
+            dynamicPricingService.calculateOptimalPrice(productId, negativeCost, 100, 10));
+
+        assertEquals(400, ex.getCode());
+        assertTrue(ex.getMessage().contains("成本"), "异常消息应说明是成本价问题，实际: " + ex.getMessage());
     }
 
     @Test

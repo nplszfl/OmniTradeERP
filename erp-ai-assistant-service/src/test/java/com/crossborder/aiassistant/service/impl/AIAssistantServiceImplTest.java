@@ -7,6 +7,7 @@ import com.crossborder.aiassistant.dto.ServiceStatistics;
 import com.crossborder.aiassistant.entity.KnowledgeBase;
 import com.crossborder.aiassistant.repository.KnowledgeBaseRepository;
 import com.crossborder.aiassistant.service.AIAssistantService;
+import com.crossborder.aiassistant.service.ChatSessionStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,10 +19,15 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -43,6 +49,14 @@ class AIAssistantServiceImplTest {
      */
     @Mock
     private KnowledgeBaseRepository knowledgeBaseRepository;
+
+    /**
+     * 📌 **2026-11-14 补**：重构把「内存 sessionHistory」换成了 {@link ChatSessionStore}
+     *    （Redis + TTL）→ 服务多了一个依赖字段。没给这个 @Mock → Mockito 注入 null
+     *    → 每个用到会话的用例全员 NPE（规则 23 的形态）。
+     */
+    @Mock
+    private ChatSessionStore chatSessionStore;
 
     @InjectMocks
     private AIAssistantServiceImpl aiAssistantService;
@@ -74,6 +88,29 @@ class AIAssistantServiceImplTest {
                     }
                     return arg;
                 });
+
+        // 📌 会话存储的默认行为：**表现得像一个真会话存储**
+        //    （append 写进去 → load 读得出来 → clear 清掉）。
+        //    📌 不能简单地「load 永远返空」—— 那会把「服务确实记下了对话」
+        //    这个事实变成看不见 = 单测钉不住新行为（规则 209 的镜像：
+        //    测试不能把「历史丢了」当正确行为）。
+        Map<String, List<AIAssistantService.ChatMessage>> sessionStore = new HashMap<>();
+        lenient().when(chatSessionStore.load(anyLong(), anyString())).thenAnswer(inv -> {
+            List<AIAssistantService.ChatMessage> list = sessionStore.get(inv.getArgument(1));
+            return list == null ? new ArrayList<>() : new ArrayList<>(list);
+        });
+        lenient().doAnswer(inv -> {
+            String sessionId = inv.getArgument(1);
+            sessionStore.computeIfAbsent(sessionId, k -> new ArrayList<>())
+                    .add(inv.getArgument(2));
+            return null;
+        }).when(chatSessionStore).append(anyLong(), anyString(), any(AIAssistantService.ChatMessage.class));
+        lenient().doAnswer(inv -> {
+            sessionStore.remove(inv.getArgument(1));
+            return null;
+        }).when(chatSessionStore).clear(anyLong(), anyString());
+        lenient().when(chatSessionStore.countActiveSessions()).thenAnswer(inv -> (long) sessionStore.size());
+        lenient().when(chatSessionStore.countActiveUsers()).thenAnswer(inv -> (long) sessionStore.size());
 
         chatRequest = new ChatRequest();
         chatRequest.setUserId(1001L);

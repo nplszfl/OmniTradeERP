@@ -1,10 +1,17 @@
 package com.crossborder.pricing.service.impl;
 
+import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.pricing.entity.CompetitorProduct;
+import com.crossborder.pricing.entity.Product;
+import com.crossborder.pricing.mapper.CompetitorProductMapper;
+import com.crossborder.pricing.mapper.ProductMapper;
 import com.crossborder.pricing.service.CompetitorScrapeService.CompetitorPriceStats;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -14,45 +21,88 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
- * CompetitorScrapeServiceImpl 单元测试 (v2.0.0)
+ * {@link CompetitorScrapeServiceImpl} 单元测试
  *
- * 覆盖：
- * - 构造器：默认随机 + SeededRandomizer 注入
- * - getCompetitorPriceStats：多竞品统计 / 空集合返回 null / null productId
- * - generateMockCompetitor：价格区间边界 / 必填字段设置
- * - batchScrape：单元素 / 多元素 / null 元素处理
- * - addCompetitor：自动填充 createTime/updateTime
+ * <p>📌 **2026-11-14 重写**。原因：这个实现原先靠 {@code Random} 生成
+ * 「竞品价格/评分/评论数」假数据（并提供 {@code PriceRandomizer} 注入点），
+ * 现在改成：
+ * <ul>
+ *   <li>真抓取（OkHttp + Jsoup）—— 网络层在单测里不触发；</li>
+ *   <li>真落库（{@code competitor_product} 表）；</li>
+ *   <li>查询走 Mapper（不再现场造数）。</li>
+ * </ul>
  *
- * v2.0.0 关键改进：使用 SeededRandomizer 让数据可预测、测试可断言。
+ * <p>📌 **重点回归的缺陷**：均价分母原来用 {@code competitors.size()}（全部条数），
+ * 而有 {@code price == null} 的记录被 {@code continue} 跳过 →
+ * 均价被算低（3 条里 1 条缺价 → 只有真值的 2/3）。</p>
  */
-@DisplayName("CompetitorScrapeServiceImpl 单元测试 (v2.0.0)")
+@ExtendWith(MockitoExtension.class)
+@DisplayName("CompetitorScrapeServiceImpl 单元测试")
 class CompetitorScrapeServiceImplTest {
 
+    @Mock
+    private CompetitorProductMapper competitorProductMapper;
+
+    @Mock
+    private ProductMapper productMapper;
+
     private CompetitorScrapeServiceImpl service;
-    private CompetitorScrapeServiceImpl.SeededRandomizer seededRandom;
 
     @BeforeEach
     void setUp() {
-        // 使用 seed=42 的确定性随机源，让 mock 数据可断言
-        seededRandom = new CompetitorScrapeServiceImpl.SeededRandomizer(42L);
-        service = new CompetitorScrapeServiceImpl(seededRandom);
+        service = new CompetitorScrapeServiceImpl(competitorProductMapper, productMapper);
     }
 
-    // ========== getCompetitorPriceStats 核心算法 ==========
+    // ========== getCompetitorProducts：查库，不再现场造数 ==========
+
+    @Test
+    @DisplayName("getCompetitorProducts - null productId 返回空列表且不查库")
+    void getCompetitorProducts_nullProductId_returnsEmptyWithoutQuery() {
+        List<CompetitorProduct> competitors = service.getCompetitorProducts(null);
+
+        assertNotNull(competitors);
+        assertTrue(competitors.isEmpty());
+        verify(competitorProductMapper, never()).selectList(any());
+    }
+
+    @Test
+    @DisplayName("getCompetitorProducts - 走 Mapper 查询，不再现场生成随机数")
+    void getCompetitorProducts_queriesMapper() {
+        CompetitorProduct persisted = competitorOf("Amazon 竞品 A", "120.00");
+        when(competitorProductMapper.selectList(any())).thenReturn(List.of(persisted));
+
+        List<CompetitorProduct> result = service.getCompetitorProducts(100L);
+
+        assertEquals(1, result.size());
+        assertEquals("Amazon 竞品 A", result.get(0).getCompetitorName());
+        verify(competitorProductMapper, times(1)).selectList(any());
+    }
+
+    // ========== getCompetitorPriceStats：核心算法 ==========
 
     @Test
     @DisplayName("getCompetitorPriceStats - 3个竞品正确计算 min/max/avg")
     void getCompetitorPriceStats_threeCompetitors_correctStats() {
-        // 用固定的竞品价格而非 mock 数据，验证统计算法本身
-        List<BigDecimal> prices = new ArrayList<>(Arrays.asList(
-                new BigDecimal("120.00"),
-                new BigDecimal("150.00"),
-                new BigDecimal("180.00")));
+        when(competitorProductMapper.selectList(any())).thenReturn(List.of(
+                competitorOf("A", "120.00"),
+                competitorOf("B", "150.00"),
+                competitorOf("C", "180.00")));
 
-        CompetitorPriceStats stats = computeStatsForPrices(100L, prices);
+        CompetitorPriceStats stats = service.getCompetitorPriceStats(100L);
 
         assertNotNull(stats);
         assertEquals(100L, stats.getProductId());
@@ -63,230 +113,202 @@ class CompetitorScrapeServiceImplTest {
     }
 
     @Test
-    @DisplayName("getCompetitorPriceStats - 2个竞品 avg 正确计算")
-    void getCompetitorPriceStats_twoCompetitors_correctAvg() {
-        List<BigDecimal> prices = new ArrayList<>(Arrays.asList(
-                new BigDecimal("100.00"),
-                new BigDecimal("200.00")));
+    @DisplayName("getCompetitorPriceStats - 均价分母用「有效价格条数」，不是全部条数")
+    void getCompetitorPriceStats_nullPrice_excludedFromAverageDenominator() {
+        // 📌 回归缺陷：原来分母用 competitors.size()=3，但只有 2 条有价
+        //    → 均价 = (120+180)/3 = 100（错的）；正确应为 (120+180)/2 = 150
+        when(competitorProductMapper.selectList(any())).thenReturn(Arrays.asList(
+                competitorOf("A", "120.00"),
+                competitorOf("B", null),
+                competitorOf("C", "180.00")));
 
-        CompetitorPriceStats stats = computeStatsForPrices(50L, prices);
+        CompetitorPriceStats stats = service.getCompetitorPriceStats(100L);
 
-        assertEquals(0, new BigDecimal("100.00").compareTo(stats.getMinPrice()));
-        assertEquals(0, new BigDecimal("200.00").compareTo(stats.getMaxPrice()));
-        assertEquals(0, new BigDecimal("150.00").compareTo(stats.getAvgPrice()));
+        assertNotNull(stats);
+        assertEquals(0, new BigDecimal("150.00").compareTo(stats.getAvgPrice()),
+                "均价分母必须是有效价格条数（2），不是全部条数（3）");
+        assertEquals(2L, stats.getCompetitorCount(),
+                "竞品条数应只统计有效价格的记录");
     }
 
     @Test
-    @DisplayName("getCompetitorPriceStats - 单竞品 min=max=avg=其价格")
-    void getCompetitorPriceStats_singleCompetitor_allEqual() {
-        List<BigDecimal> prices = new ArrayList<>(List.of(new BigDecimal("99.99")));
+    @DisplayName("getCompetitorPriceStats - 全部缺价时返回 null（而不是除零/乱数）")
+    void getCompetitorPriceStats_allNullPrices_returnsNull() {
+        when(competitorProductMapper.selectList(any())).thenReturn(Arrays.asList(
+                competitorOf("A", null),
+                competitorOf("B", null)));
 
-        CompetitorPriceStats stats = computeStatsForPrices(1L, prices);
-
-        assertEquals(0, new BigDecimal("99.99").compareTo(stats.getMinPrice()));
-        assertEquals(0, new BigDecimal("99.99").compareTo(stats.getMaxPrice()));
-        assertEquals(0, new BigDecimal("99.99").compareTo(stats.getAvgPrice()));
+        assertNull(service.getCompetitorPriceStats(100L));
     }
 
     @Test
-    @DisplayName("getCompetitorProducts - null productId 返回空列表不抛异常")
-    void getCompetitorProducts_nullProductId_returnsEmpty() {
-        List<CompetitorProduct> competitors = service.getCompetitorProducts(null);
+    @DisplayName("getCompetitorPriceStats - 没有竞品记录时返回 null")
+    void getCompetitorPriceStats_noRecords_returnsNull() {
+        when(competitorProductMapper.selectList(any())).thenReturn(List.of());
 
-        assertNotNull(competitors);
-        assertTrue(competitors.isEmpty());
+        assertNull(service.getCompetitorPriceStats(100L));
     }
 
     @Test
-    @DisplayName("getCompetitorProducts - 正常 productId 返回 3 个固定平台竞品")
-    void getCompetitorProducts_validProductId_returnsThreePlatforms() {
-        List<CompetitorProduct> competitors = service.getCompetitorProducts(100L);
-
-        assertEquals(3, competitors.size());
-        assertTrue(competitors.stream().anyMatch(c -> "Amazon".equals(c.getPlatform())));
-        assertTrue(competitors.stream().anyMatch(c -> "eBay".equals(c.getPlatform())));
-        assertTrue(competitors.stream().anyMatch(c -> "Shopee".equals(c.getPlatform())));
+    @DisplayName("getCompetitorPriceStats - null productId 返回 null 且不查库")
+    void getCompetitorPriceStats_nullProductId_returnsNull() {
+        assertNull(service.getCompetitorPriceStats(null));
+        verify(competitorProductMapper, never()).selectList(any());
     }
 
-    @Test
-    @DisplayName("getCompetitorProducts - 价格在 [120, 180) 区间内")
-    void getCompetitorProducts_priceInValidRange() {
-        List<CompetitorProduct> competitors = service.getCompetitorProducts(100L);
-
-        for (CompetitorProduct c : competitors) {
-            BigDecimal price = c.getCurrentPrice();
-            assertNotNull(price);
-            assertTrue(price.compareTo(new BigDecimal("120")) >= 0,
-                    "价格应 >= 120, 实际: " + price);
-            assertTrue(price.compareTo(new BigDecimal("180")) < 0,
-                    "价格应 < 180, 实际: " + price);
-        }
-    }
+    // ========== addCompetitor：真落库 ==========
 
     @Test
-    @DisplayName("getCompetitorProducts - 评分在 [3.5, 5.0) 区间")
-    void getCompetitorProducts_ratingInValidRange() {
-        List<CompetitorProduct> competitors = service.getCompetitorProducts(100L);
+    @DisplayName("addCompetitor - 真的写库了（原来只打日志就说「添加成功」）")
+    void addCompetitor_insertsIntoDatabase() {
+        when(productMapper.selectById(100L)).thenReturn(productOf(100L, "PROD-001"));
+        when(competitorProductMapper.selectOne(any())).thenReturn(null);
 
-        for (CompetitorProduct c : competitors) {
-            BigDecimal rating = c.getRating();
-            assertNotNull(rating);
-            assertTrue(rating.compareTo(new BigDecimal("3.5")) >= 0);
-            assertTrue(rating.compareTo(new BigDecimal("5.0")) <= 0); // HALF_UP 可能到 5.0
-        }
-    }
-
-    @Test
-    @DisplayName("getCompetitorProducts - 必填时间字段被自动设置")
-    void getCompetitorProducts_requiredTimestampsSet() {
-        List<CompetitorProduct> competitors = service.getCompetitorProducts(100L);
-
-        for (CompetitorProduct c : competitors) {
-            assertNotNull(c.getScrapeTime());
-            assertNotNull(c.getCreateTime());
-            assertNotNull(c.getUpdateTime());
-            assertNotNull(c.getProductUrl());
-            assertNotNull(c.getCompetitorName());
-        }
-    }
-
-    @Test
-    @DisplayName("getCompetitorProducts - SeededRandomizer 产生确定性数据")
-    void getCompetitorProducts_seededRandomIsDeterministic() {
-        CompetitorScrapeServiceImpl svc1 = new CompetitorScrapeServiceImpl(
-                new CompetitorScrapeServiceImpl.SeededRandomizer(42L));
-        CompetitorScrapeServiceImpl svc2 = new CompetitorScrapeServiceImpl(
-                new CompetitorScrapeServiceImpl.SeededRandomizer(42L));
-
-        List<CompetitorProduct> a = svc1.getCompetitorProducts(100L);
-        List<CompetitorProduct> b = svc2.getCompetitorProducts(100L);
-
-        for (int i = 0; i < a.size(); i++) {
-            assertEquals(0, a.get(i).getCurrentPrice().compareTo(b.get(i).getCurrentPrice()));
-        }
-    }
-
-    // ========== scrapeFromPlatform / batchScrape ==========
-
-    @Test
-    @DisplayName("scrapeFromPlatform - 不抛异常（内部 try-catch 容错）")
-    void scrapeFromPlatform_doesNotThrow() {
-        service.scrapeFromPlatform("Amazon", "https://amazon.com/dp/123");
-        // 无异常即通过
-    }
-
-    @Test
-    @DisplayName("scrapeFromPlatform - 空 URL 也不抛异常")
-    void scrapeFromPlatform_emptyUrl_doesNotThrow() {
-        service.scrapeFromPlatform("eBay", "");
-    }
-
-    @Test
-    @DisplayName("scrapeCompetitorProducts - 4 平台抓取不抛异常")
-    void scrapeCompetitorProducts_fourPlatforms_doesNotThrow() {
-        service.scrapeCompetitorProducts(100L);
-    }
-
-    // ========== addCompetitor ==========
-
-    @Test
-    @DisplayName("addCompetitor - 自动设置 createTime/updateTime")
-    void addCompetitor_setsTimestamps() {
         CompetitorProduct competitor = new CompetitorProduct();
-        competitor.setCompetitorName("测试竞品");
+        competitor.setCompetitorName("手动竞品");
         competitor.setCurrentPrice(new BigDecimal("99.00"));
+        competitor.setPlatform("Amazon");
 
         service.addCompetitor(100L, competitor);
 
+        verify(competitorProductMapper, times(1)).insert(any(CompetitorProduct.class));
         assertNotNull(competitor.getCreateTime());
         assertNotNull(competitor.getUpdateTime());
-    }
-
-    // ========== SeededRandomizer ==========
-
-    @Test
-    @DisplayName("SeededRandomizer - 同 seed 产生相同序列")
-    void seededRandomizer_sameSeed_sameSequence() {
-        CompetitorScrapeServiceImpl.SeededRandomizer r1 =
-                new CompetitorScrapeServiceImpl.SeededRandomizer(123L);
-        CompetitorScrapeServiceImpl.SeededRandomizer r2 =
-                new CompetitorScrapeServiceImpl.SeededRandomizer(123L);
-
-        for (int i = 0; i < 100; i++) {
-            assertEquals(r1.nextIntInRange(1000), r2.nextIntInRange(1000));
-        }
+        assertEquals(100L, competitor.getProductId());
     }
 
     @Test
-    @DisplayName("SeededRandomizer - 不同 seed 产生不同序列")
-    void seededRandomizer_differentSeed_differentSequence() {
-        CompetitorScrapeServiceImpl.SeededRandomizer r1 =
-                new CompetitorScrapeServiceImpl.SeededRandomizer(1L);
-        CompetitorScrapeServiceImpl.SeededRandomizer r2 =
-                new CompetitorScrapeServiceImpl.SeededRandomizer(999L);
+    @DisplayName("addCompetitor - 商品不存在时抛异常，不静默")
+    void addCompetitor_productNotFound_throws() {
+        when(productMapper.selectById(anyLong())).thenReturn(null);
 
-        // 至少前 10 次有差异
-        boolean different = false;
-        for (int i = 0; i < 10; i++) {
-            if (r1.nextIntInRange(100000) != r2.nextIntInRange(100000)) {
-                different = true;
-                break;
-            }
-        }
-        assertTrue(different);
+        CompetitorProduct competitor = new CompetitorProduct();
+        competitor.setCompetitorName("X");
+        competitor.setCurrentPrice(new BigDecimal("1.00"));
+
+        assertThrows(BizException.class, () -> service.addCompetitor(404L, competitor));
+        verify(competitorProductMapper, never()).insert(any());
     }
 
     @Test
-    @DisplayName("SeededRandomizer - 边界 bound=1 永远返回 0")
-    void seededRandomizer_boundOne_returnsZero() {
-        CompetitorScrapeServiceImpl.SeededRandomizer r =
-                new CompetitorScrapeServiceImpl.SeededRandomizer(42L);
+    @DisplayName("addCompetitor - 价格为空时抛异常（DDL 里 price 是 NOT NULL）")
+    void addCompetitor_nullPrice_throws() {
+        when(productMapper.selectById(100L)).thenReturn(productOf(100L, "PROD-001"));
+        // 📌 不再 stub selectOne：现在实现是**先校验价格再落库**（早失败），
+        //    所以 upsert 根本不会被调用 → 这条 stub 会变成 UnnecessaryStubbing。
 
-        for (int i = 0; i < 10; i++) {
-            assertEquals(0, r.nextIntInRange(1));
-        }
+        CompetitorProduct competitor = new CompetitorProduct();
+        competitor.setCompetitorName("X");
+
+        assertThrows(BizException.class, () -> service.addCompetitor(100L, competitor));
+        verify(competitorProductMapper, never()).insert(any());
     }
 
     @Test
-    @DisplayName("DefaultPriceRandomizer - 多次调用值在 [0, bound) 范围内")
-    void defaultRandomizer_returnsValueInRange() {
-        CompetitorScrapeServiceImpl.DefaultPriceRandomizer r =
-                new CompetitorScrapeServiceImpl.DefaultPriceRandomizer();
+    @DisplayName("addCompetitor - 同名竞品已存在时走更新而不是插入")
+    void addCompetitor_existingCompetitor_updatesInsteadOfInsert() {
+        when(productMapper.selectById(100L)).thenReturn(productOf(100L, "PROD-001"));
+        CompetitorProduct existing = competitorOf("手动竞品", "80.00");
+        existing.setId(7L);
+        when(competitorProductMapper.selectOne(any())).thenReturn(existing);
 
-        for (int i = 0; i < 100; i++) {
-            int v = r.nextIntInRange(50);
-            assertTrue(v >= 0 && v < 50, "越界: " + v);
-        }
+        CompetitorProduct competitor = new CompetitorProduct();
+        competitor.setCompetitorName("手动竞品");
+        competitor.setCurrentPrice(new BigDecimal("99.00"));
+        competitor.setPlatform("Amazon");
+
+        service.addCompetitor(100L, competitor);
+
+        verify(competitorProductMapper, never()).insert(any());
+        verify(competitorProductMapper, times(1)).updateById(any(CompetitorProduct.class));
+        assertEquals(7L, competitor.getId());
+    }
+
+    // ========== 抓取：参数校验 ==========
+
+    @Test
+    @DisplayName("scrapeFromPlatform - URL 为空时抛异常（原来静默吞掉）")
+    void scrapeFromPlatform_emptyUrl_throws() {
+        assertThrows(BizException.class, () -> service.scrapeFromPlatform("Amazon", ""));
+        assertThrows(BizException.class, () -> service.scrapeFromPlatform("Amazon", null));
+    }
+
+    @Test
+    @DisplayName("scrapeFromPlatform - 平台为空时抛异常")
+    void scrapeFromPlatform_emptyPlatform_throws() {
+        assertThrows(BizException.class, () -> service.scrapeFromPlatform("", "https://x.com/a"));
+        assertThrows(BizException.class, () -> service.scrapeFromPlatform(null, "https://x.com/a"));
+    }
+
+    @Test
+    @DisplayName("scrapeCompetitorProducts - productId 为 null 时抛异常")
+    void scrapeCompetitorProducts_nullProductId_throws() {
+        assertThrows(BizException.class, () -> service.scrapeCompetitorProducts(null));
+    }
+
+    @Test
+    @DisplayName("scrapeCompetitorProducts - 商品不存在时抛异常")
+    void scrapeCompetitorProducts_productNotFound_throws() {
+        when(productMapper.selectById(anyLong())).thenReturn(null);
+        assertThrows(BizException.class, () -> service.scrapeCompetitorProducts(404L));
+    }
+
+    // ========== batchScrape ==========
+
+    @Test
+    @DisplayName("batchScrape - 空集合直接返回，不抛异常")
+    void batchScrape_emptyList_returnsQuietly() {
+        service.batchScrape(List.of());
+        service.batchScrape(null);
+        verify(productMapper, never()).selectById(anyLong());
+    }
+
+    @Test
+    @DisplayName("batchScrape - 单个产品失败不影响整个批次")
+    void batchScrape_oneFailsOthersContinue() {
+        when(productMapper.selectById(anyLong())).thenReturn(productOf(1L, "PROD-001"));
+        when(competitorProductMapper.selectOne(any())).thenReturn(null);
+
+        // 📌 **规则 211**：单测**不得**真连外网。
+        //    原实现会真的去打 amazon/eBay（callTimeout 30s）→ 这个用例单跑 30.355s，
+        //    而且结果取决于外网可达性 = 单测不确定。
+        //    ✅ 用 spy 把「抓取」这一层替换掉，**生产代码一行不改**：
+        //       第 1 次调用返回一条竞品（→ 落库 1 条），之后全部抛异常（→ 该产品全平台失败）。
+        CompetitorScrapeServiceImpl spyService = spy(service);
+        doReturn(competitorOf("Amazon竞品", "88.00"))
+                .doThrow(new BizException("模拟平台不可达"))
+                .when(spyService).scrapeFromPlatform(anyString(), anyString());
+
+        // 产品 1：4 个平台里第 1 个成功 → saved=1 → 正常返回
+        // 产品 2/3：全部平台失败 → 抛 BizException → batchScrape 记账后**继续下一个**
+        spyService.batchScrape(List.of(1L, 2L, 3L));
+
+        // 只有产品 1 的那次成功真的落了库（1 条）
+        verify(competitorProductMapper, times(1)).insert(any(CompetitorProduct.class));
     }
 
     // ========== 辅助方法 ==========
 
-    /**
-     * 复用 service 的统计算法，传入指定价格列表。
-     * 通过子类覆盖 getCompetitorProducts 返回指定数量的竞品。
-     */
-    private CompetitorPriceStats computeStatsForPrices(Long productId, List<BigDecimal> prices) {
-        List<CompetitorProduct> products = new ArrayList<>();
-        String[] platforms = {"Amazon", "eBay", "Shopee", "Lazada"};
-        for (int i = 0; i < prices.size() && i < platforms.length; i++) {
-            CompetitorProduct p = new CompetitorProduct();
-            p.setPlatform(platforms[i]);
-            p.setCurrentPrice(prices.get(i));
-            p.setProductUrl("https://test/" + platforms[i]);
-            p.setCompetitorName(platforms[i] + " Test");
-            p.setScrapeTime(java.time.LocalDateTime.now());
-            p.setCreateTime(java.time.LocalDateTime.now());
-            p.setUpdateTime(java.time.LocalDateTime.now());
-            products.add(p);
+    private static CompetitorProduct competitorOf(String name, String price) {
+        CompetitorProduct c = new CompetitorProduct();
+        c.setCompetitorName(name);
+        c.setPlatform("Amazon");
+        if (price != null) {
+            c.setCurrentPrice(new BigDecimal(price));
         }
+        c.setScrapeTime(java.time.LocalDateTime.now());
+        c.setCreateTime(java.time.LocalDateTime.now());
+        c.setUpdateTime(java.time.LocalDateTime.now());
+        return c;
+    }
 
-        CompetitorScrapeServiceImpl svc = new CompetitorScrapeServiceImpl(seededRandom) {
-            @Override
-            public List<CompetitorProduct> getCompetitorProducts(Long pid) {
-                return products;
-            }
-        };
-
-        return svc.getCompetitorPriceStats(productId);
+    private static Product productOf(Long id, String code) {
+        Product p = new Product();
+        p.setId(id);
+        p.setProductCode(code);
+        p.setProductName("测试商品");
+        p.setCostPrice(new BigDecimal("50.00"));
+        p.setSellingPrice(new BigDecimal("100.00"));
+        return p;
     }
 }

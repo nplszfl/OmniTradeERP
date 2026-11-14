@@ -40,4 +40,18 @@ public interface ProductDescriptionRecordService {
      * @return 记录；不存在返回 null
      */
     ProductDescription findByProductLangPlatform(Long productId, String language, String platform);
+
+    /**
+     * 查生成历史（按创建时间倒序，取最近 N 条）。
+     *
+     * <p>📌 **2026-11-14 新增**：原先 {@code GET /api/description/history}
+     * 查的是 {@code ProductDescriptionServiceImpl} 里的**内存 List**
+     * → 服务重启即丢，且与本表形成<b>两套真相</b>（同一份历史，两个来源）。
+     * → 现在统一以本表为唯一真相。</p>
+     *
+     * @param productId 商品ID；{@code null} 表示查全部
+     * @param limit     最多返回条数
+     * @return 历史记录列表（按 create_time 倒序）；没有就是空列表
+     */
+    List<ProductDescription> listHistory(Long productId, int limit);
 }

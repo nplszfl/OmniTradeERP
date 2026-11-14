@@ -133,6 +133,20 @@ public class ProductDescriptionRecordServiceImpl implements ProductDescriptionRe
                         .eq(ProductDescription::getPlatform, blankToDefault(platform, DEFAULT_PLATFORM)));
     }
 
+    @Override
+    public List<ProductDescription> listHistory(Long productId, int limit) {
+        int max = limit <= 0 ? 20 : Math.min(limit, 200);
+        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ProductDescription> wrapper =
+                Wrappers.<ProductDescription>lambdaQuery()
+                        .orderByDesc(ProductDescription::getCreateTime)
+                        .orderByDesc(ProductDescription::getId)
+                        .last("LIMIT " + max);
+        if (productId != null) {
+            wrapper.eq(ProductDescription::getProductId, productId);
+        }
+        return productDescriptionMapper.selectList(wrapper);
+    }
+
     private static String blankToDefault(String value, String defaultValue) {
         return (value == null || value.isBlank()) ? defaultValue : value.trim();
     }
