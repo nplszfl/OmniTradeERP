@@ -59,11 +59,25 @@ MOCK_CONST = re.compile(r"MOCK_MODEL\w*\s*=\s*\"mock\"")
 # 降级分支：if (answer.mock()) / if (x.isMock()) …
 MOCK_BRANCH = re.compile(r"if\s*\(\s*[\w.]*\.mock\(\s*\)\s*\)")
 MOCK_BRANCH_IS = re.compile(r"if\s*\(\s*[\w.]*\.isMock\(\s*\)\s*\)")
+# 📌 **等价写法必须一起认**（规则 100/117 —— 只认一种写法 = 双向失明）
+#    2026-11-14 14:56 实测**假红**：真实代码写的是
+#        if (MOCK_MODEL_NAME.equals(row.getModel())) { out.setMock(TRUE); out.setMockReason(...); }
+#    —— 这是**语义完全正确**的降级处理（model 就是 "mock"），
+#    但上面两条正则都认不出 → A4 判成「setMock 没有对应降级处理」→ **假红**。
+#    ⚠️ **假红比假绿危险**（规则 99）：会逼下一个人去「放松闸门」而不是补等价写法。
+#    → 所以这里**扩充**认得的写法，绝不**放宽**判据。
+#    ① `if (x.getMock())`        —— 与 .mock() 同义
+#    ② `if (MOCK_MODEL_NAME.equals(...))` —— 用 mock 常量判断
+#    ③ `if (....equals(MOCK_MODEL_NAME))` —— 同上，反过来写
+#    ⚠️ **取反**（`if (!x.mock())` / `if (!MOCK...equals(...))`）是「**真实模型**」那条路，
+#    **不算**降级分支 → 用 (?!\s*!) 排除。
+MOCK_BRANCH_GET = re.compile(r"if\s*\(\s*(?!\s*!)[\w.]*\.getMock\(\s*\)\s*\)")
+MOCK_BRANCH_CONST = re.compile(r"if\s*\(\s*(?!\s*!)[\w.]*MOCK\w*\s*\.\s*equals\s*\(")
+MOCK_BRANCH_CONST_REV = re.compile(r"if\s*\(\s*(?!\s*!)[\w.]*\.\s*equals\s*\(\s*[\w.]*MOCK\w*\s*\)")
 
 SET_MOCK = re.compile(r"\.setMock\s*\(")
 SET_MOCK_REASON = re.compile(r"\.setMockReason\s*\(")
 SET_MODEL = re.compile(r"\.setModel\s*\(\s*([\w.()]+|\"[^\"]*\")")
-
 TOKEN_STAT = re.compile(r"\.(?:setPromptTokens|setCompletionTokens|setTotalTokens)\s*\(")
 MOCK_GUARD = re.compile(r"if\s*\(\s*!\s*[\w.]*\.mock\(\s*\)\s*\)")
 
@@ -217,6 +231,67 @@ def check_degradation_branch(files, findings):
                     f"降级时 model 仍写真实模型名（规则 19 的原始缺陷）"))
 
 
+def text_offset_of_line(text, idx):
+    """第 idx 行的起始字符偏移（lines 是 text.splitlines() 的结果）。"""
+    off = 0
+    for i in range(idx):
+        off += len(text.splitlines()[i]) + 1
+    return off
+
+
+def enclosing_block_head(text, pos):
+    """
+    返回**真正包含** pos 的那个块的开括号之前的文本（块头）。
+    按括号配平往前找 —— 不能靠「往前看 N 行」（那会把上一个已结束的块当成守卫 → 假绿）。
+    """
+    depth = 0
+    i = pos - 1
+    while i >= 0:
+        c = text[i]
+        if c == '}':
+            depth += 1
+        elif c == '{':
+            if depth == 0:
+                j = i - 1
+                while j >= 0 and text[j] not in ';}{':
+                    j -= 1
+                return text[j + 1:i]
+            depth -= 1
+        i -= 1
+    return ""
+
+
+def is_mock_guarded_block(head):
+    """
+    块头是不是一个「mock 判断」的 if —— 即 `if (…mock… ) {` 开头的块。
+    ⚠️ 取反的 `if (!x.mock())` 是「**真实模型**」那条路，**不算**降级分支。
+    """
+    if not head:
+        return False
+    # 📌 块头里可能夹着**注释行**（如「// 📌 model == \"mock\" → …」在 if 上面）
+    #    → 必须先剥注释，否则 `h.startswith(\"if\")` 会因为注释开头而落空。
+    h = strip_comments(head).strip()
+    if not h.startswith("if"):
+        return False
+    cond = h[2:].strip()
+    if cond.startswith("("):
+        cond = cond[1:]
+    # 取反 → 不是降级分支
+    if cond.lstrip().startswith("!"):
+        return False
+    return bool(
+        MOCK_BRANCH.match(h) or MOCK_BRANCH_IS.match(h) or MOCK_BRANCH_GET.match(h)
+        or MOCK_BRANCH_CONST.match(h) or MOCK_BRANCH_CONST_REV.match(h)
+    )
+
+
+def strip_comments(text):
+    """剥掉块注释与行注释（只用于判据里的局部文本）。"""
+    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+    text = re.sub(r"//[^\n]*", " ", text)
+    return text
+
+
 def check_mock_flag_handled(files, findings):
     """A4：每个 setMock( 调用点必须被降级处理，或本身是透传。"""
     for path in files:
@@ -228,11 +303,24 @@ def check_mock_flag_handled(files, findings):
             if PASSTHROUGH_MOCK.search(line):
                 continue
             window = "\n".join(lines[idx:idx + 13])
-            if not (MOCK_BRANCH.search(window) or MOCK_BRANCH_IS.search(window)):
-                findings.append(Finding(
-                    "A4", rel(path), idx + 1,
-                    "setMock( 之后没有对应的 if (…mock()) 降级处理 → "
-                    "标志设了但没人据此写原因 / 改 model（降级不可见）"))
+            # 📌 **向前找**（原有）：`setMock(x.mock()); if (x.mock()) { … }` —— 守卫在**后面**
+            if (MOCK_BRANCH.search(window) or MOCK_BRANCH_IS.search(window)
+                    or MOCK_BRANCH_GET.search(window)
+                    or MOCK_BRANCH_CONST.search(window)
+                    or MOCK_BRANCH_CONST_REV.search(window)):
+                continue
+            # 📌 **向后找**（2026-11-14 14:56 补）：`if (MOCK_MODEL_NAME.equals(x.getModel())) {`
+            #    —— 守卫在**前面**，且 setMock 就在这个 if 块**里面**。
+            #    ⚠️ 不能简单把窗口往前扩 N 行：那样会把「上一个已经结束的块里的
+            #    if (…mock())」误当成本行的守卫 → **假绿**。
+            #    ✅ 所以必须**按括号配平**找到**真正包含本行的那一个块**，再看它的块头。
+            head = enclosing_block_head(text, text_offset_of_line(text, idx))
+            if is_mock_guarded_block(head):
+                continue
+            findings.append(Finding(
+                "A4", rel(path), idx + 1,
+                "setMock( 之后没有对应的 if (…mock()) 降级处理 → "
+                "标志设了但没人据此写原因 / 改 model（降级不可见）"))
 
 
 def check_token_not_faked(files, findings):

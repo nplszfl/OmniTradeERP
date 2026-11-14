@@ -41,6 +41,12 @@ SKIP_DIRS = {'target', 'node_modules', '.git', 'dist', 'build', 'test'}
 BENIGN_RETURNERS = {
     'toLong', 'asLong', 'toInt', 'asInt', 'toDouble', 'parseDate',
     'parseDateTime', 'toLocationStatus', 'toWarehouseStatus',
+    # 📌 2026-11-14 14:56 补：文本 → 数字 的解析型 helper。
+    #    `catch (NumberFormatException) { return null; }` 在这类方法里是
+    #    **正确语义**（「这段文本里没有这个数字」→ null），不是静默失败。
+    #    - toBigDecimal：erp-pricing 的竞品价格解析、erp-order 的统计解析（两处都是纯转换）
+    #    - parseReviewCount：从评论文本里抽数字，抽不到就是 null
+    'toBigDecimal', 'parseReviewCount',
 }
 
 # 📌 **「预期失败路径」白名单**（规则 12 / 99）
@@ -92,6 +98,8 @@ METHOD_PAT = re.compile(
     r'([\w<>,\.\[\]\s]+?)\s+(\w+)\s*\([^)]*\)\s*\{')
 
 CATCH_PAT = re.compile(r'catch\s*\(\s*(?:[\w\.]+\s+)?(\w+)\s*\)\s*\{')
+# 📌 取出 catch 的**异常类型**（CATCH_PAT 只抓了变量名）
+CATCH_TYPE_PAT = re.compile(r'catch\s*\(\s*(?:([\w\.]+)\s+)?(\w+)\s*\)')
 
 
 def method_ranges(src):
@@ -153,7 +161,18 @@ def scan_file(path, findings):
         # 📌 归属方法在白名单里 → 属类型转换 fallback（正常语义），跳过
         owner = enclosing_method(ranges, m.start())
         if owner in BENIGN_RETURNERS:
-            continue
+            # 📌 **白名单只对「窄类型 catch」生效**（2026-11-14 14:56 补）
+            #    白名单是按**方法名**豁免的 → 那个方法以后把 catch 改成
+            #    `catch (Exception e)` 也会被**一并放过** → **真·吞异常被豁免掉了**（实测）。
+            #    ✅ 收紧：只有 catch 的是**具体异常类型**（NumberFormatException 等）时才豁免；
+            #    catch 的是 Exception / RuntimeException / Throwable → **不豁免**。
+            tm = CATCH_TYPE_PAT.match(src, m.start())
+            exc_type = tm.group(1) if tm else None
+            broad = (exc_type is None
+                     or exc_type.split('.')[-1] in ('Exception', 'RuntimeException',
+                                                   'Throwable', 'Error'))
+            if not broad:
+                continue
         # 📌 预期失败路径豁免（catch 里的异常是这个方法本来就在等的）
         if owner in BENIGN_CATCH_OWNERS:
             continue
