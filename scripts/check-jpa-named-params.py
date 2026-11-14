@@ -122,10 +122,21 @@ def find_named_query_methods():
                 if q is None:
                     continue
                 q = q.strip()
-                if not (q.startswith('"') or q.startswith("'")):
-                    continue  # 拼出来的常量表达式，跳过（无法静态判定）
+                # 📌 **等价写法必须一起认**（规则 100/117 —— 只认一种 = 双向失明）：
+                #    `@Query("...")` / `@Query(value = "...")` / `@Query(value="...")`
+                #    都是同一个注解的合法写法。2026-11-14 12:57 实测盲区：
+                #    原判据要求参数表**以引号开头** → `@Query(value = "...")` 被**整条跳过**
+                #    → 缺陷**报绿**。✅ 现在改成「从参数表里**取第一个字符串字面量**」。
+                lit = re.search(r'"([^"]*)"|\'([^\']*)\'', q)
+                if not lit:
+                    continue  # 全是常量表达式拼出来的，静态无法判定 → 跳过
+                query_text = lit.group(1) if lit.group(1) is not None else lit.group(2)
+                # 📌 拼接字符串（"a" + "b"）→ 拼起来一起看
+                pieces = re.findall(r'"([^"]*)"|\'([^\']*)\'', q)
+                if len(pieces) > 1:
+                    query_text = "".join(p[0] if p[0] is not None else p[1] for p in pieces)
                 # 命名参数： :name （排除 :: 和三元里的 ?: 以及 URL 里的 ://）
-                named = set(re.findall(r"(?<![:\w]):(\w+)", q))
+                named = set(re.findall(r"(?<![:\w]):(\w+)", query_text))
                 if not named:
                     continue
                 tail = src[qend + 1:qend + 600]
