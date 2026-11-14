@@ -5,6 +5,12 @@ services:
   mysql:
     image: mysql:8.0
     container_name: erp-mysql
+    # 📌 **max_connections 必须调高**（2026-11-14 实测推导）。
+    # 本文件起 22 个应用服务，Hikari 池合计 + 额外连接 = 324 条 > MySQL 默认 151
+    # → 启动期必然 `Too many connections`（探针环境已实测复现）。
+    # 📌 闸门：scripts/check-db-connection-budget.py
+    command:
+      - "--max-connections=1000"
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: erp

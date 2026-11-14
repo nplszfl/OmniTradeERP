@@ -49,6 +49,14 @@ spec:
       containers:
       - name: mysql
         image: mysql:8.0
+        # 📌 **max_connections 必须显式调高**（2026-11-14 实测推导）。
+        # MySQL 8.0 默认 max_connections=151，而本集群的连接需求 =
+        #   22 个服务模块 × Hikari maximum-pool-size（合计 280，单副本）× replicas:2 ≈ **560 条**
+        # → 超出默认上限 3.7 倍 → 启动期必然 `Too many connections`（探针环境 22 服务并发启动时已实测复现）。
+        # 留出运维/迁移/监控的余量，取 1000。
+        # 📌 改这个值要同步重算 `scripts/check-db-connection-budget.py` 的期望预算（闸门会核）。
+        args:
+        - "--max-connections=1000"
         ports:
         - containerPort: 3306
           name: mysql

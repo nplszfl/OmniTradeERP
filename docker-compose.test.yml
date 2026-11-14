@@ -5,6 +5,12 @@ services:
   mysql:
     image: mysql:8.0
     container_name: erp-test-mysql
+    # 📌 **max_connections 必须调高**（2026-11-14 实测推导）。
+    # 本文件起 11 个应用服务 → 连接上限 182 条 > MySQL 默认 151
+    # → 启动期必然 `Too many connections`。
+    # 📌 闸门：scripts/check-db-connection-budget.py
+    command:
+      - "--max-connections=1000"
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: erp

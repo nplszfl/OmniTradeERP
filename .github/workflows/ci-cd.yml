@@ -295,6 +295,20 @@ jobs:
     - name: 静默失败（catch 空 / 吞异常 / return null）
       run: python3 scripts/check-silent-failures.py
 
+    # 📌 **数据库连接数预算**（2026-11-14 新增）
+    #    📌 **抓到的真缺陷（生产级）**：
+    #       MySQL 8.0 默认 `max_connections=151`，而本集群的连接需求 =
+    #       23 个服务模块 × (Hikari 池 + 额外连接) = 336/副本 × `replicas:2` = **672 条**
+    #       → 超出默认上限 **4.4 倍**。
+    #    📌 **运行时实证**：探针环境 22 个服务并发启动时，
+    #       `erp-social-commerce-service` 直接 `Too many connections` → 进程起不来。
+    #    📌 **这类缺陷 CI 全绿也发现不了** —— CI 根本不连数据库，
+    #       只在「服务真的连上库」时才暴露 → 靠**静态推算 + 运行时证据**两条腿。
+    #    📌 判据：池大小从各模块 application.yml 取（没配 = Hikari 默认 10），
+    #       副本数从 k8s/*.yaml 取，上限从 k8s/mysql.yaml 的 --max-connections 取（没配 = 151）。
+    - name: 数据库连接数预算（需求 ≤ MySQL max_connections）
+      run: python3 scripts/check-db-connection-budget.py
+
     # 📌 **指标真实性**（声明了指标 ≠ 指标在说真话）
     #    📌 **2026-11-10 抓到的真缺陷**：
     #       `erp-common` 的 `MetricsConfig` 声明了 5 个 Micrometer 指标
