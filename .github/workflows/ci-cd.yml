@@ -318,6 +318,17 @@ jobs:
     - name: 种子口令三方一致（文档 ↔ 测试 ↔ 种子 SQL）
       run: python3 scripts/check-seed-password-docs.py
 
+    # 📌 **JPA 命名参数必须绑定 @Param**（2026-11-14 新增）
+    #    📌 **抓到的真缺陷（生产级）**：本仓库**没开** `-parameters` 编译参数
+    #       → Spring Data JPA 读不出方法参数名 → 凡是 `@Query("... :name ...")`
+    #       又没写 `@Param("name")` 的方法，**调用时**抛
+    #       `InvalidDataAccessApiUsageException` → 对外只剩「系统繁忙，请稍后重试」。
+    #    📌 **迷惑性极强**：服务**正常启动**、CI **全绿**、单测全绿，
+    #       但 4 个**对外接口**一调就 500（实测 500 → 修复后 200）。
+    #    📌 这类缺陷只能靠**静态判据 + 真实调用**两条腿一起抓。
+    - name: JPA 命名参数绑定（@Query 的 :name 必须有 @Param）
+      run: python3 scripts/check-jpa-named-params.py
+
     # 📌 **指标真实性**（声明了指标 ≠ 指标在说真话）
     #    📌 **2026-11-10 抓到的真缺陷**：
     #       `erp-common` 的 `MetricsConfig` 声明了 5 个 Micrometer 指标
