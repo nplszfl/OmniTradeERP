@@ -53,6 +53,17 @@ jobs:
         python3 scripts/check-boot-main-class.py
         python3 scripts/check-jar-start-class.py
 
+    # 📌 **Bean 名冲突**巡检（2026-11-14 首次真跑起服务时实测踩出来的坑）
+    #    共享模块(erp-common)里的 @Bean 若与 Spring Boot 自动装配同名，
+    #    且没有 @ConditionalOnMissingBean 兜底 → 谁先注册谁赢，
+    #    后注册的直接抛 BeanDefinitionOverrideException → **整个服务起不来**。
+    #    实测受害者：erp-gateway（reactive 应用，自动装配顺序被重排）；
+    #    而 70 道闸门 + 1047 个用例**全绿** —— 静态检查完全看不出来。
+    - name: Bean 名冲突巡检（共享模块 @Bean ↔ Boot 自动装配）
+      run: |
+        python3 scripts/check-bean-name-collision.py --self-test
+        python3 scripts/check-bean-name-collision.py
+
     # 📌 种子脚本幂等性巡检
     #    主键冲突 → ERROR 1062 → docker-entrypoint **中止整个 init**
     #    （容器却照样起来 → 后面几个种子文件全没执行 → 静默失败）
