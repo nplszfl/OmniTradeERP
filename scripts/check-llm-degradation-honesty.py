@@ -73,7 +73,16 @@ MOCK_BRANCH_IS = re.compile(r"if\s*\(\s*[\w.]*\.isMock\(\s*\)\s*\)")
 #    **不算**降级分支 → 用 (?!\s*!) 排除。
 MOCK_BRANCH_GET = re.compile(r"if\s*\(\s*(?!\s*!)[\w.]*\.getMock\(\s*\)\s*\)")
 MOCK_BRANCH_CONST = re.compile(r"if\s*\(\s*(?!\s*!)[\w.]*MOCK\w*\s*\.\s*equals\s*\(")
-MOCK_BRANCH_CONST_REV = re.compile(r"if\s*\(\s*(?!\s*!)[\w.]*\.\s*equals\s*\(\s*[\w.]*MOCK\w*\s*\)")
+# 📌 **2026-11-14 15:20 补盲区**：接收方是 **getter 调用** 时认不出。
+#    `row.getModel().equals(MOCK_MODEL_NAME)` —— `getModel()` 与 `.equals` 之间有**括号**，
+#    而 `[\w.]*\.\s*equals` 要求接收方后面**直接**跟 `.equals` → 永远匹配不上 → **假红**。
+#    ✅ 允许接收方带一个可选的调用括号：`[\w.]*(?:\s*\(\s*\))?`
+MOCK_BRANCH_CONST_REV = re.compile(
+    r"if\s*\(\s*(?!\s*!)[\w.]*(?:\s*\(\s*\))?\s*\.\s*equals\s*\(\s*[\w.]*MOCK\w*\s*\)")
+# 📌 **2026-11-14 15:20 补盲区**：`Objects.equals(MOCK_MODEL_NAME, x)` 这种
+#    **静态工具类**形态也是等价写法 → 之前认不出 → 假红。✅ 一并认。
+MOCK_BRANCH_OBJECTS = re.compile(
+    r"if\s*\(\s*(?!\s*!)(?:[\w.]*\s*\.\s*)?equals\s*\(\s*[\w.]*MOCK\w*\s*,")
 
 SET_MOCK = re.compile(r"\.setMock\s*\(")
 SET_MOCK_REASON = re.compile(r"\.setMockReason\s*\(")
@@ -282,6 +291,7 @@ def is_mock_guarded_block(head):
     return bool(
         MOCK_BRANCH.match(h) or MOCK_BRANCH_IS.match(h) or MOCK_BRANCH_GET.match(h)
         or MOCK_BRANCH_CONST.match(h) or MOCK_BRANCH_CONST_REV.match(h)
+        or MOCK_BRANCH_OBJECTS.match(h)
     )
 
 
@@ -307,7 +317,8 @@ def check_mock_flag_handled(files, findings):
             if (MOCK_BRANCH.search(window) or MOCK_BRANCH_IS.search(window)
                     or MOCK_BRANCH_GET.search(window)
                     or MOCK_BRANCH_CONST.search(window)
-                    or MOCK_BRANCH_CONST_REV.search(window)):
+                    or MOCK_BRANCH_CONST_REV.search(window)
+                    or MOCK_BRANCH_OBJECTS.search(window)):
                 continue
             # 📌 **向后找**（2026-11-14 14:56 补）：`if (MOCK_MODEL_NAME.equals(x.getModel())) {`
             #    —— 守卫在**前面**，且 setMock 就在这个 if 块**里面**。
