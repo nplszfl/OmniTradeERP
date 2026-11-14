@@ -65,8 +65,12 @@ ON DUPLICATE KEY UPDATE
 -- 租户用户（密码统一为 **admin123** 的 bcrypt 哈希）
 --
 -- ⚠️⚠️ 这里原来用的哈希 `$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy`
---    **不是合法的 bcrypt 串**（salt 段长度不对），BCrypt.checkpw 直接返回 false
---    → 任何密码都登不进去，登录接口永远返回「密码错误」。
+--    **格式完全合法**（60 字符 = 22 salt + 31 hash，结构与新哈希完全一致），
+--    但它**不是 admin123 的哈希** → `BCrypt.checkpw("admin123", hash)` 返回 false
+--    → 任何账号用文档口令都登不进去，登录接口只返回「密码错误」。
+--    📌 **别用「格式合法性」判断这个缺陷** —— 格式明明是合法的（2026-11-14 实测：
+--    Spring `BCrypt.checkpw` 不抛异常，只返回 false；salt 段 22 字符、hash 段 31 字符）。
+--    唯一的判据是「哈希与口令**对应**」，不是「哈希长得像 bcrypt」。
 --    症状极具迷惑性：接口正常响应、错误信息也正常，但**没有一个账号能登录**。
 --    验证方式（别猜密码）：
 --      BCrypt.checkpw("admin123", hash)  → 必须是 true
