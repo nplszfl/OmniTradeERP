@@ -325,6 +325,7 @@ def main() -> int:
     ml_cache: dict = {}
 
     checked = 0
+    conf_checked = 0      # 📌 B5 判据**看到了多少处**置信度赋值（规则 127：闸门 exit 0 ≠ 判据真的在看）
     for path in iter_java_files():
         try:
             text = open(path, encoding="utf-8").read()
@@ -371,6 +372,7 @@ def main() -> int:
             if not args:
                 continue
             arg = args[0].strip()
+            conf_checked += 1
             if not CONFIDENCE_NUMERIC_RE.match(arg):
                 continue          # null / 表达式 / 变量 → 不是硬编码
             idx = text.count("\n", 0, m.start()) + 1
@@ -384,6 +386,7 @@ def main() -> int:
 
     print(f"📋 巡检「自称 AI/ML 但其实不是」（对外算法/模型字段 + 模块文档）")
     print(f"ℹ️  可判的算法字段赋值：{checked} 处")
+    print(f"ℹ️  可判的置信度字段赋值：{conf_checked} 处（B5 判据已生效的证据，规则 127）")
 
     # ── B4：模块级文档里的 AI/ML 宣称 ────────────────────────────
     doc_checked = 0
