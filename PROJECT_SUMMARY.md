@@ -5,7 +5,11 @@
 **项目名称：** OmniTrade ERP（跨境电商ERP系统）
 **核心战略：** AI优先 🤖
 **开发周期：** 2026-03-13 至今
-**当前版本：** v1.6.0（AI订单异常检测 + 测试覆盖增强）
+**当前版本：** v1.7.0（AI 智能选品推荐服务 + 多项目并行交付 —— 即本文首节）
+> 📌 **本文是滚动进展报告**：每节自带日期，各节数字**只对那一节有效**；
+> 下面 v1.5.0 / v1.6.0 各节的数字是**当时的快照**，不代表当前总量。
+> 📌 当前总量**去哪查**：单元测试 → `mvn test` 的聚合行；闸门数 → `ls scripts/check-*.py | wc -l`；
+> 死接口 → `python3 scripts/check-dead-endpoints.py`；服务数 → `grep -rl '@SpringBootApplication' --include='*.java' */src/main/java`。
 
 ---
 

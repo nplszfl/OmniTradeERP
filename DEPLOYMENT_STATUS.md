@@ -2,6 +2,9 @@
 
 **报告时间：** 2026-03-18 14:25
 **部署方式：** Docker Compose
+> 📌 **本文是 2026-03-18 的部署快照**（文中的「当前状态」= 截至报告时间）。
+> 最新部署口径见 `docs/Deployment.md`；服务数**去哪查**：`docker-compose.yml` 的 `services` 段
+> （23 个 ERP 后端 + frontend + nginx + MySQL/Redis/RabbitMQ/Nacos/Sentinel = 30）。
 
 ---
 
