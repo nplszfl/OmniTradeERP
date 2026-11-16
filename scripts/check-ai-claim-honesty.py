@@ -20,6 +20,7 @@
 | **B1** | 对外「算法/模型」字段（`setModelType` / `setPricingStrategy` / `setAlgorithm` / `setModel` …）里出现 **ML 专属词**（Prophet / ARIMA / LSTM / 神经网络 / 深度学习 / 机器学习 / TensorFlow …）→ **必须**该模块真有对应依赖，否则是谎报 |
 | **B2** | 对外「算法/模型」字段里出现 **「AI 智能 / AI 算法 / 大模型 / GPT」** → 该模块**必须真有 LLM 调用链路**（依赖 `erp-llm-common` 或源码里有 LLM API 调用），否则是谎报 |
 | **B3** | **否定语境不算**：「非机器学习模型」「非 LLM」这类**明确否认**的表述**不算**谎报 |
+| **B5** | 对外「置信度」字段（`setConfidence` / `confidence` …）的实参是**数字字面量**（`0.9`）且该模块**无真实 ML 依赖** → **硬编码的假置信度** → 谎报。⚠️ 2026-11-16 补：之前只写在 docstring 里、**无断言** → 实测注入该缺陷闸门仍 exit 0（真空绿，规则 79） |
 
 📌 **真值来源**（不是手抄清单 —— 规则 33）：
 - B1 的「真有 ML 依赖」 = 该模块 `pom.xml` 里声明了对应 ML 库
@@ -50,6 +51,30 @@ SKIP_DIRS = {"target", "node_modules", ".git", "dist", "build"}
 ALGO_SETTER_RE = re.compile(
     r"\bset(?:ModelType|ModelName|PricingStrategy|Strategy|Algorithm|Engine|Model)\s*\("
 )
+
+# ══════════════════════════════════════════════════════════════════
+# B5：对外「置信度」字段被**硬编码成常数** → 谎报事实（2026-11-16 补）
+# ══════════════════════════════════════════════════════════════════
+# 📌 **为什么补这条**（反向验证实测，2026-11-16 17:54）：
+#    本闸门自己的 docstring 把「库存预测 dailyPred.setConfidence(0.9)」列为**过去的原始缺陷**，
+#    但**没有任何断言覆盖它** → 实测注入该缺陷 → 闸门仍 **exit 0** = **真空绿**。
+#    📌 这就是规则 79 的典型：闸门的盲区不按规则编号来，按「当初有没有顺手加一个」来 ——
+#    docstring 提了 3 个缺陷，只给其中 2 个（modelType / pricingStrategy）写了断言。
+#
+# ── 判据 ──────────────────────────────────────────────────────────
+#   对外「置信度」字段的 setter **实参是数字字面量**（0.9 / 0.85 / 0 …）
+#   且该模块**没有真实 ML 依赖**（真值来源同 B1 = 模块 pom.xml）
+#   → 谎报：调用方会以为「这个 0.9 是模型算出来的置信度」，实际是拍脑袋写死的。
+#
+# ── 豁免 ──────────────────────────────────────────────────────────
+#   ① 实参是 `null` → **主动不给数**是诚实的（宁可不给也不给假数）
+#   ② 实参是计算表达式（`Math.abs(...)` / 变量 / 字段）→ 不是硬编码
+#   ③ 模块真有 ML 依赖 → 置信度可能是模型算出来的，不判
+#   ④ setter **声明**本身（`public void setConfidence(Double c)`）→ 实参不是字面量，天然不命中
+CONFIDENCE_SETTER_RE = re.compile(
+    r"\b(?:setConfidence|setConfidenceLevel|confidence|confidenceLevel)\s*\("
+)
+CONFIDENCE_NUMERIC_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*$")
 
 # ── ML 专属词：声称用了机器学习模型 ────────────────────────────────
 ML_CLAIM_TOKENS = [
@@ -338,6 +363,24 @@ def main() -> int:
                                 f"（既不依赖 erp-llm-common，源码里也没有 LLM 调用）→ 谎报事实",
                             ))
                         break
+
+        # ── B5：对外「置信度」被硬编码成常数 ──────────────────────
+        # 📌 判据粒度 = **对外字段的 setter 实参**，不扫任意数字（规则 55 / 117）
+        for m in CONFIDENCE_SETTER_RE.finditer(text):
+            args = extract_args(text, m.end() - 1)
+            if not args:
+                continue
+            arg = args[0].strip()
+            if not CONFIDENCE_NUMERIC_RE.match(arg):
+                continue          # null / 表达式 / 变量 → 不是硬编码
+            idx = text.count("\n", 0, m.start()) + 1
+            if module_has_ml(module, ml_cache):
+                continue          # 模块真有 ML → 置信度可能是模型算的
+            findings.append((
+                rel, idx, "B5",
+                f"对外置信度字段被**硬编码成 {arg}**，但模块 {module} **没有任何 ML 依赖**"
+                f"（该数值不可能来自模型计算）→ 谎报事实；应传 `null`（宁可不给数也不给假数）",
+            ))
 
     print(f"📋 巡检「自称 AI/ML 但其实不是」（对外算法/模型字段 + 模块文档）")
     print(f"ℹ️  可判的算法字段赋值：{checked} 处")
