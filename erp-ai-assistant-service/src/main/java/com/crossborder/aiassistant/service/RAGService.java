@@ -202,29 +202,44 @@ public class RAGService {
      */
     @SuppressWarnings("unchecked")
     private String callLLM(String query, List<RetrievalResult> retrieved) {
-        String apiUrl = LLMEndpointResolver.chatCompletionsUrl(
+        String apiUrl = LLMEndpointResolver.resolveApiUrl(
                 llmConfig.getBaseUrl(),
                 llmConfig.getProvider(),
                 llmConfig.getDeployment(),
                 llmConfig.getApiVersion());
+
+        // 📌 2026-11-18：**Anthropic 协议**（路径/头/请求体/响应体全和 OpenAI 兼容不一样）
+        boolean anthropic = LLMEndpointResolver.isAnthropic(llmConfig.getProvider());
 
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", llmConfig.getModel());
         requestBody.put("temperature", llmConfig.getTemperature());
         requestBody.put("max_tokens", llmConfig.getMaxTokens());
 
-        List<Map<String, String>> messages = new ArrayList<>();
-        messages.add(Map.of("role", "system", "content",
+        final String systemPrompt =
                 "你是OmniTrade跨境电商ERP系统的AI客服助手火球鼠。"
                         + "请**只根据下面提供的知识库内容**回答用户问题。"
-                        + "如果知识库内容不足以回答，就直接说知识库里没有相关信息，不要编造。"));
-        messages.add(Map.of("role", "user", "content", composeAnswerWithContext(query, retrieved)));
-        requestBody.put("messages", messages);
+                        + "如果知识库内容不足以回答，就直接说知识库里没有相关信息，不要编造。";
+        if (anthropic) {
+            // 📌 Anthropic：`system` 是**顶层字段**，messages 里只有 user
+            requestBody.put("system", systemPrompt);
+            requestBody.put("messages", List.of(Map.of("role", "user", "content",
+                    composeAnswerWithContext(query, retrieved))));
+        } else {
+            List<Map<String, String>> messages = new ArrayList<>();
+            messages.add(Map.of("role", "system", "content", systemPrompt));
+            messages.add(Map.of("role", "user", "content", composeAnswerWithContext(query, retrieved)));
+            requestBody.put("messages", messages);
+        }
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        // 📌 Azure 用 `api-key` 头，其他家（OpenAI 兼容）用 `Authorization: Bearer`
-        if (LLMEndpointResolver.isAzure(llmConfig.getProvider())) {
+        // 📌 Azure 用 `api-key` 头，Anthropic 用 `x-api-key` + `anthropic-version`，
+        //    其他家（OpenAI 兼容）用 `Authorization: Bearer`
+        if (anthropic) {
+            headers.set(LLMEndpointResolver.ANTHROPIC_API_KEY_HEADER, llmConfig.getApiKey());
+            headers.set("anthropic-version", LLMEndpointResolver.ANTHROPIC_VERSION);
+        } else if (LLMEndpointResolver.isAzure(llmConfig.getProvider())) {
             headers.set("api-key", llmConfig.getApiKey());
         } else {
             headers.setBearerAuth(llmConfig.getApiKey());
@@ -236,6 +251,14 @@ public class RAGService {
         Map<String, Object> body = response.getBody();
         if (body == null) {
             throw new RuntimeException("LLM API 响应体为空");
+        }
+        if (anthropic) {
+            // 📌 Anthropic 响应：`content[]` 是内容块数组
+            String text = LLMEndpointResolver.extractAnthropicText(body);
+            if (text == null) {
+                throw new RuntimeException("LLM API 响应格式错误（无 content 块）");
+            }
+            return text;
         }
         List<Map<String, Object>> choices = (List<Map<String, Object>>) body.get("choices");
         if (choices == null || choices.isEmpty()) {

@@ -1,6 +1,8 @@
 package com.crossborder.erp.llm;
 
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * LLM 端点解析器 —— **LLM 端点 URL 的唯一事实来源**。
@@ -56,6 +58,28 @@ public final class LLMEndpointResolver {
     /** OpenAI 兼容协议的对话补全路径 */
     private static final String CHAT_COMPLETIONS = "/chat/completions";
 
+    /** 📌 Anthropic 协议的对话路径（不是 {@code /chat/completions}） */
+    private static final String ANTHROPIC_MESSAGES = "/messages";
+
+    /**
+     * 📌 Anthropic 协议的 api-version 头值。
+     *
+     * <p>📌 <b>为什么需要 Anthropic 分支</b>（2026-11-18 实测）：
+     * Anthropic 协议的路径形状、请求头、请求体、响应体**全都和 OpenAI 兼容协议不一样**：
+     * <ul>
+     *   <li>路径：{@code POST {root}/v1/messages}（<b>不是</b> {@code /v1/chat/completions}）</li>
+     *   <li>鉴权头：{@code x-api-key: <key>}（<b>不是</b> {@code Authorization: Bearer}）
+     *       外加必填 {@code anthropic-version: 2023-06-01}</li>
+     *   <li>请求体：{@code system} 是<b>顶层字段</b>（不是 messages 数组里的一条）</li>
+     *   <li>响应体：{@code content[]} 是<b>内容块数组</b>（不是 {@code choices[0].message.content}）</li>
+     * </ul>
+     * → 拿 OpenAI 的拼法去调 Anthropic 端点 = <b>必然 401/404</b> → 静默降级成 mock → **AI 从来没真调过**。
+     */
+    public static final String ANTHROPIC_VERSION = "2023-06-01";
+
+    /** 📌 Anthropic 协议的鉴权头名（不是 {@code Authorization}） */
+    public static final String ANTHROPIC_API_KEY_HEADER = "x-api-key";
+
     private LLMEndpointResolver() {
         throw new AssertionError("工具类不允许实例化");
     }
@@ -71,10 +95,82 @@ public final class LLMEndpointResolver {
      */
     public static String chatCompletionsUrl(String baseUrl, String provider,
                                             String deployment, String apiVersion) {
+        return resolveApiUrl(baseUrl, provider, deployment, apiVersion);
+    }
+
+    /**
+     * 解析「要调的那个 URL」——<b>按 provider 分派</b>（端点拼接的唯一事实来源）。
+     *
+     * <p>📌 三个分支的路径形状<b>完全不同</b>，不能共用一个拼法：
+     * <ul>
+     *   <li>{@code azure} → {@code /openai/deployments/{d}/chat/completions?api-version=}（要 deployment + api-version）</li>
+     *   <li>{@code anthropic} → {@code /v1/messages}（<b>鉴权头也不是 Bearer</b>）</li>
+     *   <li>其余（deepseek/openai/ollama/自建兼容网关）→ {@code /v1/chat/completions}</li>
+     * </ul>
+     *
+     * @param baseUrl    API 根地址（带不带 /v1 都行）
+     * @param provider   provider 类型
+     * @param deployment Azure 的 deployment 名（非 Azure 传 null 即可）
+     * @param apiVersion Azure 的 api-version（非 Azure 传 null 即可）
+     * @return 完整 URL
+     */
+    public static String resolveApiUrl(String baseUrl, String provider,
+                                        String deployment, String apiVersion) {
         if (isAzure(provider)) {
             return azureChatCompletionsUrl(baseUrl, deployment, apiVersion);
         }
+        if (isAnthropic(provider)) {
+            return anthropicMessagesUrl(baseUrl);
+        }
         return openAiCompatibleUrl(baseUrl);
+    }
+
+    /**
+     * Anthropic 协议的对话 URL。
+     *
+     * <p>📌 形如 {@code https://api.minimaxi.com/anthropic/v1/messages}
+     * （base-url 写 {@code .../anthropic} 或 {@code .../anthropic/v1} 都对 → 归一化后统一拼 {@code /v1/messages}）。
+     *
+     * @param baseUrl API 根地址
+     * @return 完整 URL
+     */
+    public static String anthropicMessagesUrl(String baseUrl) {
+        return normalizeRoot(baseUrl) + OPENAI_V1 + ANTHROPIC_MESSAGES;
+    }
+
+    /**
+     * 从 Anthropic 协议的响应体里提取文本。
+     *
+     * <p>📌 形状：{@code {"content":[{"type":"text","text":"..."}]}}
+     * → 和 OpenAI 的 {@code choices[0].message.content} <b>完全不同</b>。
+     * 📌 放在这里 = 协议形状的**唯一事实来源**（三个 AI 调用点共用，别各写一份）。
+     *
+     * @param body 响应体（可为 null）
+     * @return 拼接后的文本；没有可用文本时返回 null
+     */
+    @SuppressWarnings("unchecked")
+    public static String extractAnthropicText(Map<String, Object> body) {
+        if (body == null) {
+            return null;
+        }
+        Object contentObj = body.get("content");
+        if (!(contentObj instanceof List)) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Object blockObj : (List<Object>) contentObj) {
+            if (!(blockObj instanceof Map)) {
+                continue;
+            }
+            Map<String, Object> block = (Map<String, Object>) blockObj;
+            if ("text".equals(block.get("type"))) {
+                Object text = block.get("text");
+                if (text != null) {
+                    sb.append(text);
+                }
+            }
+        }
+        return sb.length() == 0 ? null : sb.toString();
     }
 
     /**
@@ -144,6 +240,15 @@ public final class LLMEndpointResolver {
     }
 
     /**
+     * 判断是不是 Anthropic 协议 provider。
+     *
+     * <p>📌 用 {@code equalsIgnoreCase}：配置里写 {@code Anthropic} / {@code ANTHROPIC} 都认。
+     */
+    public static boolean isAnthropic(String provider) {
+        return provider != null && "anthropic".equalsIgnoreCase(provider.trim());
+    }
+
+    /**
      * provider 是否受支持。
      *
      * <p>📌 <b>为什么要显式判支持与否</b>：
@@ -168,7 +273,8 @@ public final class LLMEndpointResolver {
         String p = provider.trim().toLowerCase(Locale.ROOT);
         return "azure".equals(p) || "openai".equals(p) || "deepseek".equals(p)
                 || "ollama".equals(p) || "qwen".equals(p) || "moonshot".equals(p)
-                || "zhipu".equals(p) || "openai-compatible".equals(p);
+                || "zhipu".equals(p) || "openai-compatible".equals(p)
+                || "anthropic".equals(p);
     }
 
     /**
@@ -202,7 +308,7 @@ public final class LLMEndpointResolver {
     /** 受支持的 provider 列表（唯一事实来源） */
     public static final java.util.List<String> SUPPORTED_PROVIDERS = java.util.List.of(
             "deepseek", "openai", "azure", "ollama", "qwen", "moonshot",
-            "zhipu", "openai-compatible");
+            "zhipu", "openai-compatible", "anthropic");
 
     private static String stripTrailingSlash(String s) {
         String r = s;

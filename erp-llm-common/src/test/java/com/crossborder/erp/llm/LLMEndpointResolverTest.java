@@ -196,4 +196,40 @@ class LLMEndpointResolverTest {
         assertEquals("https://api.deepseek.com",
                 LLMEndpointResolver.normalizeRoot("https://api.deepseek.com/v1/v1/"));
     }
+
+    // ---------------------------------------------------------------- Anthropic 协议（2026-11-18 新增）
+
+    @Test
+    @DisplayName("Anthropic provider 的 URL 是 /v1/messages —— 不是 /v1/chat/completions")
+    void anthropicUsesMessagesPath() {
+        assertEquals("https://api.minimaxi.com/anthropic/v1/messages",
+                LLMEndpointResolver.anthropicMessagesUrl("https://api.minimaxi.com/anthropic"));
+    }
+
+    @Test
+    @DisplayName("Anthropic base-url 带 /v1 也不能拼出双 /v1")
+    void anthropicBaseUrlWithV1SelfHeals() {
+        assertEquals("https://api.minimaxi.com/anthropic/v1/messages",
+                LLMEndpointResolver.anthropicMessagesUrl("https://api.minimaxi.com/anthropic/v1"));
+    }
+
+    @Test
+    @DisplayName("resolveApiUrl 按 provider 分派：anthropic 走 messages，其余走 chat/completions")
+    void resolveApiUrlDispatchesByProvider() {
+        assertEquals("https://api.minimaxi.com/anthropic/v1/messages",
+                LLMEndpointResolver.resolveApiUrl("https://api.minimaxi.com/anthropic", "anthropic", null, null));
+        assertEquals("https://api.deepseek.com/v1/chat/completions",
+                LLMEndpointResolver.resolveApiUrl("https://api.deepseek.com", "deepseek", null, null));
+        // 📌 大小写不敏感（配置里写 Anthropic / ANTHROPIC 都认）
+        assertEquals("https://api.minimaxi.com/anthropic/v1/messages",
+                LLMEndpointResolver.resolveApiUrl("https://api.minimaxi.com/anthropic", "Anthropic", null, null));
+    }
+
+    @Test
+    @DisplayName("anthropic 是受支持的 provider（否则启动即失败 = 宁可起不来也不要假装能工作）")
+    void anthropicIsSupportedProvider() {
+        assertTrue(LLMEndpointResolver.isSupportedProvider("anthropic"));
+        assertTrue(LLMEndpointResolver.isAnthropic("anthropic"));
+        assertDoesNotThrow(() -> LLMEndpointResolver.validateProvider("anthropic"));
+    }
 }

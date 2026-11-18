@@ -575,31 +575,45 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         // 📌 之前这里写死 `baseUrl + "/v1/chat/completions"`，
         //    而 application.yml 的 base-url 默认带 /v1 → 拼出 **双 /v1** → 必然 404
         //    → catch 之后静默降级成模拟回复 → **AI 从来没真的调通过**
-        String apiUrl = LLMEndpointResolver.chatCompletionsUrl(
+        String apiUrl = LLMEndpointResolver.resolveApiUrl(
                 llmConfig.getBaseUrl(),
                 llmConfig.getProvider(),
                 llmConfig.getDeployment(),
                 llmConfig.getApiVersion());
-        
+
+        // 📌 2026-11-18：**Anthropic 协议**（路径/头/请求体/响应体全和 OpenAI 兼容不一样）
+        boolean anthropic = LLMEndpointResolver.isAnthropic(llmConfig.getProvider());
+
         // 构建请求体
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", llmConfig.getModel());
-        
-        List<Map<String, String>> messages = new ArrayList<>();
-        messages.add(Map.of("role", "system", "content", getSystemPrompt(request)));
-        messages.add(Map.of("role", "user", "content", prompt));
-        requestBody.put("messages", messages);
-        
+
+        final String systemPrompt = getSystemPrompt(request);
+        if (anthropic) {
+            // 📌 Anthropic：`system` 是**顶层字段**，messages 里只有 user
+            requestBody.put("system", systemPrompt);
+            requestBody.put("messages", List.of(Map.of("role", "user", "content", prompt)));
+        } else {
+            List<Map<String, String>> messages = new ArrayList<>();
+            messages.add(Map.of("role", "system", "content", systemPrompt));
+            messages.add(Map.of("role", "user", "content", prompt));
+            requestBody.put("messages", messages);
+        }
+
         Map<String, Object> params = new HashMap<>();
         params.put("temperature", llmConfig.getTemperature());
         params.put("max_tokens", llmConfig.getMaxTokens());
         requestBody.putAll(params);
-        
+
         // 设置请求头
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        // 📌 Azure 用 `api-key` 头，其他家（OpenAI 兼容协议）用 `Authorization: Bearer`
-        if (LLMEndpointResolver.isAzure(llmConfig.getProvider())) {
+        // 📌 Azure 用 `api-key` 头，Anthropic 用 `x-api-key` + `anthropic-version`，
+        //    其他家（OpenAI 兼容协议）用 `Authorization: Bearer`
+        if (anthropic) {
+            headers.set(LLMEndpointResolver.ANTHROPIC_API_KEY_HEADER, llmConfig.getApiKey());
+            headers.set("anthropic-version", LLMEndpointResolver.ANTHROPIC_VERSION);
+        } else if (LLMEndpointResolver.isAzure(llmConfig.getProvider())) {
             headers.set("api-key", llmConfig.getApiKey());
         } else {
             headers.setBearerAuth(llmConfig.getApiKey());
@@ -616,10 +630,18 @@ public class AIAssistantServiceImpl implements AIAssistantService {
             );
             
             if (response.getBody() != null) {
-                List<Map<String, Object>> choices = (List<Map<String, Object>>) response.getBody().get("choices");
-                if (choices != null && !choices.isEmpty()) {
-                    Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
-                    return (String) message.get("content");
+                if (anthropic) {
+                    // 📌 Anthropic 响应：`content[]` 是内容块数组
+                    String text = LLMEndpointResolver.extractAnthropicText(response.getBody());
+                    if (text != null) {
+                        return text;
+                    }
+                } else {
+                    List<Map<String, Object>> choices = (List<Map<String, Object>>) response.getBody().get("choices");
+                    if (choices != null && !choices.isEmpty()) {
+                        Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
+                        return (String) message.get("content");
+                    }
                 }
             }
             throw new RuntimeException("LLM API响应格式错误");

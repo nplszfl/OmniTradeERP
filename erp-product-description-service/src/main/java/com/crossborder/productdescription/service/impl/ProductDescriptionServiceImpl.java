@@ -737,30 +737,44 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         // 📌 之前这里写死 `baseUrl + "/v1/chat/completions"`，
         //    而 application.yml 的 base-url 默认带 /v1 → 拼出 **双 /v1** → 必然 404
         //    → catch 之后静默降级成模拟生成 → **AI 从来没真的调通过**
-        String apiUrl = LLMEndpointResolver.chatCompletionsUrl(
+        String apiUrl = LLMEndpointResolver.resolveApiUrl(
                 llmConfig.getBaseUrl(),
                 llmConfig.getProvider(),
                 llmConfig.getDeployment(),
                 llmConfig.getApiVersion());
-        
+
+        // 📌 2026-11-18：**Anthropic 协议**（路径/头/请求体/响应体全和 OpenAI 兼容不一样）
+        boolean anthropic = LLMEndpointResolver.isAnthropic(llmConfig.getProvider());
+
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", llmConfig.getModel());
-        
-        List<Map<String, String>> messages = new ArrayList<>();
-        messages.add(Map.of("role", "system", "content", 
-            "你是一个专业的电商产品描述撰写专家，擅长生成吸引人的产品描述和SEO优化的内容。"));
-        messages.add(Map.of("role", "user", "content", prompt));
-        requestBody.put("messages", messages);
-        
+
+        final String systemPrompt =
+                "你是一个专业的电商产品描述撰写专家，擅长生成吸引人的产品描述和SEO优化的内容。";
+        if (anthropic) {
+            // 📌 Anthropic：`system` 是**顶层字段**，messages 里只有 user
+            requestBody.put("system", systemPrompt);
+            requestBody.put("messages", List.of(Map.of("role", "user", "content", prompt)));
+        } else {
+            List<Map<String, String>> messages = new ArrayList<>();
+            messages.add(Map.of("role", "system", "content", systemPrompt));
+            messages.add(Map.of("role", "user", "content", prompt));
+            requestBody.put("messages", messages);
+        }
+
         Map<String, Object> params = new HashMap<>();
         params.put("temperature", llmConfig.getTemperature());
         params.put("max_tokens", llmConfig.getMaxTokens());
         requestBody.putAll(params);
-        
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        // 📌 Azure 用 `api-key` 头，其他家（OpenAI 兼容协议）用 `Authorization: Bearer`
-        if (LLMEndpointResolver.isAzure(llmConfig.getProvider())) {
+        // 📌 Azure 用 `api-key` 头，Anthropic 用 `x-api-key` + `anthropic-version`，
+        //    其他家（OpenAI 兼容协议）用 `Authorization: Bearer`
+        if (anthropic) {
+            headers.set(LLMEndpointResolver.ANTHROPIC_API_KEY_HEADER, llmConfig.getApiKey());
+            headers.set("anthropic-version", LLMEndpointResolver.ANTHROPIC_VERSION);
+        } else if (LLMEndpointResolver.isAzure(llmConfig.getProvider())) {
             headers.set("api-key", llmConfig.getApiKey());
         } else {
             headers.setBearerAuth(llmConfig.getApiKey());
@@ -773,10 +787,18 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
                     apiUrl, HttpMethod.POST, entity, Map.class);
             
             if (response.getBody() != null) {
-                List<Map<String, Object>> choices = (List<Map<String, Object>>) response.getBody().get("choices");
-                if (choices != null && !choices.isEmpty()) {
-                    Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
-                    return (String) message.get("content");
+                if (anthropic) {
+                    // 📌 Anthropic 响应：`content[]` 是内容块数组（text 块取 `text`）
+                    String text = extractAnthropicText(response.getBody());
+                    if (text != null) {
+                        return text;
+                    }
+                } else {
+                    List<Map<String, Object>> choices = (List<Map<String, Object>>) response.getBody().get("choices");
+                    if (choices != null && !choices.isEmpty()) {
+                        Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
+                        return (String) message.get("content");
+                    }
                 }
             }
             throw new RuntimeException("LLM API响应为空");
@@ -784,6 +806,21 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
             log.error("LLM API调用失败: {}", e.getMessage());
             throw new RuntimeException("LLM API调用失败", e);
         }
+    }
+
+    /**
+     * 从 Anthropic 协议的响应体里提取文本。
+     *
+     * <p>📌 形状：{@code {"content":[{"type":"text","text":"..."}]}}
+     * → 和 OpenAI 的 {@code choices[0].message.content} <b>完全不同</b>。
+     *
+     * @param body 响应体
+     * @return 拼接后的文本；没有可用文本时返回 null
+     */
+    @SuppressWarnings("unchecked")
+    private String extractAnthropicText(Map<String, Object> body) {
+        // 📌 协议形状的唯一事实来源在 erp-llm-common（三个 AI 调用点共用，别各写一份）
+        return LLMEndpointResolver.extractAnthropicText(body);
     }
 
     /**
