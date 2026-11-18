@@ -9,6 +9,10 @@ on:
     branches: [ master, main, develop ]
   pull_request:
     branches: [ master, main, develop ]
+  # 📌 手动触发入口（todo #5）—— 不用 push 也能重跑 CI。
+  #    页面触发：Actions → 本 workflow → Run workflow；
+  #    命令触发：`gh workflow run ci-cd.yml --ref master`
+  workflow_dispatch:
 
 env:
   JAVA_VERSION: '21'
