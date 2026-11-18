@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -231,5 +232,41 @@ class LLMEndpointResolverTest {
         assertTrue(LLMEndpointResolver.isSupportedProvider("anthropic"));
         assertTrue(LLMEndpointResolver.isAnthropic("anthropic"));
         assertDoesNotThrow(() -> LLMEndpointResolver.validateProvider("anthropic"));
+    }
+
+    // ---------------------------------------------------------------- 真实 token 用量（2026-11-18）
+
+    @Test
+    @DisplayName("Anthropic 的 usage 字段是 input_tokens/output_tokens —— 必须按真名读")
+    void anthropicUsageUsesRealFieldNames() {
+        java.util.Map<String, Object> body = java.util.Map.of(
+                "usage", java.util.Map.of("input_tokens", 120, "output_tokens", 45));
+        LLMTokenUsage usage = LLMEndpointResolver.extractTokenUsage(body, true);
+        assertEquals(120, usage.promptTokens());
+        assertEquals(45, usage.completionTokens());
+        assertEquals(165, usage.totalTokens());
+    }
+
+    @Test
+    @DisplayName("OpenAI 兼容的 usage 字段是 prompt_tokens/completion_tokens/total_tokens")
+    void openAiUsageUsesRealFieldNames() {
+        java.util.Map<String, Object> body = java.util.Map.of(
+                "usage", java.util.Map.of("prompt_tokens", 10, "completion_tokens", 20, "total_tokens", 30));
+        LLMTokenUsage usage = LLMEndpointResolver.extractTokenUsage(body, false);
+        assertEquals(10, usage.promptTokens());
+        assertEquals(20, usage.completionTokens());
+        assertEquals(30, usage.totalTokens());
+    }
+
+    @Test
+    @DisplayName("响应里没有 usage 时返回 null —— 宁可 null（不知道），也不要本地估算")
+    void missingUsageReturnsNullInsteadOfEstimate() {
+        assertNull(LLMEndpointResolver.extractTokenUsage(java.util.Map.of(), true));
+        assertNull(LLMEndpointResolver.extractTokenUsage(null, false));
+        // 📌 只有一半字段时也要能读出来（total 用求和补）
+        LLMTokenUsage half = LLMEndpointResolver.extractTokenUsage(
+                java.util.Map.of("usage", java.util.Map.of("input_tokens", 7)), true);
+        assertEquals(7, half.promptTokens());
+        assertNull(half.completionTokens());
     }
 }

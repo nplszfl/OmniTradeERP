@@ -55,4 +55,31 @@ public class FrontendDescriptionResponse {
      * 降级原因（{@link #mock} 为 true 时有值）
      */
     private String mockReason;
+
+    /**
+     * 本次生成的 <b>真实</b> token 用量。
+     *
+     * <p>📌 2026-11-18 补：之前这个 DTO <b>根本没有 usage 字段</b> →
+     * 前端这条路拿到的 token 数永远是 null。
+     * 📌 数值来自 API 响应体的 {@code usage} 字段**原样透传**
+     * （Anthropic: input_tokens/output_tokens；OpenAI: prompt_tokens/completion_tokens），
+     * <b>不是</b> {@code length/4} 的本地估算（规则 18/19/391）。
+     * 📌 拿不到真实值时为 null（= 不知道），不编一个像真的数字。
+     */
+    private TokenUsage usage;
+
+    /**
+     * Token 使用情况（前端契约独立于内部 DTO —— 规则 4）
+     */
+    @Data
+    public static class TokenUsage {
+        /** 输入 token */
+        private Integer promptTokens;
+
+        /** 输出 token */
+        private Integer completionTokens;
+
+        /** 总 token */
+        private Integer totalTokens;
+    }
 }

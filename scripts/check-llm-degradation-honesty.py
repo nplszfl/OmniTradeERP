@@ -88,7 +88,12 @@ SET_MOCK = re.compile(r"\.setMock\s*\(")
 SET_MOCK_REASON = re.compile(r"\.setMockReason\s*\(")
 SET_MODEL = re.compile(r"\.setModel\s*\(\s*([\w.()]+|\"[^\"]*\")")
 TOKEN_STAT = re.compile(r"\.(?:setPromptTokens|setCompletionTokens|setTotalTokens)\s*\(")
-MOCK_GUARD = re.compile(r"if\s*\(\s*!\s*[\w.]*\.mock\(\s*\)\s*\)")
+# 📌 2026-11-18 **扩大判据**：守卫后面跟 `&&` / `||` 也算守卫
+#    （`if (!answer.mock() && answer.usage() != null)` 是**正确**的守卫写法，
+#     但旧正则要求 `.mock()` 后面紧跟 `)` → 认不出 → **假红**；
+#     假红比假阴性更危险（规则 99）→ 会逼下一个人「放松闸门」。
+#    ⚠️ 放宽≠失明：真的没守卫时仍然必须红（反向验证见本次提交）。
+MOCK_GUARD = re.compile(r"if\s*\(\s*!\s*[\w.]*\.mock\(\s*\)\s*(?:\)|&&|\|\|)")
 
 # 📌 **流式（Flux）形态的等价写法**（规则 100：同一个语义有几种写法？我认了几种？）
 #    非流式：降级靠 DTO 的 mock / mockReason / model 三个字段表达；

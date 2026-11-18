@@ -151,11 +151,13 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
             // 6. Token使用统计
             // 📌 **只对真实调用统计** —— 之前对模板文本也按 `长度/4` 编造 token 数
             //    → 那是个**假事实**
-            if (!answer.mock()) {
+            // 📌 2026-11-18：**不再用 `长度/4` 估算** —— API 响应里本来就有真实 usage
+            //    → 拿不到真实 usage 时**置 null**（不知道），不编一个像真的数字（规则 18/19/391）
+            if (!answer.mock() && answer.usage() != null) {
                 DescriptionGenerationResponse.TokenUsage usage = new DescriptionGenerationResponse.TokenUsage();
-                usage.setPromptTokens(prompt.length() / 4);
-                usage.setCompletionTokens(description.length() / 4);
-                usage.setTotalTokens(usage.getPromptTokens() + usage.getCompletionTokens());
+                usage.setPromptTokens(answer.usage().promptTokens());
+                usage.setCompletionTokens(answer.usage().completionTokens());
+                usage.setTotalTokens(answer.usage().totalTokens());
                 response.setUsage(usage);
             }
 
@@ -546,6 +548,16 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         out.setMock(response.getMock());
         out.setMockReason(response.getMockReason());
 
+        // 📌 2026-11-18：把**真实** token 用量也透传给前端
+        //    （之前这个 DTO 根本没有 usage 字段 → 前端永远拿不到用量）
+        if (response.getUsage() != null) {
+            FrontendDescriptionResponse.TokenUsage frontUsage = new FrontendDescriptionResponse.TokenUsage();
+            frontUsage.setPromptTokens(response.getUsage().getPromptTokens());
+            frontUsage.setCompletionTokens(response.getUsage().getCompletionTokens());
+            frontUsage.setTotalTokens(response.getUsage().getTotalTokens());
+            out.setUsage(frontUsage);
+        }
+
         // SEO 结果 → title / seoKeywords
         DescriptionGenerationResponse.SEOResult seo = response.getSeoResult();
         if (seo != null) {
@@ -700,7 +712,8 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         if (llmConfig != null && llmConfig.isConfigured()) {
             try {
                 log.info("调用LLM API生成产品描述 - Provider: {}", llmConfig.getProvider());
-                return LLMAnswer.real(callRealLLMAPI(prompt));
+                LLMCall call = callRealLLMAPI(prompt);
+                return LLMAnswer.real(call.content(), call.usage());
             } catch (Exception e) {
                 // 📌 降级不是「静默失败」—— 原因要能传到调用方
                 log.error("LLM API调用失败，使用模拟生成", e);
@@ -718,21 +731,34 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
      * <p>📌 之前 {@code callLLMAPI} 直接返回 {@code String}，
      * 「这是不是模拟的」这个信息<b>在方法签名里就丢了</b>。
      */
-    public record LLMAnswer(String content, boolean mock, String reason) {
+    public record LLMAnswer(String content, boolean mock, String reason,
+                             com.crossborder.erp.llm.LLMTokenUsage usage) {
 
         public static LLMAnswer real(String content) {
-            return new LLMAnswer(content, false, null);
+            return new LLMAnswer(content, false, null, null);
+        }
+
+        public static LLMAnswer real(String content, com.crossborder.erp.llm.LLMTokenUsage usage) {
+            return new LLMAnswer(content, false, null, usage);
         }
 
         public static LLMAnswer mock(String content, String reason) {
-            return new LLMAnswer(content, true, reason);
+            return new LLMAnswer(content, true, reason, null);
         }
+    }
+
+    /**
+     * 一次真实 LLM 调用的结果：**内容 + 真实 token 用量**。
+     *
+     * <p>📌 usage 必须是**响应体里的真值**，不能本地估算（规则 18/19/391）。
+     */
+    private record LLMCall(String content, com.crossborder.erp.llm.LLMTokenUsage usage) {
     }
 
     /**
      * 调用真实LLM API
      */
-    private String callRealLLMAPI(String prompt) {
+    private LLMCall callRealLLMAPI(String prompt) {
         // 📌 **端点拼接的唯一事实来源 = LLMEndpointResolver**
         // 📌 之前这里写死 `baseUrl + "/v1/chat/completions"`，
         //    而 application.yml 的 base-url 默认带 /v1 → 拼出 **双 /v1** → 必然 404
@@ -787,17 +813,20 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
                     apiUrl, HttpMethod.POST, entity, Map.class);
             
             if (response.getBody() != null) {
+                // 📌 **真实 token 用量**（从响应体的 usage 字段透传；拿不到 = null，不估算）
+                com.crossborder.erp.llm.LLMTokenUsage usage =
+                        LLMEndpointResolver.extractTokenUsage(response.getBody(), anthropic);
                 if (anthropic) {
                     // 📌 Anthropic 响应：`content[]` 是内容块数组（text 块取 `text`）
                     String text = extractAnthropicText(response.getBody());
                     if (text != null) {
-                        return text;
+                        return new LLMCall(text, usage);
                     }
                 } else {
                     List<Map<String, Object>> choices = (List<Map<String, Object>>) response.getBody().get("choices");
                     if (choices != null && !choices.isEmpty()) {
                         Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
-                        return (String) message.get("content");
+                        return new LLMCall((String) message.get("content"), usage);
                     }
                 }
             }

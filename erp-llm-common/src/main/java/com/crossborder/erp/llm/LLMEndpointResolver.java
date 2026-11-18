@@ -139,6 +139,62 @@ public final class LLMEndpointResolver {
     }
 
     /**
+     * 从响应体里提取**真实的** token 用量。
+     *
+     * <p>📌 **为什么必须透传（2026-11-18 实测）**：
+     * 之前两个服务都用 {@code prompt.length()/4} **本地估算** token 数，
+     * 然后当成「真实用量」写进 API 响应 → **假事实**（规则 18/19：
+     * 「模拟回复编造 token 用量 = 假事实」）。
+     * → 调用方做成本核算/限额时，数字对不上却**没人发现**。
+     *
+     * <p>📌 两家的字段名不一样：
+     * <ul>
+     *   <li>Anthropic：{@code usage.input_tokens} / {@code usage.output_tokens}</li>
+     *   <li>OpenAI 兼容：{@code usage.prompt_tokens} / {@code usage.completion_tokens} / {@code usage.total_tokens}</li>
+     * </ul>
+     *
+     * @param body      响应体（可为 null）
+     * @param anthropic 是否 Anthropic 协议
+     * @return 真实用量；**响应里没有 usage 时返回 null**（宁可 null = 不知道，也不编）
+     */
+    @SuppressWarnings("unchecked")
+    public static LLMTokenUsage extractTokenUsage(Map<String, Object> body, boolean anthropic) {
+        if (body == null) {
+            return null;
+        }
+        Object usageObj = body.get("usage");
+        if (!(usageObj instanceof Map)) {
+            return null;
+        }
+        Map<String, Object> usage = (Map<String, Object>) usageObj;
+        Integer prompt = asInt(anthropic ? usage.get("input_tokens") : usage.get("prompt_tokens"));
+        Integer completion = asInt(anthropic ? usage.get("output_tokens") : usage.get("completion_tokens"));
+        if (prompt == null && completion == null) {
+            return null;
+        }
+        Integer total = anthropic ? null : asInt(usage.get("total_tokens"));
+        if (total == null) {
+            total = (prompt == null ? 0 : prompt) + (completion == null ? 0 : completion);
+        }
+        return new LLMTokenUsage(prompt, completion, total);
+    }
+
+    /** 把响应里的数字安全地转成 Integer（JSON 里可能是 Long / Double / String）。 */
+    private static Integer asInt(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.valueOf(String.valueOf(value).trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
      * 从 Anthropic 协议的响应体里提取文本。
      *
      * <p>📌 形状：{@code {"content":[{"type":"text","text":"..."}]}}

@@ -211,15 +211,19 @@ public class AIAssistantServiceImpl implements AIAssistantService {
             // 5. Token使用统计
             // 📌 **只对真实调用统计** —— 之前对模拟回复也按 `长度/4` 编造 token 数
             //    → 那是个**假事实**（用户以为真的调用了 LLM 并消耗了 token）
-            if (!answer.mock()) {
+            // 📌 2026-11-18：**不再用 `长度/4` 估算** —— API 响应里本来就有真实 usage
+            //    （Anthropic: input_tokens/output_tokens；OpenAI: prompt_tokens/completion_tokens）
+            //    → 估算值当真实用量报出去 = **假事实**（规则 18/19/391）
+            //    → 拿不到真实 usage 时**置 null**（不知道），不编一个像真的数字
+            if (!answer.mock() && answer.usage() != null) {
                 ChatResponse.TokenUsage usage = new ChatResponse.TokenUsage();
-                int promptTokens = prompt.length() / 4;
-                int completionTokens = answer.content().length() / 4;
-                usage.setPromptTokens(promptTokens);
-                usage.setCompletionTokens(completionTokens);
-                usage.setTotalTokens(promptTokens + completionTokens);
+                usage.setPromptTokens(answer.usage().promptTokens());
+                usage.setCompletionTokens(answer.usage().completionTokens());
+                usage.setTotalTokens(answer.usage().totalTokens());
                 response.setUsage(usage);
-                recordTokens(usage.getTotalTokens());
+                if (usage.getTotalTokens() != null) {
+                    recordTokens(usage.getTotalTokens());
+                }
             }
 
             // 6. 响应时间
@@ -531,7 +535,8 @@ public class AIAssistantServiceImpl implements AIAssistantService {
             try {
                 log.info("调用真实LLM API - Provider: {}, Model: {}",
                         llmConfig.getProvider(), llmConfig.getModel());
-                return LLMAnswer.real(callRealLLMAPI(prompt, request));
+                LLMCall call = callRealLLMAPI(prompt, request);
+                return LLMAnswer.real(call.content(), call.usage());
             } catch (Exception e) {
                 // 📌 降级不是「静默失败」—— 原因要能传到调用方
                 log.error("LLM API调用失败， fallback到模拟回复", e);
@@ -555,22 +560,36 @@ public class AIAssistantServiceImpl implements AIAssistantService {
      * @param content 回复内容
      * @param mock    true = 模拟回复（没配 key，或真实调用失败降级）
      * @param reason  降级原因（mock=true 时有值）
+     * @param usage   **真实** token 用量（从 API 响应体的 usage 字段透传；拿不到 = null）
      */
-    public record LLMAnswer(String content, boolean mock, String reason) {
+    public record LLMAnswer(String content, boolean mock, String reason,
+                             com.crossborder.erp.llm.LLMTokenUsage usage) {
 
         public static LLMAnswer real(String content) {
-            return new LLMAnswer(content, false, null);
+            return new LLMAnswer(content, false, null, null);
+        }
+
+        public static LLMAnswer real(String content, com.crossborder.erp.llm.LLMTokenUsage usage) {
+            return new LLMAnswer(content, false, null, usage);
         }
 
         public static LLMAnswer mock(String content, String reason) {
-            return new LLMAnswer(content, true, reason);
+            return new LLMAnswer(content, true, reason, null);
         }
     }
 
     /**
-     * 调用真实LLM API（DeepSeek/OpenAI/Azure OpenAI）
+     * 一次真实 LLM 调用的结果：**内容 + 真实 token 用量**。
+     *
+     * <p>📌 usage 必须是**响应体里的真值**，不能本地估算（规则 18/19/391）。
      */
-    private String callRealLLMAPI(String prompt, ChatRequest request) {
+    private record LLMCall(String content, com.crossborder.erp.llm.LLMTokenUsage usage) {
+    }
+
+    /**
+     * 调用真实LLM API（DeepSeek/OpenAI/Azure/Anthropic）
+     */
+    private LLMCall callRealLLMAPI(String prompt, ChatRequest request) {
         // 📌 **端点拼接的唯一事实来源 = LLMEndpointResolver**
         // 📌 之前这里写死 `baseUrl + "/v1/chat/completions"`，
         //    而 application.yml 的 base-url 默认带 /v1 → 拼出 **双 /v1** → 必然 404
@@ -630,17 +649,20 @@ public class AIAssistantServiceImpl implements AIAssistantService {
             );
             
             if (response.getBody() != null) {
+                // 📌 **真实 token 用量**（从响应体的 usage 字段透传；拿不到 = null，不估算）
+                com.crossborder.erp.llm.LLMTokenUsage usage =
+                        LLMEndpointResolver.extractTokenUsage(response.getBody(), anthropic);
                 if (anthropic) {
                     // 📌 Anthropic 响应：`content[]` 是内容块数组
                     String text = LLMEndpointResolver.extractAnthropicText(response.getBody());
                     if (text != null) {
-                        return text;
+                        return new LLMCall(text, usage);
                     }
                 } else {
                     List<Map<String, Object>> choices = (List<Map<String, Object>>) response.getBody().get("choices");
                     if (choices != null && !choices.isEmpty()) {
                         Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
-                        return (String) message.get("content");
+                        return new LLMCall((String) message.get("content"), usage);
                     }
                 }
             }
