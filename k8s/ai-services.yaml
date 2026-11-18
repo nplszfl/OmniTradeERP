@@ -194,6 +194,35 @@ spec:
           value: "Asia/Shanghai"
         - name: JAVA_OPTS
           value: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+        # 📌 **AI 能力（可选，默认关闭）** —— 密钥走 Secret，**清单里不留任何明文密钥**（规则 140/146）
+        #    📌 LLM_API_KEY 走 secretKeyRef + optional:true
+        #       → Secret 不存在时该变量**不设置** → 应用退回默认值 → AI 关闭（fail-closed）
+        #    📌 下面这些默认值**必须与应用 application.yml 里的默认值逐字一致**
+        #       —— 由 scripts/check-llm-compose-defaults.py 盯着（改一边必须同步另一边）
+        - name: LLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: erp-llm-secret
+              key: llm-api-key
+              optional: true
+        - name: LLM_API_VERSION
+          value: ""
+        - name: LLM_BASE_URL
+          value: "https://api.deepseek.com"
+        - name: LLM_DEPLOYMENT
+          value: ""
+        - name: LLM_ENABLED
+          value: "false"
+        - name: LLM_MAX_TOKENS
+          value: "2000"
+        - name: LLM_MODEL
+          value: "deepseek-chat"
+        - name: LLM_PROVIDER
+          value: "deepseek"
+        - name: LLM_TEMPERATURE
+          value: "0.7"
+        - name: LLM_TIMEOUT
+          value: "30000"
         resources:
           requests:
             memory: "1Gi"
@@ -271,6 +300,35 @@ spec:
           value: "Asia/Shanghai"
         - name: JAVA_OPTS
           value: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+        # 📌 **AI 能力（可选，默认关闭）** —— 密钥走 Secret，**清单里不留任何明文密钥**（规则 140/146）
+        #    📌 LLM_API_KEY 走 secretKeyRef + optional:true
+        #       → Secret 不存在时该变量**不设置** → 应用退回默认值 → AI 关闭（fail-closed）
+        #    📌 下面这些默认值**必须与应用 application.yml 里的默认值逐字一致**
+        #       —— 由 scripts/check-llm-compose-defaults.py 盯着（改一边必须同步另一边）
+        - name: LLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: erp-llm-secret
+              key: llm-api-key
+              optional: true
+        - name: LLM_API_VERSION
+          value: ""
+        - name: LLM_BASE_URL
+          value: "https://api.deepseek.com"
+        - name: LLM_DEPLOYMENT
+          value: ""
+        - name: LLM_ENABLED
+          value: "false"
+        - name: LLM_MAX_TOKENS
+          value: "2000"
+        - name: LLM_MODEL
+          value: "deepseek-chat"
+        - name: LLM_PROVIDER
+          value: "deepseek"
+        - name: LLM_TEMPERATURE
+          value: "0.7"
+        - name: LLM_TIMEOUT
+          value: "30000"
         resources:
           requests:
             memory: "1Gi"

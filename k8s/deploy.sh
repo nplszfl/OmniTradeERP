@@ -34,6 +34,23 @@ kubectl -n erp create secret generic erp-jwt-secret \
   --from-literal=jwt-secret="$JWT_SECRET" \
   --dry-run=client -o yaml | kubectl apply -f -
 
+# 🔑 **AI 能力密钥**（2026-11-18 新增）
+#    📌 AI 能力此前在 k8s 里**完全不可用** —— 容器里一个 LLM_* 变量都没注入
+#    → 应用退回默认值 → `llm.enabled=false` → **AI 静默关闭**（本机却是好的）
+#    📌 密钥走 Secret，清单里**不留明文**（规则 140/146）
+#    📌 `optional: true` → Secret 不存在时变量不设置 → AI 关闭（fail-closed）
+#       → 所以这个 Secret **不创建也能部署**，只是 AI 不启用
+#    📌 要启用 AI：export LLM_API_KEY=<key> 后重跑本脚本
+if [ -n "${LLM_API_KEY:-}" ]; then
+  echo "🔑 创建/更新 AI 密钥 Secret..."
+  kubectl -n erp create secret generic erp-llm-secret \
+    --from-literal=llm-api-key="$LLM_API_KEY" \
+    --dry-run=client -o yaml | kubectl apply -f -
+else
+  echo "⚠️  未提供 LLM_API_KEY → 不创建 AI 密钥 Secret → **AI 能力在 k8s 里不启用**（其他功能不受影响）"
+  echo "    要启用：export LLM_API_KEY=<key> 后重跑本脚本"
+fi
+
 # 等待MySQL就绪
 echo "⏳ 等待MySQL就绪..."
 kubectl wait --for=condition=ready pod -l app=mysql -n erp --timeout=300s

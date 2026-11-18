@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LLM 配置契约闸门 —— 「应用侧读的 LLM_*」↔「部署层注入的 LLM_*」。
+"""LLM 配置契约闸门 —— 「应用侧读的 LLM_*」↔「部署层注入的 LLM_*」（compose + k8s）。
 
 📌 **这个闸门管的是什么**（2026-11-18 实测出来的缺口）：
 
@@ -28,10 +28,11 @@ ERP 的 AI 能力（产品描述生成 / AI 客服）在本机跑得好好的 �
     而且**没有任何闸门会发现**（本闸门就是来发现这个的）。
 
 📌 **边界（声明清楚，避免误以为覆盖了全部）**：
-    - 只查 **docker-compose*.yml**；**k8s 清单不在范围内**（k8s 走 Secret 机制，
-      没有「默认值」这个概念，判据不同 —— 需要另一道闸门）
+    - 查 **docker-compose*.yml** 和 **k8s/*.yaml**（k8s 走 Secret + 字面量两套形式，
+      判据见下面的 `k8s_env`）
     - 只查 **AI 服务**（erp-ai-assistant-service / erp-product-description-service）
     - 查的是**变量名与默认值**，**不查密钥本身有没有值**（那是 fail-closed 的事）
+    - **不查 k8s Secret 是否真的被创建**（那是 deploy.sh 的职责，且需要真集群）
 
 📌 判据必须匹配「代码实际怎么写」：
     应用侧是 `${VAR:default}`（**单冒号**），compose 侧是 `${VAR:-default}`（**双冒号**）
@@ -51,6 +52,8 @@ AI_SERVICES = {
     "erp-ai-assistant-service": "ai-assistant-service",
     "erp-product-description-service": "product-description-service",
 }
+# ── k8s 清单里的 Deployment 名 = 应用模块名 ──────────────────────────────
+AI_MODULES = set(AI_SERVICES.keys())
 
 # ── 部署侧：`${VAR:-default}` / `${VAR-default}` / `${VAR}` ───────────────────
 DEPLOY_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-([^}]*))?\}")
@@ -200,6 +203,53 @@ def deploy_default(raw: str) -> tuple[str | None, str]:
     return var, ("" if default is None else default.strip())
 
 
+
+def k8s_ai_envs() -> list[tuple[str, str, dict[str, str]]]:
+    """扫 k8s/*.yaml，返回 [(文件, 部署名, env 映射)]（只含 AI 服务）。
+
+    📌 k8s 的 env 有**两种形式**，必须都认（规则 100）：
+        - `value: "xxx"`      → 字面量（默认值走这条）
+        - `valueFrom: secretKeyRef` → 密钥（**默认值不存在**，不算漂移）
+    """
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        print("❌ 缺少 PyYAML（pip install pyyaml）")
+        raise SystemExit(2)
+
+    out: list[tuple[str, str, dict[str, str]]] = []
+    for path in sorted(ROOT.glob("k8s/*.yaml")):
+        try:
+            docs = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
+        except Exception as exc:  # noqa: BLE001
+            print(f"⚠️  {path.name} 解析失败：{exc}")
+            continue
+        for doc in docs:
+            if not isinstance(doc, dict) or doc.get("kind") not in ("Deployment", "StatefulSet"):
+                continue
+            name = ((doc.get("metadata") or {}).get("name") or "")
+            if name not in AI_MODULES:
+                continue
+            tmpl = ((doc.get("spec") or {}).get("template") or {}).get("spec") or {}
+            for c in tmpl.get("containers") or []:
+                if not isinstance(c, dict):
+                    continue
+                env: dict[str, str] = {}
+                for e in c.get("env") or []:
+                    if not isinstance(e, dict):
+                        continue
+                    ename = str(e.get("name") or "")
+                    if not ename.startswith(LLM_PREFIX):
+                        continue
+                    if "value" in e:
+                        env[ename] = str(e["value"])
+                    elif "valueFrom" in e:
+                        # Secret 引用 → **没有默认值**（不参与漂移比对）
+                        env[ename] = "\x00SECRET"
+                out.append((path.name, name, env))
+    return out
+
+
 def main() -> int:
     findings: list[str] = []
     checked = 0
@@ -247,6 +297,37 @@ def main() -> int:
                         f"      → 注入是摆设（规则 7/36）"
                     )
 
+    # ── k8s 侧 ────────────────────────────────────────────────────────
+    k8s_checked = 0
+    for fname, dep_name, env in k8s_ai_envs():
+        module = dep_name
+        app_defaults = app_llm_defaults(module)
+        if not app_defaults:
+            continue
+        k8s_checked += 1
+        for var, app_default in sorted(app_defaults.items()):
+            if var not in env:
+                findings.append(
+                    f"[{fname}:{dep_name}] 应用读了 `{var}`，k8s 清单**没有注入**\n"
+                    f"      → Pod 里退回默认值 → AI 静默关闭（`llm.enabled=false`）"
+                )
+                continue
+            val = env[var]
+            if val == "\x00SECRET":
+                continue  # 密钥走 Secret → 没有默认值可比
+            if val != app_default:
+                findings.append(
+                    f"[{fname}:{dep_name}] `{var}` 的默认值**两边不一致**\n"
+                    f"      → 应用侧（application.yml）：`{app_default}`\n"
+                    f"      → 部署侧（k8s）          ：`{val}`\n"
+                    f"      → 改了一边忘了另一边 → **Pod 行为和本机不一样**，且没人会发现"
+                )
+        for var in sorted(env):
+            if var not in app_defaults:
+                findings.append(
+                    f"[{fname}:{dep_name}] 注入了 `{var}`，但应用**根本不读**它 → 注入是摆设（规则 7/36）"
+                )
+
     if findings:
         print(f"❌ LLM 配置契约闸门：发现 {len(findings)} 处问题\n")
         for f in findings:
@@ -261,7 +342,8 @@ def main() -> int:
         return 1
 
     print(
-        f"✅ LLM 配置契约：{len(compose_files)} 个 compose × {checked} 个 AI 服务 —— "
+        f"✅ LLM 配置契约：{len(compose_files)} 个 compose × {checked} 个 AI 服务 + "
+        f"k8s × {k8s_checked} 个 AI 部署 —— "
         f"应用读的 LLM_* 全部被同名注入，且默认值两边一致"
     )
     return 0
