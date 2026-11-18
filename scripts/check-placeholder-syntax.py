@@ -36,6 +36,22 @@ EXTS = ('.yml', '.yaml', '.properties')
 # 排除目录
 SKIP_DIRS = {'target', 'node_modules', '.git', 'dist', 'build'}
 
+# 📌 **2026-11-18 收窄扫描范围**（实测出来的假红，规则 99/156）：
+#    `${VAR:-default}` 是 **docker compose / shell** 的插值语法，
+#    **不是** Spring 的。compose 在**部署时**就把 `${...}` 插值掉了，
+#    容器里根本看不到这串文本 → Spring 永远解析不到 `-`。
+#    📌 实测（Docker Compose v5.1.3）：
+#        `${VAR:default}`  → compose **直接报错** `invalid interpolation format`
+#        `${VAR:-default}` → compose ✅ 正常插值成默认值
+#        `${VAR:?err}`     → compose ✅ 未设置就 fail-closed
+#    → 也就是说：**compose 里必须用 `:-`**，用它才是对的；用 `:` 反而会让 compose 报错。
+#    📌 但 Spring 读的 `application.yml` 里 `${VAR:-default}` 依然是错的
+#    （Spring 会把默认值解析成 `-8848`）—— **那条规则继续管，只是不该管到 compose**。
+#    → 按**文件类型**分流：Spring 配置（application*.yml / bootstrap*.yml / properties）
+#      继续按「禁用 `:-`」判；compose / k8s 清单**跳过**（它们用 docker 自己的语法）。
+SPRING_CONFIG_NAMES = ('application', 'bootstrap', 'application-local', 'application-dev',
+                        'application-prod', 'application-test')
+
 # ${VAR:default} 是合规的，用于排除误报（如 http:// 里的 ${...}）
 OK_SAMPLE = re.compile(r'\$\{[A-Za-z_][A-Za-z0-9_]*:[^{}]*\}')
 
@@ -44,6 +60,7 @@ def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     bad = []
     checked = 0
+    skipped = 0
 
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
@@ -56,6 +73,16 @@ def main():
                     lines = f.readlines()
             except (UnicodeDecodeError, OSError):
                 continue
+            # 📌 **按文件类型分流**：compose / k8s 清单用 docker 自己的插值语法 → 不适用本规则
+            base = os.path.basename(path)
+            if base.startswith('docker-compose') or base.startswith('compose'):
+                skipped += 1
+                continue
+            if base.endswith('.yml') or base.endswith('.yaml'):
+                stem = base.rsplit('.', 1)[0]
+                if stem not in SPRING_CONFIG_NAMES:
+                    skipped += 1
+                    continue
             checked += 1
             for lineno, line in enumerate(lines, 1):
                 # 排除注释行
@@ -67,7 +94,7 @@ def main():
                     bad.append((os.path.relpath(path, root), lineno,
                                 m.group(0), stripped[:110]))
 
-    print(f"=== 扫描 {checked} 个配置文件 ===")
+    print(f"=== 扫描 {checked} 个 Spring 配置文件（跳过 {skipped} 个 compose/k8s 清单 —— 它们用 docker 插值语法）===")
     if not bad:
         print("✅ 未发现 ${VAR:-default} 形式的占位符")
         print("   （Spring 语法应为 ${VAR:default}，冒号分隔）")

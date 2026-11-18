@@ -511,6 +511,20 @@ services:
       REDIS_HOST: redis
       RABBITMQ_HOST: rabbitmq
       TZ: Asia/Shanghai
+      # 📌 **AI 能力（可选，默认关闭）** —— 仓库里**不留任何密钥默认值**（规则 140/146）
+      #    开启方式：在 .env 里写 LLM_ENABLED=true + LLM_API_KEY=<key>（provider/base-url/model 按需覆盖）
+      #    📌 下面这些默认值**必须与应用 application.yml 里的默认值逐字一致**
+      #       —— 由 scripts/check-llm-compose-defaults.py 盯着（改一边必须同步另一边）
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_API_VERSION: ${LLM_API_VERSION:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_DEPLOYMENT: ${LLM_DEPLOYMENT:-}
+      LLM_ENABLED: ${LLM_ENABLED:-false}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-2000}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.7}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-30000}
     depends_on:
       mysql:
         condition: service_healthy
@@ -549,6 +563,20 @@ services:
       REDIS_HOST: redis
       RABBITMQ_HOST: rabbitmq
       TZ: Asia/Shanghai
+      # 📌 **AI 能力（可选，默认关闭）** —— 仓库里**不留任何密钥默认值**（规则 140/146）
+      #    开启方式：在 .env 里写 LLM_ENABLED=true + LLM_API_KEY=<key>（provider/base-url/model 按需覆盖）
+      #    📌 下面这些默认值**必须与应用 application.yml 里的默认值逐字一致**
+      #       —— 由 scripts/check-llm-compose-defaults.py 盯着（改一边必须同步另一边）
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_API_VERSION: ${LLM_API_VERSION:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_DEPLOYMENT: ${LLM_DEPLOYMENT:-}
+      LLM_ENABLED: ${LLM_ENABLED:-false}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-2000}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.7}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-30000}
     depends_on:
       mysql:
         condition: service_healthy

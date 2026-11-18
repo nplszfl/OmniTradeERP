@@ -160,6 +160,21 @@ jobs:
     - name: 环境变量契约（compose/k8s 注入 ↔ 应用读取）
       run: python3 scripts/check-env-contract.py
 
+    # 📌 **LLM 配置契约**（AI 能力的「部署层 ↔ 应用侧」）
+    #    📌 为什么必须单独一道闸门（2026-11-18 实测）：
+    #       `check-env-contract.py` 只管**基础设施类**变量（MYSQL/NACOS/REDIS…）
+    #       —— LLM 是**可选的外部能力**，不属于基础设施，**故意不在它的范围里**。
+    #    📌 实测过的坑：
+    #       AI 功能在本机跑得好好的（真调 LLM、mock=false、内容是真的），
+    #       但 compose 里**一个 LLM_* 变量都没注入**
+    #       → 容器里全部退回默认值 → `llm.enabled=false` → **AI 静默关闭**
+    #       → 本机好好的、容器里是关的，**不真起容器就发现不了**（规则 385 同族）。
+    #    📌 这道闸门同时盯住**默认值漂移**：
+    #       为了「不注入 = 用应用默认值」，compose 只能写 `${LLM_PROVIDER:-deepseek}`
+    #       → 默认值被抄了第二遍 → 改了一边忘了另一边 → 容器行为和本机不一样。
+    - name: LLM 配置契约（compose 注入 ↔ 应用读取 + 默认值一致）
+      run: python3 scripts/check-llm-compose-defaults.py
+
     # 📌 **环境变量模板里混进真密钥**（规则 161）
     #    📌 为什么必须单独一道闸门：
     #       第 45 道（`check-hardcoded-secret.py`）只扫 `src/main/resources/application*.yml`
