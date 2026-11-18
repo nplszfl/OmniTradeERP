@@ -322,6 +322,12 @@ services:
     environment:
       NACOS_HOST: nacos
       NACOS_PORT: 8848
+      # 📌 2026-11-18 补：本模块的 application.yml 现在显式配了 spring.datasource
+      #    （之前 21 个业务服务里只有它漏配 → 服务根本起不来："Failed to configure a DataSource"）。
+      #    应用侧读 ${MYSQL_HOST}/${MYSQL_PORT} → 部署层必须注入，否则容器里会用默认值连不到 mysql。
+      #    （check-env-contract.py 就是查这一层的：应用读了、部署没注入 = 契约不一致。）
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       TZ: Asia/Shanghai
       JAVA_OPTS: "-Xms256m -Xmx512m"

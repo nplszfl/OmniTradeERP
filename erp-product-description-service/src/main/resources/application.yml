@@ -26,6 +26,20 @@ spring:
       port: 6379
       database: 3
       timeout: 3000
+  # ⚠️ 必须显式配 datasource（本模块引了 spring-boot-starter-data-jpa）：
+  # 统一继承根 pom 后 erp-common 的 DataSource 自动配置被激活，
+  # 但 application.yml 里没有 url → 启动期直接失败：
+  #   "Failed to configure a DataSource: 'url' attribute is not specified"
+  #   "Reason: Failed to determine a suitable driver class"
+  # 即「服务根本起不来」（2026-11-18 实测：这是 21 个业务服务里**唯一**漏配的一个）。
+  # 变量名必须和 compose 注入的一致（MYSQL_HOST / MYSQL_PORT），
+  # 写死 localhost 会导致容器里连不上库（这个坑踩过）。
+  # 库名 = database/product-description-service.sql 里 CREATE 的 erp_product_description_db。
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/erp_product_description_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: root
 
 # Swagger配置
 springdoc:
