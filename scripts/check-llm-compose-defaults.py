@@ -45,6 +45,11 @@ import re
 import sys
 from pathlib import Path
 
+try:
+    import yaml  # type: ignore
+except ImportError:  # pragma: no cover
+    yaml = None  # type: ignore
+
 ROOT = Path(__file__).resolve().parents[1]
 
 # ── 需要检查的 AI 服务（应用模块名 → compose 里的服务名）──────────────────
@@ -327,6 +332,75 @@ def main() -> int:
                 findings.append(
                     f"[{fname}:{dep_name}] 注入了 `{var}`，但应用**根本不读**它 → 注入是摆设（规则 7/36）"
                 )
+
+    # ── k8s Secret 的「名字/键」在 manifest 与 deploy.sh 之间必须一致 ──
+    #    📌 **两个文件各写一遍** = 会漂移（规则 32 的镜像版）：
+    #       manifest 说 `secretKeyRef: {name: X, key: Y}`，
+    #       deploy.sh 说 `create secret generic X --from-literal=Y=...`
+    #       → 改了一边 → Secret **建出来了**，但 Pod 里**取不到那个键**
+    #       → `LLM_API_KEY` 不落地 → **AI 静默关闭**（而一切看起来正常）
+    manifest_refs = set()
+    # 📌 **Secret 有两个来源，两个都要认**（规则 100：等价形态必须一起认）：
+    #    ① 清单里**自己声明**的 `kind: Secret`（如 `k8s/mysql.yaml` 的 `mysql-secret`）
+    #    ② `k8s/deploy.sh` 里的 `kubectl create secret generic`（如 `erp-jwt-secret` / `erp-llm-secret`）
+    declared_secrets: set[tuple[str, str]] = set()
+    for path in sorted(ROOT.glob("k8s/*.yaml")):
+        try:
+            docs = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
+        except Exception as exc:  # noqa: BLE001
+            # ⚠️ **不许静默吞掉**（规则 43/88）：本闸门自己崩了 = 静默失效，
+            #    本地根本看不出来（规则 88）→ 直接判失败。
+            findings.append(f"[k8s/{path.name}] 解析失败，**无法核对 Secret 引用**：{exc}")
+            continue
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            if doc.get("kind") == "Secret":
+                sname = str((doc.get("metadata") or {}).get("name") or "")
+                keys = set((doc.get("stringData") or {}).keys()) | set((doc.get("data") or {}).keys())
+                for k in keys:
+                    declared_secrets.add((sname, str(k)))
+                continue
+            tmpl = ((doc.get("spec") or {}).get("template") or {}).get("spec") or {}
+            for c in tmpl.get("containers") or []:
+                if not isinstance(c, dict):
+                    continue
+                for e in c.get("env") or []:
+                    if not isinstance(e, dict):
+                        continue
+                    vf = e.get("valueFrom") or {}
+                    ref = vf.get("secretKeyRef") if isinstance(vf, dict) else None
+                    if isinstance(ref, dict) and ref.get("name"):
+                        manifest_refs.add((str(ref["name"]), str(ref.get("key") or "")))
+
+    deploy_sh = ROOT / "k8s" / "deploy.sh"
+    if yaml is None:
+        findings.append("缺少 PyYAML → **无法解析 k8s 清单** → 本闸门处于失效状态（不许静默跳过）")
+    elif deploy_sh.is_file() and manifest_refs:
+        sh = deploy_sh.read_text(encoding="utf-8")
+        created: set[tuple[str, str]] = set()
+        for m in re.finditer(
+            r"create\s+secret\s+generic\s+([A-Za-z0-9._-]+)[^|]*?--from-literal=([A-Za-z0-9._-]+)=",
+            sh,
+            re.S,
+        ):
+            created.add((m.group(1), m.group(2)))
+        available = created | declared_secrets
+        for name, key in sorted(manifest_refs):
+            if (name, key) in available:
+                continue
+            # 是不是别的 Secret 名/键拼错？
+            near_key = sorted({k for n, k in available if n == name})
+            hint = ""
+            if near_key:
+                hint = f"\n      → 已有的 `{name}` 用的是键 {near_key}，manifest 要的是 `{key}`"
+            findings.append(
+                f"[k8s Secret 引用核对] manifest 引用了 `{name}/{key}`，"
+                f"但**没有任何地方创建这个「名+键」组合**\n"
+                f"      → 来源①：k8s/*.yaml 里没有 `kind: Secret` 声明它\n"
+                f"      → 来源②：k8s/deploy.sh 里没有 `create secret generic {name} --from-literal={key}=`\n"
+                f"      → Pod **取不到那个键** → 对应变量不落地 → **能力静默关闭**（而一切看起来正常）{hint}"
+            )
 
     if findings:
         print(f"❌ LLM 配置契约闸门：发现 {len(findings)} 处问题\n")
