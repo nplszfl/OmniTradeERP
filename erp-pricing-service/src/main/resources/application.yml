@@ -48,6 +48,33 @@ springdoc:
     path: /swagger-ui.html
     enabled: true
 
+# 📌 **AI 能力（可选，默认关闭）** —— 定价建议的「建议原因」由 LLM 生成
+#    📌 **数字仍由确定性规则算**（竞品 + 成本 + 需求加权）→ 不调用 LLM、可复现；
+#       LLM 只负责把因子翻译成一句人话解释。
+#    📌 默认值**必须与 LLMConfig 的类默认值逐字一致**（不一致 = 其中一处是死代码）。
+#    📌 端点拼接 / 请求头 / 响应解析 / token 用量全部走 `erp-llm-common` 的 LLMEndpointResolver。
+llm:
+  # 是否启用真实API调用（配置API Key后设为true）
+  enabled: ${LLM_ENABLED:false}
+  # API Key（支持环境变量：LLM_API_KEY / DEEPSEEK_API_KEY / OPENAI_API_KEY）
+  api-key: ${LLM_API_KEY:${DEEPSEEK_API_KEY:${OPENAI_API_KEY:}}}
+  # API Base URL
+  # 📌 **API 根地址**（唯一事实来源 = LLMEndpointResolver，带不带 /v1 都行）
+  base-url: ${LLM_BASE_URL:https://api.deepseek.com}
+  # 模型名称
+  model: ${LLM_MODEL:deepseek-chat}
+  # 请求超时（毫秒）
+  timeout: ${LLM_TIMEOUT:30000}
+  # 最大Token数
+  max-tokens: ${LLM_MAX_TOKENS:2000}
+  # Temperature
+  temperature: ${LLM_TEMPERATURE:0.7}
+  # Provider: deepseek, openai, azure, ollama, openai-compatible, anthropic
+  provider: ${LLM_PROVIDER:deepseek}
+  # Azure 专用（provider=azure 时必填）
+  deployment: ${LLM_DEPLOYMENT:}
+  api-version: ${LLM_API_VERSION:}
+
 # 应用配置
 app:
   name: 智能定价服务

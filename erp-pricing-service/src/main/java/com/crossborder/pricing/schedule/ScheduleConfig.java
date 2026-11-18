@@ -3,6 +3,7 @@ package com.crossborder.pricing.schedule;
 import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.pricing.entity.Product;
 import com.crossborder.pricing.mapper.ProductMapper;
+import com.crossborder.pricing.service.AiPricingSuggestionGenerator;
 import com.crossborder.pricing.service.CompetitorScrapeService;
 import com.crossborder.pricing.service.PricingService;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class ScheduleConfig {
     private final CompetitorScrapeService competitorScrapeService;
     private final PricingService pricingService;
     private final ProductMapper productMapper;
+    private final AiPricingSuggestionGenerator aiPricingSuggestionGenerator;
 
     /**
      * 竞品数据抓取定时任务
@@ -81,6 +83,26 @@ public class ScheduleConfig {
 
         } catch (Exception e) {
             log.error("❌ 动态定价失败", e);
+        }
+    }
+
+    /**
+     * 定价建议生成定时任务（每 30 分钟）
+     *
+     * <p>📌 **2026-11-18 新增** —— 补上 <b>缺失的那条写路径</b>：
+     * {@code ai_pricing_suggestion} 表以前<b>从来没人往里写</b>（活库里 0 行）
+     * → 前端「AI 定价建议」页永远空。
+     * <p>📌 建议数字 = 确定性规则；建议原因 = LLM 生成（不可用时回落规则模板并如实标注）。
+     */
+    @Scheduled(fixedRate = 30 * 60 * 1000) // 30分钟
+    public void pricingSuggestionSchedule() {
+        log.info("🕐 定时任务：开始生成定价建议");
+        try {
+            List<Long> productIds = getMonitoredProducts();
+            int generated = aiPricingSuggestionGenerator.generateForProducts(productIds);
+            log.info("✅ 定价建议生成完成 - 生成条数: {}", generated);
+        } catch (Exception e) {
+            log.error("❌ 定价建议生成失败", e);
         }
     }
 

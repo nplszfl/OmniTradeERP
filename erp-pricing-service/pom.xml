@@ -29,6 +29,14 @@
             <artifactId>erp-common</artifactId>
         </dependency>
 
+        <!-- 📌 LLM 协议事实中心（2026-11-18 新增）：
+             定价建议的「建议原因」由 LLM 生成（数字仍由确定性规则算，见 AiPricingSuggestionGenerator）。
+             端点拼接 / 请求头 / 响应解析 / token 用量全部走 erp-llm-common，不要在本模块另写一份。 -->
+        <dependency>
+            <groupId>com.crossborder</groupId>
+            <artifactId>erp-llm-common</artifactId>
+        </dependency>
+
         <!-- Spring Boot Web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

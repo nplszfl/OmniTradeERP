@@ -74,7 +74,7 @@ public class DynamicPricingServiceImpl implements DynamicPricingService {
         // 3. 计算各因素价格
         BigDecimal competitorBasedPrice = calculateCompetitorBasedPrice(competitors);
         BigDecimal costBasedPrice = calculateCostBasedPrice(costPrice);
-        BigDecimal demandBasedPrice = calculateDemandBasedPrice(stockQuantity, salesVelocity, priceTrend);
+        BigDecimal demandBasedPrice = calculateDemandBasedPrice(stockQuantity, salesVelocity, priceTrend, costPrice);
 
         // 4. 加权计算最终价格
         BigDecimal optimalPrice = competitorBasedPrice.multiply(COMPETITOR_WEIGHT)
@@ -141,9 +141,18 @@ public class DynamicPricingServiceImpl implements DynamicPricingService {
      * → 现在以「竞品均价 × 成本加成」的均值作为基准，需求因子才有意义。</p>
      */
     private BigDecimal calculateDemandBasedPrice(Integer stockQuantity, Integer salesVelocity,
-                                                   PriceHistoryService.PriceTrendAnalysis trend) {
+                                                   PriceHistoryService.PriceTrendAnalysis trend,
+                                                   BigDecimal costPrice) {
         // 📌 基准价：以「成本 × 1.2」为起点（真正的需求因子要作用在**非零**基准上）
-        BigDecimal basePrice = new BigDecimal("100.00");
+        //
+        // 📌 **2026-11-18 修复（规则 44 / 56）**：这里原来写死 `new BigDecimal("100.00")`，
+        //    **和上面那句注释矛盾**（注释早就写明「成本 × 1.2」，代码却没这么算）。
+        //    → 成本 20 元的产品会被塞进一个 **100 元的假基准** → 需求因子把它抬到
+        //      成本的 5 倍 → 加权后建议价**离谱地高** → 「AI 定价建议」给出的是错数字。
+        //    → 现在按注释来：基准 = 成本 × 1.2（成本为 0/负时退回 1，避免除零）。
+        BigDecimal basePrice = (costPrice == null || costPrice.signum() <= 0)
+                ? new BigDecimal("1.00")
+                : costPrice.multiply(new BigDecimal("1.20"));
 
         // 如果有销售数据，基于销量计算需求
         if (salesVelocity != null && salesVelocity > 0) {

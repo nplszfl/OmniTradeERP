@@ -56,6 +56,8 @@ ROOT = Path(__file__).resolve().parents[1]
 AI_SERVICES = {
     "erp-ai-assistant-service": "ai-assistant-service",
     "erp-product-description-service": "product-description-service",
+    # 📌 **2026-11-18 新增**：定价服务也接了 LLM（建议原因）→ 部署层必须一样注入
+    "erp-pricing-service": "pricing-service",
 }
 # ── k8s 清单里的 Deployment 名 = 应用模块名 ──────────────────────────────
 AI_MODULES = set(AI_SERVICES.keys())
