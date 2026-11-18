@@ -5,6 +5,14 @@ on:
     tags:
       - 'v*'
 
+# 📌 **并发组**（2026-11-18）—— 与另两个 workflow 同一个要求。
+#    tag 触发时一个 tag 只会对应一个 run，但**同一个 tag 重推**会再起一轮 →
+#    没有并发组时两轮并存 → 白白抢 runner。
+#    ⚠️ 这里用 `cancel-in-progress: true` → 重推同一个 tag 会取消上一轮（旧 tag 的产物已过时）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   create-release:
     # 📌 超时保护：GitHub 默认 6 小时 → 卡死时整轮 CI 白占 runner

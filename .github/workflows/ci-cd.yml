@@ -18,6 +18,20 @@ env:
   JAVA_VERSION: '21'
   NODE_VERSION: '18'
 
+# 📌 **并发组**（2026-11-18 实测修的 CI 红）
+#    ❌ **没有它时的实测症状**（CI run 44254486501）：
+#       两个 workflow 都没有并发组 → **被顶掉的 run 不自动取消**
+#       → 两条 run 各 23 个镜像 job ≈ **46 路并发冷下载**
+#       → aliyun 镜像在美区 runner 限速到 **1.0 kB/s**
+#       → `timeout 600 mvn` × 3 次全被掐 → 2 个镜像 job 失败 → **CI 红**
+#       → 而**代码一个字都没改**（对照：单 run 时各 62~107 秒全过）
+#    ✅ `cancel-in-progress: true` → 新 push 自动取消旧 run → **同时只有一轮在跑**
+#    📌 关键：分组键必须含 `github.ref` —— 否则 master 的 push 会取消掉 PR 的 run，
+#       反之亦然（PR 和 push 是两条独立流水线，规则 41 的「同批次内互不干扰」）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # 后端构建和测试
   backend-build-test:
@@ -174,6 +188,19 @@ jobs:
     #       → 默认值被抄了第二遍 → 改了一边忘了另一边 → 容器行为和本机不一样。
     - name: LLM 配置契约（compose 注入 ↔ 应用读取 + 默认值一致）
       run: python3 scripts/check-llm-compose-defaults.py
+
+    # 📌 **CI 镜像构建的「韧性」**（2026-11-18 实测修的 CI 红）
+    #    ❌ 实测症状（run 44254486501）：**代码一个字没改**，CI 却红了 2 个镜像 job
+    #       → `docker/maven-settings.xml` 把 aliyun 镜像打进镜像 → CI 也在用 aliyun
+    #       → GitHub runner 在**美区** → aliyun 限速到 **1.0 kB/s**
+    #          （日志实测：`commons-io-2.5.pom (13 kB at 1.0 kB/s)`）
+    #       → `timeout 600 mvn` 重试 3 次全被掐 → 镜像 job 失败
+    #    ✅ 三件套（缺一不可）：
+    #       ① 走**官方 Maven Central**（npm 侧早就这么修了，Maven 侧此前一直没修）
+    #       ② buildx 挂 **gha cache**（`--mount=type=cache` 跨 job 共享，别 23 倍冗余下载）
+    #       ③ 每个 workflow 有 **concurrency 组**（旧 run 自动取消，别多轮并存抢镜像源）
+    - name: CI 镜像构建韧性（官方 Maven 源 + gha cache + concurrency）
+      run: python3 scripts/check-ci-build-resilience.py
 
     # 📌 **环境变量模板里混进真密钥**（规则 161）
     #    📌 为什么必须单独一道闸门：
@@ -802,6 +829,22 @@ jobs:
         build-args: |
           MODULE=${{ matrix.module }}
           PORT=${{ matrix.port }}
+          # 📌 **CI 必须走官方 Maven Central**（2026-11-18 实测）
+          #    ❌ 默认的 aliyun 镜像在**美区 runner** 上被限速到 **1.0 kB/s**
+          #       （日志实测：`commons-io-2.5.pom (13 kB at 1.0 kB/s)`）
+          #       → `timeout 600 mvn` 重试 3 次全被掐 → 镜像 job 失败 → **CI 红**
+          #    ✅ 与 npm 侧的修法**同构**（npm 已强制走 registry.npmjs.org），Maven 侧此前一直没修
+          #    📌 本地 compose 构建**不受影响**（走默认值 aliyun，国内快）
+          MAVEN_MIRROR_URL=https://repo1.maven.org/maven2
+        # 📌 **buildx 缓存挂到 GitHub Actions cache**（2026-11-18）
+        #    Dockerfile 里的 `--mount=type=cache,target=/root/.m2/repository`
+        #    **只在单次 build 内有效** → 23 个 job 各自冷下载一遍 → 冗余 23 倍。
+        #    → 挂上 gha cache 后：**第一个 job 下载完，后面 22 个直接命中**
+        #    ⚠️ `mode=max` 是必须的（`mode=min` 只导最终层 → **cache mount 的内容不会进缓存**）
+        #    ⚠️ `ignore-error=true`：同一 scope 并发写同一 key 会冲突（Actions cache key 不可变）
+        #       → 写失败不该拖垮构建（第一个写入者胜出，其余报错被忽略）
+        cache-from: type=gha,scope=maven
+        cache-to: type=gha,mode=max,scope=maven,ignore-error=true
         # 📌 push 和 load 互斥 —— 按有没有凭据二选一
         push: ${{ env.DOCKER_USERNAME != '' }}
         load: ${{ env.DOCKER_USERNAME == '' }}

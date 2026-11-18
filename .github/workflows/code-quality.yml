@@ -14,6 +14,14 @@ on:
   #    命令触发：`gh workflow run code-quality.yml --ref master`
   workflow_dispatch:
 
+# 📌 **并发组**（2026-11-18）—— 与 ci-cd.yml 同一个道理：
+#    没有它时，**被顶掉的 run 不自动取消** → 多轮 CI 同时跑 → 美区 runner
+#    从 aliyun 拉 Maven 依赖被限速到 1.0 kB/s → 镜像 job 必超时（CI run 44254486501 实测）。
+#    ⚠️ 分组键含 `github.ref` → master 的 push **不会**取消 PR 的 run。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Java代码检查
   java-code-quality:

@@ -1,15 +1,39 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   容器内构建用的 Maven 配置。
-  宿主机 ~/.m2/settings.xml 里配了 aliyun 镜像，但容器里没有，
-  直接走 Maven Central 在国内会非常慢，所以把镜像配置打进镜像。
+
+  📌 **镜像源是 build-arg 决定的**（2026-11-18 实测修的 CI 红）：
+     宿主机的 ~/.m2/settings.xml 里配了 aliyun 镜像，但容器里没有，
+     所以以前把 aliyun 镜像**直接打进镜像** → **CI 也在用 aliyun**。
+
+     ❌ **实测的坑**（2026-11-18 CI run 44254486501）：
+        GitHub runner 在**美区**，从 `maven.aliyun.com` 拉依赖被限速到
+        **1.0 kB/s**（日志实测：`commons-io-2.5.pom (13 kB at 1.0 kB/s)`）
+        → 单次 `mvn` 600s 超时，重试 3 次全被掐 → 2 个镜像 job 失败 → **CI 红**，
+        而**代码一个字都没改**。
+        → 这和 npm 那边的坑**完全同构**（`registry.npmmirror.com` 在美区抖 → `npm ci` 失败），
+          而 npm 那边**早就修过**了（CI 里强制走 `registry.npmjs.org`）——
+          **Maven 侧一直没修**，这次补上。
+
+     ✅ **修法**：镜像源做成 **build-arg**
+        - **本地/CI 默认** = aliyun（国内开发者快）
+        - **CI 里显式传** `MAVEN_MIRROR_URL=https://repo1.maven.org/maven2`
+          → 美区 runner 走官方 Central → 正常速度
+        → **本地不受影响**，不需要改开发者的环境。
+
+  📌 `${env.MAVEN_MIRROR_URL}` 是 Maven settings.xml 支持的**环境属性插值**，
+     插值发生在读取 settings 时 → 只要容器 ENV 里有这个变量就生效。
+
+  ⚠️ **本文件里绝对不能出现连续两个连字符**（XML 注释里 `..` 会被当成注释结束符）
+     → 一旦出现，Maven 直接报 `Non-parseable settings` → **所有构建全挂**。
+     （实测踩过：注释里写命令行参数的那对连字符就是这个效果。）
 -->
 <settings>
   <mirrors>
     <mirror>
-      <id>aliyun</id>
-      <name>Aliyun Maven Mirror</name>
-      <url>https://maven.aliyun.com/repository/central</url>
+      <id>ci-central</id>
+      <name>Maven Central (由 MAVEN_MIRROR_URL 决定)</name>
+      <url>${env.MAVEN_MIRROR_URL}</url>
       <mirrorOf>central</mirrorOf>
     </mirror>
   </mirrors>

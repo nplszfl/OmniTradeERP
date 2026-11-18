@@ -15,11 +15,23 @@
 ARG MODULE=erp-order-service
 ARG PORT=8081
 
+# 📌 **Maven 镜像源可切换**（2026-11-18 实测修的 CI 红）
+#    默认 = aliyun（国内开发者快）；
+#    **CI 里显式传 `MAVEN_MIRROR_URL=https://repo1.maven.org/maven2`**
+#    → 美区 runner 走官方 Central（实测 aliyun 在美区被限速到 1.0 kB/s → mvn 必超时）。
+#    📌 和 npm 那边的修法**同构**（npm 已强制走 registry.npmjs.org），Maven 侧此前一直没修。
+ARG MAVEN_MIRROR_URL=https://maven.aliyun.com/repository/central
+
 FROM maven:3.9-eclipse-temurin-21 AS builder
 ARG MODULE
+ARG MAVEN_MIRROR_URL
 WORKDIR /app
 
-# 容器内使用 aliyun 镜像（宿主机 ~/.m2/settings.xml 不会自动进容器）
+# 📌 **必须同时设成 ENV** —— settings.xml 里用的是 `${env.MAVEN_MIRROR_URL}`
+#    （Maven 的**环境属性**插值，只认环境变量，ARG 不算）
+ENV MAVEN_MIRROR_URL=${MAVEN_MIRROR_URL}
+
+# 容器内使用 Maven 镜像（宿主机 ~/.m2/settings.xml 不会自动进容器）
 COPY docker/maven-settings.xml /root/.m2/settings.xml
 
 # 复制源码并构建目标模块
