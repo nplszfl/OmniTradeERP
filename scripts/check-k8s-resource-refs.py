@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""K8s 清单的「引用完整性」闸门：volume 挂载的 ConfigMap / Secret 必须真的存在。
+"""K8s 清单的「引用完整性」闸门：所有跨对象引用（volume/envFrom/valueFrom/claimName/SA）必须真的存在。
 
 🔴 **为什么需要这个闸门**（2026-11-19 实测定位的真缺陷）：
    `k8s/mysql.yaml` 的 StatefulSet 挂了 ConfigMap `mysql-init-script`
@@ -46,7 +46,11 @@ def collect_defined() -> dict[tuple[str, str], list[str]]:
                 continue
             kind = d.get("kind")
             name = (d.get("metadata") or {}).get("name")
-            if kind in ("ConfigMap", "Secret") and name:
+            # 📌 **覆盖「被引用的所有 kind」**（规则 602 的同类盲区）：
+            #   ConfigMap/Secret（volume/envFrom/valueFrom）
+            #   + PersistentVolumeClaim（claimName）
+            #   + ServiceAccount（serviceAccountName）
+            if kind in ("ConfigMap", "Secret", "PersistentVolumeClaim", "ServiceAccount") and name:
                 defined.setdefault((kind, name), []).append(f.name)
     return defined
 
@@ -90,13 +94,20 @@ def collect_script_created() -> dict[tuple[str, str], list[str]]:
     return created
 
 
-def collect_refs() -> list[tuple[str, str, str]]:
-    """所有 volume → configMap/secretName 引用 → [(kind, name, 文件)]"""
-    refs: list[tuple[str, str, str]] = []
+def collect_refs() -> list[tuple[str, str, str, str]]:
+    """所有跨对象引用 → [(引用类型, kind, name, 位置)]
 
-    def walk(node, file_name, path, volumes):
+    📌 **覆盖 4 类引用**（规则 602 的同类盲区，第 1 版只查 volume → 漏掉另外 3 类）：
+       ① volume.configMap.name / volume.secret.secretName
+       ② envFrom[].configMapRef.name / envFrom[].secretRef.name
+       ③ env[].valueFrom.configMapKeyRef.name / secretKeyRef.name
+       ④ volumes[].persistentVolumeClaim.claimName / spec.serviceAccountName
+    """
+    refs: list[tuple[str, str, str, str]] = []
+
+    def walk(node, file_name, path):
         if isinstance(node, dict):
-            # volumes: [] 里声明的 {name, configMap:{name}} / {name, secret:{secretName}}
+            # ① volume
             vols = node.get("volumes")
             if isinstance(vols, list):
                 for v in vols:
@@ -105,33 +116,65 @@ def collect_refs() -> list[tuple[str, str, str]]:
                     vn = v.get("name")
                     cm = (v.get("configMap") or {}).get("name") if isinstance(v.get("configMap"), dict) else None
                     sc = (v.get("secret") or {}).get("secretName") if isinstance(v.get("secret"), dict) else None
+                    pvc = (v.get("persistentVolumeClaim") or {}).get("claimName") if isinstance(v.get("persistentVolumeClaim"), dict) else None
                     if vn and cm:
-                        volumes.append(("ConfigMap", cm, f"{file_name}:volume[{vn}]"))
+                        refs.append(("volume.configMap", "ConfigMap", cm, f"{file_name}:volume[{vn}]"))
                     if vn and sc:
-                        volumes.append(("Secret", sc, f"{file_name}:volume[{vn}]"))
+                        refs.append(("volume.secret", "Secret", sc, f"{file_name}:volume[{vn}]"))
+                    if vn and pvc:
+                        refs.append(("volume.pvc", "PersistentVolumeClaim", pvc, f"{file_name}:volume[{vn}]"))
+            # ② envFrom
+            envfrom = node.get("envFrom")
+            if isinstance(envfrom, list):
+                for e in envfrom:
+                    if not isinstance(e, dict):
+                        continue
+                    if isinstance(e.get("configMapRef"), dict) and e["configMapRef"].get("name"):
+                        refs.append(("envFrom.configMap", "ConfigMap", e["configMapRef"]["name"], f"{file_name}{path}.envFrom"))
+                    if isinstance(e.get("secretRef"), dict) and e["secretRef"].get("name"):
+                        refs.append(("envFrom.secret", "Secret", e["secretRef"]["name"], f"{file_name}{path}.envFrom"))
+            # ③ env[].valueFrom
+            envs = node.get("env")
+            if isinstance(envs, list):
+                for e in envs:
+                    if not isinstance(e, dict):
+                        continue
+                    vf = e.get("valueFrom")
+                    if not isinstance(vf, dict):
+                        continue
+                    if isinstance(vf.get("configMapKeyRef"), dict) and vf["configMapKeyRef"].get("name"):
+                        refs.append(("valueFrom.configMap", "ConfigMap", vf["configMapKeyRef"]["name"], f"{file_name}{path}.env[{e.get('name','?')}]"))
+                    if isinstance(vf.get("secretKeyRef"), dict) and vf["secretKeyRef"].get("name"):
+                        refs.append(("valueFrom.secret", "Secret", vf["secretKeyRef"]["name"], f"{file_name}{path}.env[{e.get('name','?')}]"))
+            # ④ serviceAccountName
+            san = node.get("serviceAccountName")
+            if isinstance(san, str) and san:
+                refs.append(("serviceAccountName", "ServiceAccount", san, f"{file_name}{path}"))
             for k, v in node.items():
-                walk(v, file_name, f"{path}.{k}", volumes)
+                walk(v, file_name, f"{path}.{k}")
         elif isinstance(node, list):
             for i, v in enumerate(node):
-                walk(v, file_name, f"{path}[{i}]", volumes)
+                walk(v, file_name, f"{path}[{i}]")
 
     for f in sorted(K8S_DIR.glob("*.yaml")):
         docs = list(yaml.safe_load_all(f.read_text(encoding="utf-8")))
         for d in docs:
             if isinstance(d, dict):
-                walk(d, f.name, "", refs)
+                walk(d, f.name, "")
     return refs
 
 
 def main() -> int:
-    print("🔎 巡检 K8s 清单的引用完整性（volume 挂载的 ConfigMap/Secret 是否存在）")
+    print("🔎 巡检 K8s 清单的引用完整性（volume / envFrom / valueFrom / claimName / serviceAccountName）")
     defined = collect_defined()
     created = collect_script_created()
     available = set(defined) | set(created)
     refs = collect_refs()
 
     print(f"ℹ️  yaml 里定义的对象: ConfigMap {sum(1 for k, _ in available if k == 'ConfigMap')} 个 / "
-          f"Secret {sum(1 for k, _ in available if k == 'Secret')} 个")
+          f"Secret {sum(1 for k, _ in available if k == 'Secret')} 个 / "
+          f"PVC {sum(1 for k, _ in available if k == 'PersistentVolumeClaim')} 个 / "
+          f"SA {sum(1 for k, _ in available if k == 'ServiceAccount')} 个")
     print(f"ℹ️  脚本会创建的:      ConfigMap {sum(1 for k, _ in created if k == 'ConfigMap')} 个 / "
           f"Secret {sum(1 for k, _ in created if k == 'Secret')} 个")
     print(f"ℹ️  待判引用数: {len(refs)}")
@@ -141,26 +184,26 @@ def main() -> int:
         return 1
 
     missing = []
-    for kind, name, where in refs:
+    for rtype, kind, name, where in refs:
         if (kind, name) not in available:
-            missing.append((kind, name, where))
+            missing.append((rtype, kind, name, where))
 
-    for kind, name, where in refs:
-        src = defined.get((kind, name)) or created.get((kind, name))
+    for rtype, kind, name, where in refs:
         tag = "yaml 定义" if (kind, name) in defined else ("脚本创建" if (kind, name) in created else "🔴 缺失")
-        print(f"   {'✅' if tag != '🔴 缺失' else '🔴'} {kind}/{name:28} ← {tag:8} ({where})")
+        print(f"   {'✅' if tag != '🔴 缺失' else '🔴'} {rtype:22} → {kind}/{name:26} ← {tag:8} ({where})")
 
     if missing:
         print()
-        print(f"❌ {len(missing)} 个引用解析不了 → **部署必挂**（Pod 卡在 ContainerCreating）")
-        for kind, name, where in missing:
-            print(f"   ❌ {kind}/{name} ← {where}")
+        print(f"❌ {len(missing)} 个引用解析不了 → **部署必挂**（Pod 卡在 ContainerCreating / "
+              "CreateContainerConfigError）")
+        for rtype, kind, name, where in missing:
+            print(f"   ❌ {rtype:22} → {kind}/{name} ← {where}")
         print("✅ 修法：① 在 k8s/*.yaml 里补上定义；或 ② 在部署脚本里 `kubectl create "
-              f"{kind.lower()} {name}`")
+              f"{kind.lower()} {name}`；或 ③ 该引用其实允许缺失 → 加上 `optional: true`")
         return 1
 
     print()
-    print("✅ 所有 volume 挂载的 ConfigMap/Secret 都能解析")
+    print("✅ 所有跨对象引用（ConfigMap / Secret / PVC / ServiceAccount）都能解析")
     return 0
 
 
