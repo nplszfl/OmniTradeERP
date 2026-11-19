@@ -7,6 +7,7 @@ import com.crossborder.inventoryprediction.dto.ReplenishmentSuggestion;
 import com.crossborder.inventoryprediction.dto.ReplenishmentSuggestionVO;
 import com.crossborder.inventoryprediction.dto.ServiceStatistics;
 import com.crossborder.inventoryprediction.service.InventoryPredictionService;
+import com.crossborder.inventoryprediction.service.PredictionPersistenceService;
 import com.crossborder.inventoryprediction.service.ReplenishmentSuggestionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 库存预测控制器
@@ -28,6 +30,25 @@ public class InventoryPredictionController {
 
     private final InventoryPredictionService inventoryPredictionService;
     private final ReplenishmentSuggestionService replenishmentSuggestionService;
+    private final PredictionPersistenceService predictionPersistenceService;
+
+    /**
+     * **手动触发一轮预测落库**（与定时任务同一个入口）
+     *
+     * <p>📌 **2026-11-19 新增**：原先只有定时任务会落库 →
+     * <b>运维无法手动补跑、也无法验证写路径是否真的活着</b>
+     * （只能等下一个 cron，或者看日志猜）。
+     * → 现在把同一个 {@code runPredictionRound} 暴露出来，
+     * <b>定时任务与手动触发走同一条代码路径</b> → 行为一致，不会出现「手动能跑、定时不能」。
+     *
+     * <p>📌 每次调用都会在 {@code prediction_task} 留一行审计
+     * （status / 耗时 / 结果摘要 / 错误信息）。</p>
+     */
+    @Operation(summary = "手动触发一轮库存预测与补货建议（落库）")
+    @PostMapping("/run")
+    public Map<String, Object> runPredictionRound(@RequestParam(defaultValue = "30") int predictionDays) {
+        return predictionPersistenceService.runPredictionRound(predictionDays);
+    }
 
     @Operation(summary = "预测销量")
     @PostMapping("/predict")

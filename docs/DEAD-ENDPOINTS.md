@@ -5,11 +5,11 @@
 
 ## 统计
 
-- 后端 HTTP 接口：**473** 个
+- 后端 HTTP 接口：**474** 个
 - 前端代码真正调用：**208** 处
 - 服务间引用：**2** 处
 - 网关路由：**36** 条
-- 疑似死接口：**257** 个
+- 疑似死接口：**258** 个
 
 ## 怎么读这份清单
 
@@ -195,24 +195,25 @@
 | GET | `/inventory/alert/statistics/efficiency` | 该模块有 `@Scheduled`，可能内部触发 |
 | GET | `/inventory/alert/statistics/trend` | 该模块有 `@Scheduled`，可能内部触发 |
 
-### erp-inventory-prediction-service（14 个）
+### erp-inventory-prediction-service（15 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
-| GET | `/api/v1/inventory-prediction/accuracy-trend/{productId}` |  |
-| POST | `/api/v1/inventory-prediction/accuracy/batch` |  |
-| GET | `/api/v1/inventory-prediction/accuracy/{productId}` |  |
-| POST | `/api/v1/inventory-prediction/batch-predict` |  |
-| GET | `/api/v1/inventory-prediction/health` |  |
-| POST | `/api/v1/inventory-prediction/optimize` |  |
-| POST | `/api/v1/inventory-prediction/predict` |  |
-| GET | `/api/v1/inventory-prediction/replenishment/{productId}` |  |
-| GET | `/api/v1/inventory-prediction/safety-stock/{productId}` |  |
-| GET | `/api/v1/inventory-prediction/tasks` |  |
-| GET | `/api/v1/inventory-prediction/turnover` |  |
-| GET | `/api/v1/inventory-prediction/turnover/{productId}` |  |
-| GET | `/api/v1/inventory-prediction/urgent` |  |
-| GET | `/api/v1/inventory-prediction/warn-low-stock` |  |
+| GET | `/api/v1/inventory-prediction/accuracy-trend/{productId}` | 该模块有 `@Scheduled`，可能内部触发 |
+| POST | `/api/v1/inventory-prediction/accuracy/batch` | 该模块有 `@Scheduled`，可能内部触发 |
+| GET | `/api/v1/inventory-prediction/accuracy/{productId}` | 该模块有 `@Scheduled`，可能内部触发 |
+| POST | `/api/v1/inventory-prediction/batch-predict` | 该模块有 `@Scheduled`，可能内部触发 |
+| GET | `/api/v1/inventory-prediction/health` | 该模块有 `@Scheduled`，可能内部触发 |
+| POST | `/api/v1/inventory-prediction/optimize` | 该模块有 `@Scheduled`，可能内部触发 |
+| POST | `/api/v1/inventory-prediction/predict` | 该模块有 `@Scheduled`，可能内部触发 |
+| GET | `/api/v1/inventory-prediction/replenishment/{productId}` | 该模块有 `@Scheduled`，可能内部触发 |
+| POST | `/api/v1/inventory-prediction/run` | 该模块有 `@Scheduled`，可能内部触发 |
+| GET | `/api/v1/inventory-prediction/safety-stock/{productId}` | 该模块有 `@Scheduled`，可能内部触发 |
+| GET | `/api/v1/inventory-prediction/tasks` | 该模块有 `@Scheduled`，可能内部触发 |
+| GET | `/api/v1/inventory-prediction/turnover` | 该模块有 `@Scheduled`，可能内部触发 |
+| GET | `/api/v1/inventory-prediction/turnover/{productId}` | 该模块有 `@Scheduled`，可能内部触发 |
+| GET | `/api/v1/inventory-prediction/urgent` | 该模块有 `@Scheduled`，可能内部触发 |
+| GET | `/api/v1/inventory-prediction/warn-low-stock` | 该模块有 `@Scheduled`，可能内部触发 |
 
 ### erp-inventory-service（6 个）
 
