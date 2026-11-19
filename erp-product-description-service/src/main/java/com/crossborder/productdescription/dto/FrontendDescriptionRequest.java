@@ -21,6 +21,16 @@ public class FrontendDescriptionRequest {
     /** 商品 SKU */
     private String sku;
 
+    /**
+     * 商品 ID（2026-11-19 新增）。
+     *
+     * <p>📌 **实测坑**：前端 DTO 原来**只有 sku**，没有 productId → 我传
+     * {@code productId: 1001} 时它被**静默丢弃**（Jackson 默认忽略未知字段）
+     * → 后端拿不到商品 → LLM 只能吐 {@code [Product Name]} 占位符模板。
+     * → 现在**两者都认**：productId 优先，sku 兼底（两种 SKU 口径都支持）。</p>
+     */
+    private Long productId;
+
     /** 目标语言：zh / en / ja / es */
     private String language = "zh";
 

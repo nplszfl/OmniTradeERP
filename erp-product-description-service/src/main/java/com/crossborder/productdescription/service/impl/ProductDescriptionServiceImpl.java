@@ -61,6 +61,33 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     private static final int MAX_PHRASE_WORDS = 6;
     private static final int MAX_PHRASE_LENGTH = 60;
 
+    /**
+     * 英文停用词表（2026-11-19 新增）。
+     *
+     * <p>📌 **只收功能词，不收商品属性词** —— portable / durable / compact 这类
+     * **恰恰要留下**当 SEO 关键词（它们是买家真正会搜的词）。</p>
+     */
+    private static final Set<String> EN_STOP_WORDS = Set.of(
+            "the", "and", "for", "with", "that", "this", "your", "our", "its", "you",
+            "are", "was", "were", "has", "have", "had", "can", "will", "not", "but",
+            "from", "into", "out", "all", "any", "each", "more", "most", "such",
+            "they", "them", "their", "his", "her", "she", "him", "who", "what",
+            "when", "where", "which", "while", "about", "after", "before",
+            "than", "then", "also", "just", "only", "very", "well", "use", "used",
+            "using", "make", "makes", "made", "get", "got", "one", "two", "three",
+            "we", "it", "is", "as", "at", "by", "on", "in", "to", "of", "or",
+            "be", "do", "does", "did", "so", "up", "if",
+            "product", "products", "item", "items", "description",
+            // 📌 **模板占位与风格词**（2026-11-19 实测加的）：真 LLM 生成的英文描述里
+            //   必然出现 "[Product Name]" / "### Product Title" / 复述请求里的 tone
+            //   → 这些词**高频但不是买家会搜的词** → 当 SEO 关键词是纯噪音。
+            //   实测：修之前前 5 个里有 'name'（模板占位）和 'professional'（tone 泄漏）。
+            "name", "title", "heading", "professional", "premium", "generic",
+            // 📌 **markdown 小标题词**（实测：LLM 输出带 "Bullet Points:" / "Search:" 等小标题
+            //   → 这些词本身会被当成 SEO 关键词 → 但它们是**结构标记**不是商品词）
+            "bullet", "bullets", "points", "search", "features", "benefits",
+            "highlights", "specifications", "specs", "overview", "details", "keywords");
+
     // 模拟描述模板
     private final Map<String, String> templates = new HashMap<>();
 
@@ -639,6 +666,44 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
             internal.setCustomPrompt("风格语气: " + req.getTone());
         }
 
+        // 🔴 **2026-11-19 修：前端入口把「真实商品数据」丢了 → LLM 只能吐占位符模板**
+        //    📌 实测（真起容器 + 真 LLM + 真 MySQL）：
+        //       前端请求 `{sku: "SKU-...", language: "en"}` → 返回
+        //       `### Amazon Product Listing Template` + `[Brand] [Product Name]` 占位符
+        //       → 页面上的「AI 生成商品描述」= **一份空模板**。
+        //    📌 **根因**：`generateForFrontend` **从不查商品主数据** → 即使有 sku，
+        //          也只把 sku 字符串当商品名，**真实 description/特征一个都没进 prompt**
+        //          → LLM 拿不到任何商品事实 → 只能输出带 `[Product Name]` 的模板。
+        //    ✅ 修法：**按 productId / sku 查真实商品主数据** → 把真实商品名 / 描述 /
+        //       派生特征填进 prompt。查不到 → 保留原行为（**不编数据**），
+        //       但明确告诉 LLM「不要输出占位符」。
+        ProductBrief brief = lookupBrief(req);
+        if (brief != null) {
+            internal.setProductId(brief.getId());
+            // 📌 **按目标语言选商品名**（2026-11-19 实测）：
+            //    英文场景原来用的是**中文名** → `title='无线蓝牙耳机 Pro'` 而文案是英文
+            //    → **中英混搭**。现在 en → 优先 `product_name_en`，没维护则回退中文名。
+            String localizedName = pickLocalizedName(brief, req.getLanguage());
+            if (localizedName != null && !localizedName.isBlank()) {
+                internal.setProductName(localizedName);
+            }
+            if (brief.getDescription() != null && !brief.getDescription().isBlank()) {
+                internal.setFeatures(splitIntoPhrases(brief.getDescription()));
+                // 📌 关键词：真实描述的短句 + 真实商品名（与 `getProductKeywords` 同一口径）
+                LinkedHashSet<String> derived = new LinkedHashSet<>(internal.getFeatures());
+                derived.add(localizedName == null ? brief.getProductName().trim() : localizedName.trim());
+                internal.setKeywords(derived.stream().limit(MAX_KEYWORDS).toList());
+            }
+        } else {
+            // 📌 **没有真实商品数据** → 明确告诉 LLM「不要输出占位符模板」
+            //    （否则它会自作主张地吐 `[Product Name]` 这种空模板）
+            String noTemplateHint = "请基于给定信息撰写；若信息不足，请用真实通用的描述，"
+                    + "**不要输出 [Product Name] 之类的占位符**。";
+            internal.setCustomPrompt(internal.getCustomPrompt() == null
+                    ? noTemplateHint
+                    : internal.getCustomPrompt() + " " + noTemplateHint);
+        }
+
         DescriptionGenerationResponse response = generateDescription(internal);
 
         FrontendDescriptionResponse out = new FrontendDescriptionResponse();
@@ -1061,7 +1126,7 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         }
 
         // 简化版：提取一些常见词
-        String[] commonWords = {"产品", "性能", "质量", "可靠", "技术", 
+        String[] commonWords = {"产品", "性能", "质量", "可靠", "技术",
                 "工艺", "稳定", "耐用", "理想", "选择"};
 
         for (String word : commonWords) {
@@ -1070,7 +1135,114 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
             }
         }
 
+        // 🔴 **2026-11-19 修：英文（跨境电商主力语言）原本一个关键词都抽不出来**
+        //    📌 实测（真起容器 + 真 LLM + 真查库）：
+        //       `language=en` → 描述 1,180~1,300 字符的英文营销文案
+        //       → `seoKeywords` = **[]**（一个都没有）→ 页面上的「SEO 优化」在英文场景**完全不可用**
+        //       → 原因：上面那张 `commonWords` 是**硬编码的 11 个中文词**
+        //          → 英文描述里一个都匹配不上 → 恒返回空
+        //       → 后果：`seoKeywords` 只能靠「请求参数 fallback」撑着
+        //          （不传 keywords 就真的是空）→ **请求里没传 keywords 时 SEO 关键词 = 空**
+        //    ✅ 修法（**零额外 LLM 调用、零 prompt 变更**）：加英文词频抽取
+        //       · 按词频降序（频次相同按首次出现顺序）→ 天然偏向「被反复强调的特性词」
+        //       · 停用词表只放**功能词**（the/and/with…），**不放商品属性词**
+        //         （portable / durable 这类恰恰是要当 SEO 关键词的）
+        keywords.addAll(extractEnglishKeywords(text));
+
         return keywords;
+    }
+
+    /**
+     * 英文关键词抽取（词频 + 停用词 + 长度过滤）。
+     *
+     * <p>📌 **2026-11-19 新增**：原 {@code extractKeywords} 只认 11 个硬编码中文词
+     * → 英文描述（跨境电商主力）恒空 → SEO 关键词功能在英文场景**实际不可用**。</p>
+     *
+     * <p>📌 **只取单词、不取短语**：SEO 关键词表要的是「能被搜到」的词，
+     * 短语（n-gram）会把 {@code fast charging} 这类拆成两个词，反而降低召回。</p>
+     */
+    private List<String> extractEnglishKeywords(String text) {
+        java.util.Map<String, Integer> freq = new java.util.LinkedHashMap<>();
+        // 📌 **先剥掉 markdown 结构**（2026-11-19 实测加的）：
+        //   真 LLM 每次输出的**结构不一样**（有时有 "### Product Title"、有时有
+        //   "**Bullet Points:**"、有时带 markdown 链接）→ 不剥离就会把
+        //   **结构标记词**（bullet / points / search / title）当成 SEO 关键词
+        //   （实测某一轮的前 5 个关键词里有 3 个是这种噪音）。
+        //   → 剥掉后剩下的才是**真正的描述正文** → 词频法才准。
+        String plain = stripMarkdownStructure(text);
+
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("[A-Za-z][A-Za-z\\-]{2,}")
+                .matcher(plain);
+        while (matcher.find()) {
+            String word = matcher.group().toLowerCase(java.util.Locale.ROOT);
+            if (word.length() < 3 || word.length() > 24) {
+                continue;
+            }
+            if (EN_STOP_WORDS.contains(word)) {
+                continue;
+            }
+            freq.merge(word, 1, Integer::sum);
+        }
+        if (freq.isEmpty()) {
+            return List.of();
+        }
+        // 📌 频次降序；频次相同 → 按**首次出现顺序**（LinkedHashMap 保序）→ 稳定输出
+        return freq.entrySet().stream()
+                .sorted((a, b) -> {
+                    int byCount = Integer.compare(b.getValue(), a.getValue());
+                    return byCount != 0 ? byCount
+                            : Integer.compare(indexOfFirst(text, a.getKey()), indexOfFirst(text, b.getKey()));
+                })
+                .limit(12)
+                .map(java.util.Map.Entry::getKey)
+                .toList();
+    }
+
+    /** 词在文本里首次出现的下标（用于同频次时保持稳定顺序）。 */
+    private int indexOfFirst(String text, String word) {
+        int idx = text.toLowerCase(java.util.Locale.ROOT).indexOf(word);
+        return idx < 0 ? Integer.MAX_VALUE : idx;
+    }
+
+    /**
+     * 剥掉 markdown 结构标记，只留描述正文。
+     *
+     * <p>📌 **2026-11-19 新增**：LLM 输出的结构每次都不一样（标题行、粗体、列表小标题、
+     * markdown 链接）→ 这些**结构标记词**（bullet / points / search / title）会被词频法
+     * 当成 SEO 关键词 → 必须先剥掉。</p>
+     */
+    private String stripMarkdownStructure(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String s = text;
+        // ⚠️ **必须用 `[ \\t]*` 而不是 `\\s*`** —— `\s` **包含换行**（规则 227 的量词位置坑）
+        //    → `^\\s*` 在 MULTILINE 下会跨行吃掉下一行 → 匹配范围错位。
+        // ① 标题行（### Product Title）→ 整行删掉
+        s = java.util.regex.Pattern.compile("(?m)^[ \\t]*#{1,6}[ \\t]+[^\\n]*\\n?")
+                .matcher(s).replaceAll("");
+        // ② markdown 链接 [text](url) → 只留 text
+        s = s.replaceAll("\\[([^\\]]*)\\]\\([^)]*\\)", "$1");
+        // ⚠️ **方括号占位符要先删**（2026-11-19 实测加的）：
+        //   真实 LLM 在**没有真实商品数据**时会返回**带占位符的模板**：
+        //   `[Product Name]` / `[material/technology]` / `[key feature 1]` / `[Size/Capacity]`
+        //   → 占位符里的词（material / key / size / feature / capacity）会被词频法
+        //      当成 SEO 关键词 → **全是假的**（实测抽出来的前 5 个 **5/5 都是占位符词**）。
+        //   → 占位符**永远不是**买家会搜的词 → 必须整个删掉，而不是只删方括号。
+        s = s.replaceAll("\\[[^\\]\\n]*\\]", " ");
+        // ③ 列表符号（保留列表项内容——那是有价值的正文）
+        s = java.util.regex.Pattern.compile("(?m)^[ \\t]*[-*+][ \\t]+").matcher(s).replaceAll("");
+        // ③' **规格表的字段标签**（2026-11-19 实测加的）：
+        //   LLM 模板里常有 "Size/Capacity: **[Size/Capacity]**" / "Material: **[Material]**"
+        //   → 冒号**前**的标签词（size / capacity / material / color / brand）
+        //   → 这些是**字段名**，不是商品属性 → 同样不进 SEO 关键词。
+        //   （占位符里的已由 ② 删除；这里是**标签本身**）
+        s = java.util.regex.Pattern.compile("(?m)^[ \\t]*[A-Za-z][A-Za-z /]{0,30}:[ \\t*]*$")
+                .matcher(s).replaceAll("");
+        // ④ 粗体/斜体/行内代码标记
+        s = s.replaceAll("[*_`]+", " ");
+        return s;
     }
 
     /**
@@ -1265,8 +1437,66 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     }
 
     /**
-     * 获取产品关键词
+     * 按「productId 优先 → sku 兼底」查真实商品主数据。
      *
+     * <p>📌 **2026-11-19 新增**：前端入口（{@code generateForFrontend}）之前
+     * **从不查商品主数据** → LLM 拿不到商品事实 → 只能吐 {@code [Product Name]}
+     * 这种占位符空模板（实测）。</p>
+     *
+     * <p>📌 **两种 SKU 口径都要认**（同 {@code ProductCatalogServiceImpl}）→ 这里直接
+     * 复用 {@code findBySku}，不自己拼 SQL。</p>
+     *
+     * <p>📌 **查不到就返回 {@code null}**（**不编数据**），由调用方决定降级行为。</p>
+     */
+    /**
+     * 按目标语言挑商品名（2026-11-19 新增）。
+     *
+     * <p>📌 **实测坑**：英文场景下用中文商品名 → 输出「中英混搭」
+     * （实测 {@code title='无线蓝牙耳机 Pro'} 而文案全英文）。</p>
+     *
+     * <p>📌 **没维护英文名就回退中文名**（不编名字）。</p>
+     */
+    private String pickLocalizedName(ProductBrief brief, String language) {
+        if (brief == null) {
+            return null;
+        }
+        boolean english = language != null && language.toLowerCase(java.util.Locale.ROOT).startsWith("en");
+        if (english) {
+            if (brief.getProductNameEn() != null && !brief.getProductNameEn().isBlank()) {
+                return brief.getProductNameEn().trim();
+            }
+        }
+        return brief.getProductName();
+    }
+
+    private ProductBrief lookupBrief(FrontendDescriptionRequest req) {
+        if (req == null) {
+            return null;
+        }
+        if (req.getProductId() != null) {
+            try {
+                ProductBrief byId = productCatalogService.findById(req.getProductId()).orElse(null);
+                if (byId != null) {
+                    return byId;
+                }
+            } catch (BizException e) {
+                log.warn("按 productId 查商品失败（id={}），降级按 sku 查：{}",
+                        req.getProductId(), e.getMessage());
+            }
+        }
+        if (req.getSku() != null && !req.getSku().isBlank()) {
+            try {
+                return productCatalogService.findBySku(req.getSku().trim()).orElse(null);
+            } catch (BizException e) {
+                log.warn("按 SKU 查商品失败（sku={}），本次不编商品数据：{}",
+                        req.getSku(), e.getMessage());
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 获取产品关键词     *
      * <p>📌 <b>以前这里是硬编码的</b> {@code Arrays.asList("高性能", "节能", "环保", "智能")}
      * —— 同样完全忽略 productId。</p>
      *

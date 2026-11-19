@@ -52,6 +52,12 @@ CREATE TABLE erp_product.t_product (
     id BIGINT NOT NULL PRIMARY KEY,
     internal_sku VARCHAR(100) NOT NULL,
     product_name VARCHAR(500) NOT NULL,
+    -- 📌 **2026-11-19 补**：与生产 `erp_product.t_product` 对齐（生产表实测有这两列）
+    --    · product_name_en：英文场景按语言选名字（英文场景用中文名 → 中英混搭）
+    --    · description：真实商品描述 → 派生 features/keywords → LLM 才有商品事实
+    --    之前 H2 schema 缺这两列 → Mapper 改完后单测直接 SQL 报错（列不存在）
+    product_name_en VARCHAR(500),
+    description CLOB,
     category_id BIGINT,
     brand VARCHAR(100),
     status TINYINT NOT NULL DEFAULT 1,

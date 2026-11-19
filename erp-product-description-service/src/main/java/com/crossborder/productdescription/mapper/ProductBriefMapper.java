@@ -34,7 +34,7 @@ public interface ProductBriefMapper {
      *
      * <p>走 {@code t_product_sku JOIN t_product} —— 直接拿到商品ID和商品名。</p>
      */
-    @Select("SELECT p.id AS id, p.product_name AS productName "
+    @Select("SELECT p.id AS id, p.product_name AS productName, p.product_name_en AS productNameEn, p.description AS description "
             + "FROM erp_product.t_product_sku s "
             + "JOIN erp_product.t_product p ON p.id = s.product_id "
             + "WHERE s.sku_code = #{sku} AND s.deleted = 0 AND p.deleted = 0 "
@@ -44,7 +44,7 @@ public interface ProductBriefMapper {
     /**
      * 按<b>商品级 SKU</b>（{@code t_product.internal_sku}）解析商品。
      */
-    @Select("SELECT id AS id, product_name AS productName "
+    @Select("SELECT id AS id, product_name AS productName, product_name_en AS productNameEn, description AS description "
             + "FROM erp_product.t_product "
             + "WHERE internal_sku = #{sku} AND deleted = 0 "
             + "LIMIT 1")
@@ -60,7 +60,7 @@ public interface ProductBriefMapper {
      * 特性/关键词从它派生（见
      * {@code ProductDescriptionServiceImpl#getProductFeatures}）。</p>
      */
-    @Select("SELECT id AS id, product_name AS productName, description AS description "
+    @Select("SELECT id AS id, product_name AS productName, product_name_en AS productNameEn, description AS description "
             + "FROM erp_product.t_product "
             + "WHERE id = #{id} AND deleted = 0 "
             + "LIMIT 1")

@@ -38,6 +38,15 @@ public class ProductBrief {
     private String productName;
 
     /**
+     * 英文商品名（2026-11-19 新增）。
+     *
+     * <p>📌 **实测坑**：英文场景下 {@code productName} 是中文名
+     * （实测 {@code title='无线蓝牙耳机 Pro'}，而文案是英文）→ **中英混搭**。
+     * → 现在按目标语言选名字：en → 优先用这个。</p>
+     */
+    private String productNameEn;
+
+    /**
      * 商品描述（{@code erp_product.t_product.description}）
      *
      * <p>📌 <b>为什么加这个字段</b>（2026-11-15 实测）：
