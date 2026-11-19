@@ -21,15 +21,42 @@ ARG PORT=8081
 #    → 美区 runner 走官方 Central（实测 aliyun 在美区被限速到 1.0 kB/s → mvn 必超时）。
 #    📌 和 npm 那边的修法**同构**（npm 已强制走 registry.npmjs.org），Maven 侧此前一直没修。
 ARG MAVEN_MIRROR_URL=https://maven.aliyun.com/repository/central
+# 📌 **备用镜像源**（2026-11-19 实测修的 CI 红）
+#    ❌ **实测的坑**（CI run 44432877886，2026-11-19）：
+#       `Build erp-product-service image` 失败，3 个 POM 全部
+#       「Non-resolvable import POM ... (absent)」；
+#       但**该 job 全程 `Downloaded` 行数 = 0**（一次都没下成功），
+#       而**同一 run 里重叠时间窗的兄弟 job 下载了 980 个文件**。
+#       → **不是 artifact 不存在**（本机 curl 同一 URL 返回 200），
+#         也**不是网络整体故障** → 是**那一台 runner 的出口被拒**。
+#       ⚠️ 原有的「重试 3 次」**重试的是同一个 host** → 被拒就白等 3 次
+#          （实测 3 次都在 0.2s 内快速失败，不是超时）→ 必挂。
+#    ✅ **修法**：重试时**换源**（不同 CDN 主机，一个不通另一个通）
+#       → 被拒的那台 runner 换到 Google 的 Central 镜像即可。
+#       📌 备源已实测可用：`maven-central.storage-download.googleapis.com/maven2`（HTTP 200）
+#    📌 **换源不用 `sed -i`** —— BSD sed 的 `-i` 要吃扩展名参数（`sed -i "s#..#..#"` 会报
+#       「unterminated substitute pattern」），平台差异太大 → 改成 **printf 重写整个文件**。
+ARG MAVEN_MIRROR_FALLBACK_URL=https://maven-central.storage-download.googleapis.com/maven2
+# 📌 **第三个镜像源**（2026-11-19 第 317 轮实测补的坑）
+#    ❌ **原实现的第 3 次 attempt「换回主源」= 无效动作**：
+#       Maven 的失败负缓存（`*.lastUpdated`）的 key 里 **URL 也参与比对**
+#       → 「换回一个已经试过的 URL」= 又命中那份缓存 → 真正的 pom 不再请求 → 必然秒挂
+#       （本地硬判据实测：命中缓存时服务器只收到 **2** 个请求；换 URL 后收到 **18** 个）
+#    ✅ **3 次尝试要用 3 个不同的 URL**：主源 → 备源(Google) → 备源2
+ARG MAVEN_MIRROR_FALLBACK2_URL=https://repo.maven.apache.org/maven2
 
 FROM maven:3.9-eclipse-temurin-21 AS builder
 ARG MODULE
 ARG MAVEN_MIRROR_URL
+ARG MAVEN_MIRROR_FALLBACK_URL
+ARG MAVEN_MIRROR_FALLBACK2_URL
 WORKDIR /app
 
 # 📌 **必须同时设成 ENV** —— settings.xml 里用的是 `${env.MAVEN_MIRROR_URL}`
 #    （Maven 的**环境属性**插值，只认环境变量，ARG 不算）
 ENV MAVEN_MIRROR_URL=${MAVEN_MIRROR_URL}
+ENV MAVEN_MIRROR_FALLBACK_URL=${MAVEN_MIRROR_FALLBACK_URL}
+ENV MAVEN_MIRROR_FALLBACK2_URL=${MAVEN_MIRROR_FALLBACK2_URL}
 
 # 容器内使用 Maven 镜像（宿主机 ~/.m2/settings.xml 不会自动进容器）
 COPY docker/maven-settings.xml /root/.m2/settings.xml
@@ -60,11 +87,42 @@ COPY . .
 #    📌 `--mount=type=cache` 的 ~/.m2 缓存**跨重试保留** → 超时被杀后已下载的依赖不浪费
 #
 #    ⚠️ **最后一次失败仍然让构建失败** —— 不能把失败吞掉（规则 18：事实标志不能撒谎）
+#
+#    🔴 **2026-11-19 实测修的另一个坑**：「重试 3 次」重试的是**同一个 host** →
+#       runner 的出口被拒时，3 次都在 0.2s 内快速失败（不是超时）→ **重试完全无效**。
+#       ✅ **改成「换源重试」**：第 1 次用主源，第 2/3 次换成**另一个 CDN 主机**
+#          （改写 settings.xml 里的 mirror url）→ 一个不通另一个通。
+#       📌 换源后 **Maven 的本地仓库缓存仍复用**（同一个 ~/.m2）→ 已下过的依赖不重下。
 RUN --mount=type=cache,target=/root/.m2/repository \
     set -eu; \
     attempt=1; \
     while [ "$attempt" -le 3 ]; do \
-      if timeout 600 mvn -B clean package -DskipTests \
+      if [ "$attempt" -gt 1 ]; then \
+        if [ "$attempt" -eq 2 ]; then \
+          MIRROR_TO_USE="${MAVEN_MIRROR_FALLBACK_URL}"; \
+        else \
+          MIRROR_TO_USE="${MAVEN_MIRROR_FALLBACK2_URL}"; \
+        fi; \
+        echo "::warning::第 $attempt 次尝试：换源到 ${MIRROR_TO_USE}"; \
+        printf '%s\n' \
+          '<settings>' \
+          '  <mirrors>' \
+          '    <mirror>' \
+          '      <id>ci-central</id>' \
+          "      <url>${MIRROR_TO_USE}</url>" \
+          '      <mirrorOf>central</mirrorOf>' \
+          '    </mirror>' \
+          '  </mirrors>' \
+          '</settings>' > /root/.m2/settings.xml; \
+        # 🔴 **必须清掉失败负缓存**（2026-11-19 第 317 轮本地实测）：
+        #    Maven 把「某个 (仓库id,url) 下没找到」记进 `*.lastUpdated` →
+        #    **同一个 id + 同一个 url 再来一次 = 直接复用失败结论、真正的 pom 不再请求**
+        #    （实测：命中缓存时服务器只收到 2 个 metadata 探测；换 URL / 加 -U / 清掉它 → 收到 18 个）
+        #    → gha 的 maven cache 会把 `.lastUpdated` **一起带进下一次构建** → 不清就是「继承上一轮的失败」。
+        find /root/.m2/repository -name "*.lastUpdated" -delete 2>/dev/null || true; \
+        sleep 15; \
+      fi; \
+      if timeout 600 mvn -B -U clean package -DskipTests \
            -Dmaven.wagon.http.retryHandler.count=3 \
            -Dmaven.wagon.httpconnectionManager.ttlSeconds=60 \
            -Dmaven.wagon.http.pool=false \
