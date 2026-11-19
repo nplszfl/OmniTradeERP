@@ -111,6 +111,95 @@ def count_job_level_entries(zpath):
     return n
 
 
+def run_attempt_number(run_id):
+    """该 run 当前是第几次尝试（复跑过 > 1）。取不到返回 None。"""
+    try:
+        d = gh_json(["api", f"repos/{REPO}/actions/runs/{run_id}"])
+        return int(d.get("run_attempt") or 1)
+    except Exception:
+        return None
+
+
+def real_jobs_of_run(run_id):
+    """取该 run **真正跑过**的 job 列表（排除复跑残留的幽灵记录）。
+
+    📌 **规则 561**：`/attempts/N/jobs` 会残留多条同名 `queued`/null（`runner=null`）的幽灵记录
+       → 只认 **runner_name 非空 且 conclusion 非空** 的那些。
+       → 否则 job 数会被虚高 → 「job 级 entry 数 >= job 数」的对账判据**永远过不了**。
+    📌 取不到 attempts 列表 → 退回 run 级 `/jobs`。
+    """
+    attempt = run_attempt_number(run_id)
+    jobs = None
+    if attempt:
+        try:
+            d = gh_json(["api",
+                         f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100"])
+            jobs = d.get("jobs") or []
+        except Exception:
+            jobs = None
+    if not jobs:
+        d = gh_json(["api", f"repos/{REPO}/actions/runs/{run_id}/jobs?per_page=100"])
+        jobs = d.get("jobs") or []
+    real = [j for j in jobs if j.get("runner_name") and j.get("conclusion")]
+    return real, attempt
+
+
+def download_job_logs_zip(run_id, dest, retries=2):
+    """**降级路径**：逐 job 拉日志，合成一个 **同样结构** 的 ZIP。
+
+    📌 **为什么必须有这条路径**（规则 563）：
+        `actions/runs/<id>/logs` 的**整 run ZIP** 对**复跑过（`run_attempt` > 1）**的 run 是**残的**
+        → ZIP **合法**、`testzip()` 也过，但**只含部分 job** 的 entry
+        → 直接统计闸门并集会**假红「漏跑 N 道」**。
+        → 必须：**先数 job 级 entry 数 vs job 数**，不够就**降级到 job 级**逐 job 拉。
+
+    📌 逐 job 端点 `actions/jobs/<id>/logs` 返回的是**纯文本**（不是 ZIP，规则 371），
+       这里把它包成 ZIP entry → 让下游 `classify_entries` 的口径**完全不变**
+       （job 级 entry = 含 `Runner Image Provisioner` 的那份）。
+       📌 **实测 2026-11-19**：逐 job 拉 31 个 job → **31/31 非空**、**31/31 含该标记**
+       → 分类与测试数口径与整 run ZIP 一致（1083 = 1083，per 与 agg 交叉验一致）。
+       ⚠️ 但仍要**逐个验非空**（规则 371：`gh api` 可能静默返 0 字节）→ 空的就重试。
+    """
+    real, attempt = real_jobs_of_run(run_id)
+    if not real:
+        raise SystemExit(f"❌ run {run_id} 取不到「真正跑过」的 job 列表（幽灵记录已过滤）")
+    entries = []
+    empty = []
+    for j in real:
+        jid, name = j["id"], (j.get("name") or f"job-{jid}")
+        text = b""
+        for _ in range(retries):
+            try:
+                r = sh(["gh", "api", f"repos/{REPO}/actions/jobs/{jid}/logs"], binary=True)
+            except subprocess.TimeoutExpired:
+                time.sleep(2)
+                continue
+            if r.returncode == 0 and r.stdout:
+                text = r.stdout
+                break
+            time.sleep(2)
+        if not text:
+            empty.append(name)
+            continue
+        entries.append((f"{jid}_{name}.txt", text.decode("utf-8", "replace")))
+        time.sleep(0.2)
+    if empty:
+        # 📌 **不静默放行**：取不全就报「无法判定」（规则 301/465）
+        raise SystemExit(
+            f"❌ 逐 job 降级取数失败：{len(empty)}/{len(real)} 个 job 日志取不到 → {empty[:5]}\n"
+            f"   ⚠️ **「取不到日志」≠「该 workflow 没闸门」**（规则 131/301）")
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, text in entries:
+            z.writestr(name, text)
+    # 📌 **数量对账**（规则 137）：job 级 entry 数必须 >= 真正跑过的 job 数
+    n_job_level = count_job_level_entries(dest)
+    if n_job_level < len(real):
+        raise SystemExit(
+            f"❌ 逐 job 降级后仍对不上：job 级 entry {n_job_level} < 真正跑过的 job 数 {len(real)}"
+            f"（attempt={attempt}）")
+    return dest
+
+
 def download_log_zip(run_id, dest, retries=3):
     """下载整个 run 的日志 ZIP（**只用 Python zipfile 解**）。
 
@@ -187,10 +276,16 @@ def download_log_zip(run_id, dest, retries=3):
                         last_err = f"不是合法 ZIP：{e}"
         if attempt < retries:
             time.sleep(3 * attempt)
-    raise SystemExit(
-        f"❌ 拉取 run {run_id} 日志失败（已重试 {retries} 次）：{last_err}\n"
-        f"   ⚠️ `gh api .../actions/jobs/<id>/logs` 会**静默返 0 字节**，别用它（用整 run 的 logs）\n"
-        f"   ⚠️ **「取不到日志」与「该 workflow 没闸门」必须分开** —— 上层不能把前者当成后者（规则 131）")
+    # 📌 **降级到 job 级**（规则 563）：整 run ZIP 对**复跑过**的 run 是残的
+    #    → 整 run 路径取不全时，**不能只报错**，必须换路径再试一次。
+    try:
+        return download_job_logs_zip(run_id, dest)
+    except SystemExit as e:
+        raise SystemExit(
+            f"❌ 拉取 run {run_id} 日志失败（整 run ZIP 重试 {retries} 次 + job 级降级都失败）：\n"
+            f"   · 整 run ZIP：{last_err}\n"
+            f"   · job 级降级：{str(e)[:300]}\n"
+            f"   ⚠️ **「取不到日志」与「该 workflow 没闸门」必须分开** —— 上层不能把前者当成后者（规则 131）")
 
 
 def classify_entries(zpath):
