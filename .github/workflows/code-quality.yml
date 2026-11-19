@@ -96,6 +96,14 @@ jobs:
         # 📌 网关路由覆盖率（前端 → 网关 → 服务收到路径 → controller 接口）
         #    补 `check-gateway-strip.py` 的盲区：**压根没这条路由**它发现不了。
         python3 scripts/check-gateway-route-coverage.py
+        # 📌 **K8s 清单引用完整性**（第 79 道闸门 · 2026-11-19 新增）
+        #    `k8s/mysql.yaml` 挂了 ConfigMap `mysql-init-script`，但**全仓从未定义它**
+        #    → Pod 卡在 ContainerCreating → `deploy.sh` 的 `kubectl wait` 超时 300s
+        #    → 脚本 `set -euo pipefail` → **整条部署链断在第一步**（Redis/Nacos/所有服务都部署不了）
+        #    📌 **CI 原来永远抓不到**：CI 的 deploy step 因 `KUBE_CONFIG` 未配置而**整段跳过**
+        #    → 所以这个缺陷能一路绿到真实部署才炸。
+        #    ✅ 本闸门**不依赖集群**，纯静态解析（yaml 定义 + 脚本会创建的两个来源）
+        python3 scripts/check-k8s-resource-refs.py
 
     # 📌 后续补的巡检也要进来 —— **闸门不跑 = 不存在**，
     #    之前只跑前 6 个，后 10 个的盲区就是这么活下来的。

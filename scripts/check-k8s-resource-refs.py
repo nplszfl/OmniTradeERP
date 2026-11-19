@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""K8s 清单的「引用完整性」闸门：volume 挂载的 ConfigMap / Secret 必须真的存在。
+
+🔴 **为什么需要这个闸门**（2026-11-19 实测定位的真缺陷）：
+   `k8s/mysql.yaml` 的 StatefulSet 挂了 ConfigMap `mysql-init-script`
+   → 但**全仓从未定义它**（`k8s/*.yaml` 里没有，也没有任何脚本 `kubectl create configmap` 它）
+   → Pod 卡在 `ContainerCreating`：`MountVolume.SetUp failed ... configmap "mysql-init-script" not found`
+   → `k8s/deploy.sh` 的 `kubectl wait --for=condition=ready pod -l app=mysql --timeout=300s`
+      **超时 300 秒** → 脚本 `set -euo pipefail` → **整条部署链中止**
+   → Redis / Nacos / 所有业务服务**一个都部署不了**。
+   📌 **CI 永远抓不到**：CI 的 deploy step 因 `KUBE_CONFIG` 未配置而**整段跳过**（规则 101/146）
+   → 所以必须有一个**不依赖集群**的静态闸门。
+
+📌 **判定口径**：
+   「可用的 ConfigMap/Secret 集合」 = ① `k8s/*.yaml` 里 `kind: ConfigMap/Secret` 定义出来的
+   ② `k8s/*.sh` / `scripts/*.sh` 里 `kubectl ... create configmap|secret <name>` **会创建**的
+   （② 很重要：`mysql-init-script` 属于这一类 —— 由 `k8s/create-mysql-init-configmap.sh` 生成）
+
+📌 **退出码**：0 = 全绿；1 = 有引用解析不了（**部署必挂**）
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+K8S_DIR = ROOT / "k8s"
+SCRIPT_DIRS = [ROOT / "k8s", ROOT / "scripts"]
+
+
+def collect_defined() -> dict[tuple[str, str], list[str]]:
+    """k8s/*.yaml 里定义的 ConfigMap / Secret → {(kind, name): [文件]}"""
+    defined: dict[tuple[str, str], list[str]] = {}
+    for f in sorted(K8S_DIR.glob("*.yaml")):
+        try:
+            docs = list(yaml.safe_load_all(f.read_text(encoding="utf-8")))
+        except Exception as exc:  # 解析失败 → 判失败，不能静默跳过
+            print(f"❌ 解析 {f.name} 失败: {exc}", file=sys.stderr)
+            sys.exit(1)
+        for d in docs:
+            if not isinstance(d, dict):
+                continue
+            kind = d.get("kind")
+            name = (d.get("metadata") or {}).get("name")
+            if kind in ("ConfigMap", "Secret") and name:
+                defined.setdefault((kind, name), []).append(f.name)
+    return defined
+
+
+def collect_script_created() -> dict[tuple[str, str], list[str]]:
+    """脚本里 `kubectl ... create configmap|secret <name>` 会创建的。
+
+    📌 **必须认全「名字是变量」的形态**（规则 100/475：判据只认一种形态 = 静默失明）：
+       本仓自己就是这么写的 → `kubectl ... create configmap "${CM_NAME}"`
+       → 只按字面名匹配会**漏掉它** → 闸门误报「缺失」→ 逼人改代码。
+       → 处置：先收集脚本里的 `VAR="value"` 赋值，再把 `${VAR}` / `$VAR` 解析成字面值。
+    """
+    created: dict[tuple[str, str], list[str]] = {}
+    # ① create 语句：名字允许是字面名或变量引用
+    pat = re.compile(
+        r"kubectl[^\n|]*?\bcreate\s+(configmap|secret)\s+(?:generic\s+)?"
+        r"[\"']?(\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|[A-Za-z0-9_.-]+)[\"']?",
+        re.I,
+    )
+    for d in SCRIPT_DIRS:
+        if not d.is_dir():
+            continue
+        for f in sorted(d.glob("*.sh")):
+            txt = f.read_text(encoding="utf-8", errors="replace")
+            # ② 收集变量赋值：VAR="value" / VAR=value（只取简单字面量）
+            assigns: dict[str, str] = {}
+            for am in re.finditer(
+                r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=[\"']?([^\"'\n]+)[\"']?\s*$",
+                txt, re.M,
+            ):
+                assigns[am.group(1)] = am.group(2).strip()
+            for m in pat.finditer(txt):
+                kind = "ConfigMap" if m.group(1).lower() == "configmap" else "Secret"
+                raw = m.group(2)
+                # ③ 变量 → 字面值（找不到就留原样，那说明真的没定义）
+                name = raw
+                vm = re.match(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$", raw)
+                if vm:
+                    name = assigns.get(vm.group(1), raw)
+                created.setdefault((kind, name), []).append(f.name)
+    return created
+
+
+def collect_refs() -> list[tuple[str, str, str]]:
+    """所有 volume → configMap/secretName 引用 → [(kind, name, 文件)]"""
+    refs: list[tuple[str, str, str]] = []
+
+    def walk(node, file_name, path, volumes):
+        if isinstance(node, dict):
+            # volumes: [] 里声明的 {name, configMap:{name}} / {name, secret:{secretName}}
+            vols = node.get("volumes")
+            if isinstance(vols, list):
+                for v in vols:
+                    if not isinstance(v, dict):
+                        continue
+                    vn = v.get("name")
+                    cm = (v.get("configMap") or {}).get("name") if isinstance(v.get("configMap"), dict) else None
+                    sc = (v.get("secret") or {}).get("secretName") if isinstance(v.get("secret"), dict) else None
+                    if vn and cm:
+                        volumes.append(("ConfigMap", cm, f"{file_name}:volume[{vn}]"))
+                    if vn and sc:
+                        volumes.append(("Secret", sc, f"{file_name}:volume[{vn}]"))
+            for k, v in node.items():
+                walk(v, file_name, f"{path}.{k}", volumes)
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, file_name, f"{path}[{i}]", volumes)
+
+    for f in sorted(K8S_DIR.glob("*.yaml")):
+        docs = list(yaml.safe_load_all(f.read_text(encoding="utf-8")))
+        for d in docs:
+            if isinstance(d, dict):
+                walk(d, f.name, "", refs)
+    return refs
+
+
+def main() -> int:
+    print("🔎 巡检 K8s 清单的引用完整性（volume 挂载的 ConfigMap/Secret 是否存在）")
+    defined = collect_defined()
+    created = collect_script_created()
+    available = set(defined) | set(created)
+    refs = collect_refs()
+
+    print(f"ℹ️  yaml 里定义的对象: ConfigMap {sum(1 for k, _ in available if k == 'ConfigMap')} 个 / "
+          f"Secret {sum(1 for k, _ in available if k == 'Secret')} 个")
+    print(f"ℹ️  脚本会创建的:      ConfigMap {sum(1 for k, _ in created if k == 'ConfigMap')} 个 / "
+          f"Secret {sum(1 for k, _ in created if k == 'Secret')} 个")
+    print(f"ℹ️  待判引用数: {len(refs)}")
+
+    if not refs:
+        print("❌ 一个引用都没读到 → 提取器失效，不能判定", file=sys.stderr)
+        return 1
+
+    missing = []
+    for kind, name, where in refs:
+        if (kind, name) not in available:
+            missing.append((kind, name, where))
+
+    for kind, name, where in refs:
+        src = defined.get((kind, name)) or created.get((kind, name))
+        tag = "yaml 定义" if (kind, name) in defined else ("脚本创建" if (kind, name) in created else "🔴 缺失")
+        print(f"   {'✅' if tag != '🔴 缺失' else '🔴'} {kind}/{name:28} ← {tag:8} ({where})")
+
+    if missing:
+        print()
+        print(f"❌ {len(missing)} 个引用解析不了 → **部署必挂**（Pod 卡在 ContainerCreating）")
+        for kind, name, where in missing:
+            print(f"   ❌ {kind}/{name} ← {where}")
+        print("✅ 修法：① 在 k8s/*.yaml 里补上定义；或 ② 在部署脚本里 `kubectl create "
+              f"{kind.lower()} {name}`")
+        return 1
+
+    print()
+    print("✅ 所有 volume 挂载的 ConfigMap/Secret 都能解析")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

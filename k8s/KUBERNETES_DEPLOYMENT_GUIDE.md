@@ -128,6 +128,14 @@ kubectl apply -f namespace.yaml
 ### 第3步：部署基础设施
 
 ```bash
+# 🔴 **先建数据库初始化 ConfigMap**（2026-11-19 修）
+#    mysql.yaml 的 StatefulSet 挂载了 ConfigMap `mysql-init-script`，
+#    但它**不在任何 yaml 里定义** → 不先建，MySQL Pod 会卡在 ContainerCreating，
+#    下面的 `kubectl wait` 必然超时 300s → 部署链断在第一步。
+#    （脚本从 ../database/*.sql 生成；**序号前缀强制「schema 先、seed 后」**，
+#      因为 Docker init 按文件名字母序执行 → 字母序下 seed 会排在建表文件之前）
+bash create-mysql-init-configmap.sh
+
 # 部署 MySQL
 kubectl apply -f mysql.yaml
 

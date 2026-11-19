@@ -19,6 +19,16 @@ kubectl create namespace erp --dry-run=client -o yaml | kubectl apply -f -
 
 # 部署MySQL
 echo "🗄️  部署MySQL..."
+# 🔴 **必须先建 `mysql-init-script` ConfigMap**（2026-11-19 修）
+#    📌 `k8s/mysql.yaml` 的 StatefulSet 挂了 ConfigMap `mysql-init-script`
+#       → 但**全仓从未定义它** → Pod 卡在 `ContainerCreating`
+#       → 下面 `kubectl wait --for=condition=ready pod -l app=mysql` **超时 300s**
+#       → 本脚本 `set -euo pipefail` → **整条部署链中止**（Redis/Nacos/所有服务都部署不了）
+#    📌 **CI 抓不到**：CI 的 deploy step 因 `KUBE_CONFIG` 未配置而**整段跳过**
+#    ✅ 修：脚本从 `database/*.sql` 生成 ConfigMap（**单一真源**，不在 yaml 里复制 SQL）
+#       → 并用**序号前缀**强制「schema 先、seed 后」（Docker init 按字母序执行，规则 61）
+echo "📦 准备数据库初始化 ConfigMap..."
+bash k8s/create-mysql-init-configmap.sh
 kubectl apply -f k8s/mysql.yaml
 
 # 🔴 **JWT 签名密钥**（2026-11-12 新增）
