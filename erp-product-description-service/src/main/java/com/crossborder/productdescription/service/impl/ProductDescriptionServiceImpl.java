@@ -10,6 +10,7 @@ import com.crossborder.productdescription.dto.FrontendDescriptionSaveRequest;
 import com.crossborder.productdescription.dto.FrontendDescriptionSaveResponse;
 import com.crossborder.productdescription.entity.ProductBrief;
 import com.crossborder.productdescription.entity.ProductDescription;
+import com.crossborder.productdescription.service.DescriptionGenerationTaskService;
 import com.crossborder.productdescription.service.ProductCatalogService;
 import com.crossborder.productdescription.service.ProductDescriptionRecordService;
 import com.crossborder.productdescription.service.ProductDescriptionService;
@@ -80,20 +81,64 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     /** 商品主数据（sku ↔ productId 解析） */
     private final ProductCatalogService productCatalogService;
 
+    /**
+     * 描述生成任务审计（表 {@code description_generation_task}）
+     *
+     * <p>📌 **2026-11-19 新增**：之前这张表有 DDL、没代码 → 永远 0 行 →
+     * 「这批生成跑没跑 / 成没成 / 成几条 / 失败在哪」没有事实来源。</p>
+     */
+    private final DescriptionGenerationTaskService descriptionGenerationTaskService;
+
     private final RestTemplate restTemplate = new RestTemplate();
 
     public ProductDescriptionServiceImpl(
             LLMConfig llmConfig,
             ProductDescriptionRecordService productDescriptionRecordService,
-            ProductCatalogService productCatalogService) {
+            ProductCatalogService productCatalogService,
+            DescriptionGenerationTaskService descriptionGenerationTaskService) {
         this.llmConfig = llmConfig;
         this.productDescriptionRecordService = productDescriptionRecordService;
         this.productCatalogService = productCatalogService;
+        this.descriptionGenerationTaskService = descriptionGenerationTaskService;
         initTemplates();
     }
 
     @Override
     public DescriptionGenerationResponse generateDescription(DescriptionGenerationRequest request) {
+        // 📌 **单条入口 = 记一条 SINGLE 任务**
+        //    （批量/多语言/A-B 走各自的入口记一条，不会在下面重复记）
+        Long taskId = descriptionGenerationTaskService.startTask(
+                DescriptionGenerationTaskService.TASK_TYPE_SINGLE,
+                request == null ? null : request.getProductId(),
+                request == null ? null : request.getTargetLanguage(),
+                request == null ? null : request.getTargetPlatform(),
+                1);
+        long begin = System.currentTimeMillis();
+        try {
+            DescriptionGenerationResponse response = doGenerateDescription(request);
+            if (response.getError() != null && !response.getError().isBlank()) {
+                descriptionGenerationTaskService.failTask(taskId, 0, 1,
+                        System.currentTimeMillis() - begin, response.getError());
+            } else {
+                descriptionGenerationTaskService.completeTask(taskId, 1, 0,
+                        System.currentTimeMillis() - begin);
+            }
+            return response;
+        } catch (Exception e) {
+            descriptionGenerationTaskService.failTask(taskId, 0, 1,
+                    System.currentTimeMillis() - begin, e.getMessage());
+            throw e;
+        }
+    }
+
+    /**
+     * **真正的生成逻辑**（不记任务）
+     *
+     * <p>📌 **为什么要拆开**：批量生成会调用 N 次「生成」——
+     * 如果记账写在生成里，就会写 **N + 1** 行（1 条批量 + N 条单条）→ 语义乱、统计对不上。
+     * → 现在记账只发生在**最外层入口**（单条 / 批量 / 多语言 / A-B），各记一条。</p>
+     */
+    private DescriptionGenerationResponse doGenerateDescription(DescriptionGenerationRequest request) {
         log.info("生成产品描述 - 产品ID: {}, 产品名称: {}", 
                 request.getProductId(), request.getProductName());
 
@@ -184,9 +229,26 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
             List<DescriptionGenerationRequest> requests) {
         log.info("批量生成产品描述 - 数量: {}", requests.size());
 
-        return requests.stream()
-                .map(this::generateDescription)
-                .toList();
+        // 📌 批量 = **记一条** BATCH 任务（不是 N 条单条）
+        Long taskId = descriptionGenerationTaskService.startTask(
+                DescriptionGenerationTaskService.TASK_TYPE_BATCH,
+                null, null, null, requests == null ? 0 : requests.size());
+        long begin = System.currentTimeMillis();
+        try {
+            List<DescriptionGenerationResponse> responses = (requests == null ? List.<DescriptionGenerationRequest>of() : requests)
+                    .stream()
+                    .map(this::doGenerateDescription)
+                    .toList();
+            int success = descriptionGenerationTaskService.countSuccess(responses);
+            int total = responses.size();
+            descriptionGenerationTaskService.completeTask(taskId, success, total - success,
+                    System.currentTimeMillis() - begin);
+            return responses;
+        } catch (Exception e) {
+            descriptionGenerationTaskService.failTask(taskId, 0, 0,
+                    System.currentTimeMillis() - begin, e.getMessage());
+            throw e;
+        }
     }
 
     @Override
@@ -195,20 +257,35 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
             List<String> languages) {
         log.info("生成多语言描述 - 产品ID: {}, 语言: {}", productId, languages);
 
-        List<DescriptionGenerationResponse> responses = new ArrayList<>();
+        // 📌 多语言 = **记一条** MULTI_LANGUAGE 任务
+        Long taskId = descriptionGenerationTaskService.startTask(
+                DescriptionGenerationTaskService.TASK_TYPE_MULTI_LANGUAGE,
+                productId, null, null, languages == null ? 0 : languages.size());
+        long begin = System.currentTimeMillis();
+        try {
+            List<DescriptionGenerationResponse> responses = new ArrayList<>();
 
-        for (String language : languages) {
-            DescriptionGenerationRequest request = new DescriptionGenerationRequest();
-            request.setProductId(productId);
-            request.setProductName(getProductNameById(productId));
-            request.setTargetLanguage(language);
-            request.setFeatures(getProductFeatures(productId));
-            request.setKeywords(getProductKeywords(productId));
+            for (String language : languages) {
+                DescriptionGenerationRequest request = new DescriptionGenerationRequest();
+                request.setProductId(productId);
+                request.setProductName(getProductNameById(productId));
+                request.setTargetLanguage(language);
+                request.setFeatures(getProductFeatures(productId));
+                request.setKeywords(getProductKeywords(productId));
 
-            responses.add(generateDescription(request));
+                responses.add(doGenerateDescription(request));
+            }
+
+            int success = descriptionGenerationTaskService.countSuccess(responses);
+            int total = responses.size();
+            descriptionGenerationTaskService.completeTask(taskId, success, total - success,
+                    System.currentTimeMillis() - begin);
+            return responses;
+        } catch (Exception e) {
+            descriptionGenerationTaskService.failTask(taskId, 0, 0,
+                    System.currentTimeMillis() - begin, e.getMessage());
+            throw e;
         }
-
-        return responses;
     }
 
     @Override
@@ -239,23 +316,38 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
             Integer versionCount) {
         log.info("生成A/B测试版本 - 产品ID: {}, 版本数: {}", productId, versionCount);
 
-        List<DescriptionGenerationResponse> versions = new ArrayList<>();
+        // 📌 A/B = **记一条** AB_TEST 任务
+        Long taskId = descriptionGenerationTaskService.startTask(
+                DescriptionGenerationTaskService.TASK_TYPE_AB_TEST,
+                productId, null, null, versionCount == null ? 0 : versionCount);
+        long begin = System.currentTimeMillis();
+        try {
+            List<DescriptionGenerationResponse> versions = new ArrayList<>();
 
-        for (int i = 0; i < versionCount; i++) {
-            DescriptionGenerationRequest request = new DescriptionGenerationRequest();
-            request.setProductId(productId);
-            request.setProductName(getProductNameById(productId));
-            request.setFeatures(getProductFeatures(productId));
-            request.setKeywords(getProductKeywords(productId));
-            request.setTemperature(0.5 + i * 0.2); // 不同温度
+            for (int i = 0; i < versionCount; i++) {
+                DescriptionGenerationRequest request = new DescriptionGenerationRequest();
+                request.setProductId(productId);
+                request.setProductName(getProductNameById(productId));
+                request.setFeatures(getProductFeatures(productId));
+                request.setKeywords(getProductKeywords(productId));
+                request.setTemperature(0.5 + i * 0.2); // 不同温度
 
-            DescriptionGenerationResponse response = generateDescription(request);
-            response.setVersionNumber(i + 1);
+                DescriptionGenerationResponse response = doGenerateDescription(request);
+                response.setVersionNumber(i + 1);
 
-            versions.add(response);
+                versions.add(response);
+            }
+
+            int success = descriptionGenerationTaskService.countSuccess(versions);
+            int total = versions.size();
+            descriptionGenerationTaskService.completeTask(taskId, success, total - success,
+                    System.currentTimeMillis() - begin);
+            return versions;
+        } catch (Exception e) {
+            descriptionGenerationTaskService.failTask(taskId, 0, 0,
+                    System.currentTimeMillis() - begin, e.getMessage());
+            throw e;
         }
-
-        return versions;
     }
 
     /**
@@ -385,6 +477,13 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     public String batchImportProducts(List<Long> productIds) {
         log.info("批量导入产品描述 - 数量: {}", productIds.size());
 
+        // 📌 批量导入 = **记一条** BATCH 任务（DDL 的 task_type 列举里没有 IMPORT，
+        //    导入归 BATCH；内部调 doGenerateDescription → 不会多写 N 条 SINGLE）
+        Long taskId = descriptionGenerationTaskService.startTask(
+                DescriptionGenerationTaskService.TASK_TYPE_BATCH,
+                null, null, null, productIds == null ? 0 : productIds.size());
+        long begin = System.currentTimeMillis();
+
         int successCount = 0;
         int failCount = 0;
 
@@ -396,7 +495,7 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
                 request.setFeatures(getProductFeatures(productId));
                 request.setKeywords(getProductKeywords(productId));
 
-                DescriptionGenerationResponse response = generateDescription(request);
+                DescriptionGenerationResponse response = doGenerateDescription(request);
                 if (saveDescription(response)) {
                     successCount++;
                 } else {
@@ -409,6 +508,8 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         }
 
         log.info("批量导入完成 - 成功: {}, 失败: {}", successCount, failCount);
+        descriptionGenerationTaskService.completeTask(taskId, successCount, failCount,
+                System.currentTimeMillis() - begin);
         return String.format("批量导入完成！成功: %d, 失败: %d", successCount, failCount);
     }
 

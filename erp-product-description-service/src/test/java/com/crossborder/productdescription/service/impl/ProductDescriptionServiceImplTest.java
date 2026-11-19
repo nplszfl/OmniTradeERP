@@ -51,7 +51,8 @@ class ProductDescriptionServiceImplTest {
                 productBrief(1L)));
 
         productDescriptionService = new ProductDescriptionServiceImpl(
-                new LLMConfig(), recordService, catalogService);
+                new LLMConfig(), recordService, catalogService,
+                mock(com.crossborder.productdescription.service.DescriptionGenerationTaskService.class));
     }
 
     private ProductBrief productBrief(Long id) {

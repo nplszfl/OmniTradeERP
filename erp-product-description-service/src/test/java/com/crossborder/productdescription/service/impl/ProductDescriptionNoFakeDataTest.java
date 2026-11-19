@@ -50,7 +50,8 @@ class ProductDescriptionNoFakeDataTest {
         when(recordService.listByProductId(anyLong())).thenReturn(List.of());
 
         service = new ProductDescriptionServiceImpl(
-                new LLMConfig(), recordService, catalogService);
+                new LLMConfig(), recordService, catalogService,
+                mock(com.crossborder.productdescription.service.DescriptionGenerationTaskService.class));
     }
 
     /** 让 id → (商品名, 描述) 的映射可配 */
