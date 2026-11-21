@@ -5,11 +5,11 @@
 
 ## 统计
 
-- 后端 HTTP 接口：**474** 个
+- 后端 HTTP 接口：**477** 个
 - 前端代码真正调用：**208** 处
 - 服务间引用：**2** 处
 - 网关路由：**36** 条
-- 疑似死接口：**258** 个
+- 疑似死接口：**261** 个
 
 ## 怎么读这份清单
 
@@ -92,7 +92,7 @@
 
 ## 清单
 
-### erp-ai-assistant-service（16 个）
+### erp-ai-assistant-service（19 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
@@ -103,13 +103,16 @@
 | DELETE | `/api/ai/knowledge/documents/{id}` |  |
 | GET | `/api/ai/knowledge/search` |  |
 | POST | `/api/v1/ai-assistant/chat/stream` |  |
+| POST | `/api/v1/ai-assistant/feedback` |  |
 | GET | `/api/v1/ai-assistant/health` |  |
 | GET | `/api/v1/ai-assistant/history/{userId}` |  |
 | DELETE | `/api/v1/ai-assistant/history/{userId}` |  |
 | POST | `/api/v1/ai-assistant/intent` |  |
+| POST | `/api/v1/ai-assistant/intent/with-context` |  |
 | POST | `/api/v1/ai-assistant/knowledge/batch` |  |
 | GET | `/api/v1/ai-assistant/knowledge/search` |  |
 | POST | `/api/v1/ai-assistant/sentiment` |  |
+| POST | `/api/v1/ai-assistant/sentiment/with-context` |  |
 | GET | `/api/v1/ai-assistant/statistics` |  |
 | POST | `/api/v1/ai-assistant/statistics/reset` |  |
 
