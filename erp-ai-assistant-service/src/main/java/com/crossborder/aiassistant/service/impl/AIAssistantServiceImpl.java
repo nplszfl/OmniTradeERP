@@ -6,7 +6,13 @@ import com.crossborder.aiassistant.dto.ChatRequest;
 import com.crossborder.aiassistant.dto.ChatResponse;
 import com.crossborder.aiassistant.dto.ServiceStatistics;
 import com.crossborder.aiassistant.entity.KnowledgeBase;
+import com.crossborder.aiassistant.entity.IntentRecognitionLog;
+import com.crossborder.aiassistant.entity.SentimentAnalysisLog;
+import com.crossborder.aiassistant.entity.UserFeedback;
+import com.crossborder.aiassistant.repository.IntentRecognitionLogRepository;
 import com.crossborder.aiassistant.repository.KnowledgeBaseRepository;
+import com.crossborder.aiassistant.repository.SentimentAnalysisLogRepository;
+import com.crossborder.aiassistant.repository.UserFeedbackRepository;
 import com.crossborder.aiassistant.service.AIAssistantService;
 import com.crossborder.aiassistant.service.ChatSessionStore;
 import com.crossborder.aiassistant.service.DomainSynonyms;
@@ -22,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import reactor.core.publisher.Flux;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,6 +50,17 @@ public class AIAssistantServiceImpl implements AIAssistantService {
      * （说这次回答是 deepseek-chat 产生的，实际是一段固定模板）。
      */
     private static final String MOCK_MODEL_NAME = "mock";
+
+    /**
+     * 📌 **2026-11-20 新增**：合法的反馈类型白名单。
+     *
+     * <p>DB 里 {@code user_feedback.feedback_type} 是 {@code VARCHAR(20)}，
+     * 但 VARCHAR(20) **不限制取值** —— 不做校验的话，任意字符串都能塞进去
+     * → 「按类型统计」会出现第 4、第 5 种类型 → 运营看板的饼图变成噪音。
+     * 三个取值与 DDL 注释一致：helpful / not_helpful / incorrect。</p>
+     */
+    private static final Set<String> ALLOWED_FEEDBACK_TYPES = Set.of(
+            "helpful", "not_helpful", "incorrect");
 
     /**
      * 拉丁词（连续英文字母）—— 用于在相似度计算里把英文单独切词。
@@ -90,6 +108,34 @@ public class AIAssistantServiceImpl implements AIAssistantService {
      */
     @Autowired
     private KnowledgeBaseRepository knowledgeBaseRepository;
+
+    /**
+     * 📌 **2026-11-20 新增**：情感分析日志仓储（表 {@code sentiment_analysis_log}）。
+     *
+     * <p>这张表<b>早就有 DDL</b>，但此前<b>没有任何代码往里写</b> → 永远 0 行。
+     * 「用户情绪趋势」「差评预警」这类运营功能因此没有数据源。</p>
+     */
+    @Autowired
+    private SentimentAnalysisLogRepository sentimentAnalysisLogRepository;
+
+    /**
+     * 📌 **2026-11-20 新增**：意图识别日志仓储（表 {@code intent_recognition_log}）。
+     *
+     * <p>这张表<b>早就有 DDL</b>，但此前<b>没有任何代码往里写</b> → 永远 0 行。
+     * 「用户最常问什么」「意图分布」因此没有数据源。</p>
+     */
+    @Autowired
+    private IntentRecognitionLogRepository intentRecognitionLogRepository;
+
+    /**
+     * 📌 **2026-11-20 新增**：用户反馈仓储（表 {@code user_feedback}）。
+     *
+     * <p>这张表<b>早就有 DDL</b>，但全仓<b>没有任何一行代码</b>往里写 → 永远 0 行。
+     * 后果：客服回答好不好，系统自己不知道；{@code knowledge_base.helpful_count}
+     * 也因此永远是 0。</p>
+     */
+    @Autowired
+    private UserFeedbackRepository userFeedbackRepository;
 
     @Autowired
     private LLMConfig llmConfig;
@@ -303,6 +349,13 @@ public class AIAssistantServiceImpl implements AIAssistantService {
 
     @Override
     public SentimentAnalysis analyzeSentiment(String text) {
+        // 📌 **2026-11-20**：原实现只算不存 → {@code sentiment_analysis_log} 表永远 0 行。
+        //    现在统一走「带上下文的重载」，**没有上下文也照样落库**（userId/sessionId 可空）。
+        return analyzeSentiment(text, null, null);
+    }
+
+    @Override
+    public SentimentAnalysis analyzeSentiment(String text, Long userId, String sessionId) {
         log.info("分析情感 - 文本:长度 {}", text.length());
 
         SentimentAnalysis analysis = new SentimentAnalysis();
@@ -339,38 +392,100 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         analysis.setScore(score);
         analysis.setConfidence(Math.abs(score));
 
-        log.info("情感分析完成 - 情感: {}, 分数: {}", 
+        // 📌 **2026-11-20 新增**：落库（表 sentiment_analysis_log）
+        //    落库失败**不能**让分析结果丢失 → 降级 + 留痕（规则 11 / 43）。
+        persistSentimentLog(text, analysis, userId, sessionId);
+
+        log.info("情感分析完成 - 情感: {}, 分数: {}",
                 analysis.getSentiment(), analysis.getScore());
 
         return analysis;
     }
 
+    /**
+     * 把情感分析结果写入 {@code sentiment_analysis_log} 表。
+     *
+     * <p>📌 写日志**不能影响主流程** —— DB 抖一下不能让「分析情感」接口整个失败。
+     * → 失败时降级为「不落库」并 {@code log.error} 留痕（规则 11 / 43）。</p>
+     */
+    private void persistSentimentLog(String text, SentimentAnalysis analysis,
+                                     Long userId, String sessionId) {
+        try {
+            SentimentAnalysisLog row = SentimentAnalysisLog.builder()
+                    .userId(userId)
+                    .sessionId(sessionId)
+                    .text(text)
+                    .sentiment(analysis.getSentiment())
+                    .confidence(toBigDecimal(analysis.getConfidence()))
+                    .score(toBigDecimal(analysis.getScore()))
+                    .build();
+            sentimentAnalysisLogRepository.save(row);
+        } catch (Exception e) {
+            log.error("情感分析日志落库失败（已降级为不落库）- userId: {}, sessionId: {}",
+                    userId, sessionId, e);
+        }
+    }
+
     @Override
     public IntentRecognition recognizeIntent(String text) {
+        // 📌 **2026-11-20**：原实现只算不存 → {@code intent_recognition_log} 表永远 0 行。
+        //    现在统一走「带上下文的重载」，**没有上下文也照样落库**（userId/sessionId 可空）。
+        return recognizeIntent(text, null, null);
+    }
+
+    @Override
+    public IntentRecognition recognizeIntent(String text, Long userId, String sessionId) {
+        long startMs = System.currentTimeMillis();
         log.info("识别意图 - 文本: {}", text);
 
         IntentRecognition recognition = new IntentRecognition();
 
-        // 简化版意图识别（实际应该使用NLP模型）
+        // 📌 **2026-11-20 修正（真实缺陷）**：原代码这里连着两行
+        //    `intentPatterns.put("product_inquiry", ...)` —— Map 的 key 相同 →
+        //    **第二个 put 直接覆盖第一个** → 「产品/商品」这组关键词**彻底消失**，
+        //    而「退货/退款/refund」被错误归类成 `product_inquiry`。
+        //    → 意图识别的真实 bug：问「我要退货」返回 product_inquiry。
+        //    → 修法：退货/退款是**独立意图** `return_inquiry`，不能和商品查询共用 key。
         Map<String, List<String>> intentPatterns = new HashMap<>();
         intentPatterns.put("order_inquiry", Arrays.asList("订单", "order", "查询订单", "我的订单"));
         intentPatterns.put("price_inquiry", Arrays.asList("价格", "price", "多少钱", "费用"));
         intentPatterns.put("shipping_inquiry", Arrays.asList("物流", "shipping", "快递", "配送"));
         intentPatterns.put("product_inquiry", Arrays.asList("产品", "product", "商品", "物品"));
-        intentPatterns.put("product_inquiry", Arrays.asList("退货", "return", "退款", "refund"));
+        intentPatterns.put("return_inquiry", Arrays.asList("退货", "return", "退款", "refund"));
+
+        // 📌 **2026-11-20 修正**：原代码用 `HashMap`（**无序**）遍历 + `>` 比较打分 →
+        //    同分时胜者取决于 **hash 桶顺序**（JVM 版本/字符串哈希一变，结论就变）→
+        //    同样的输入可能两次给出不同意图。
+        //    → 改用 `LinkedHashMap`（**按声明顺序**）+ `>=` 比较 →
+        //      同分时**先声明的意图稳定胜出**，结果可复现。
+        //    → 并且把「关键词数多」的意图优先：命中越多关键词越可能是真意图。
+        Map<String, List<String>> orderedPatterns = new LinkedHashMap<>(intentPatterns);
 
         String bestIntent = "general_inquiry";
         double bestScore = 0;
+        int bestHits = 0;
 
-        for (Map.Entry<String, List<String>> entry : intentPatterns.entrySet()) {
+        for (Map.Entry<String, List<String>> entry : orderedPatterns.entrySet()) {
+            int hits = 0;
             for (String pattern : entry.getValue()) {
                 if (text.toLowerCase().contains(pattern.toLowerCase())) {
-                    double score = 1.0 / (entry.getValue().size());
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestIntent = entry.getKey();
-                    }
+                    hits++;
                 }
+            }
+            if (hits == 0) {
+                continue;
+            }
+            // 📌 打分口径修正：原代码 `score = 1.0 / 关键词总数` —— 命中的**关键词个数**
+            //    完全不参与打分（命中 1 个和命中 4 个得分一样）→ 判别力太弱。
+            //    现在：**命中数 / 关键词总数**（命中越多越像），
+            //    再用「命中总数」做同分时的次级比较。
+            double score = (double) hits / entry.getValue().size();
+            boolean better = score > bestScore
+                    || (score == bestScore && hits > bestHits);
+            if (better) {
+                bestScore = score;
+                bestHits = hits;
+                bestIntent = entry.getKey();
             }
         }
 
@@ -378,10 +493,87 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         recognition.setConfidence(bestScore);
         recognition.setEntities(extractEntities(text));
 
-        log.info("意图识别完成 - 意图: {}, 置信度: {}", 
+        // 📌 **2026-11-20 新增**：落库（表 intent_recognition_log）
+        //    落库失败**不能**让识别结果丢失 → 降级 + 留痕（规则 11 / 43）。
+        persistIntentLog(text, recognition, userId, sessionId,
+                (int) (System.currentTimeMillis() - startMs));
+
+        log.info("意图识别完成 - 意图: {}, 置信度: {}",
                 recognition.getIntent(), recognition.getConfidence());
 
         return recognition;
+    }
+
+    /**
+     * 把意图识别结果写入 {@code intent_recognition_log} 表。
+     *
+     * <p>📌 写日志**不能影响主流程** —— DB 抖一下不能让「识别意图」接口整个失败。
+     * → 失败时降级为「不落库」并 {@code log.error} 留痕（规则 11 / 43）。</p>
+     */
+    private void persistIntentLog(String text, IntentRecognition recognition,
+                                  Long userId, String sessionId, int processingTimeMs) {
+        try {
+            List<String> entities = recognition.getEntities();
+            IntentRecognitionLog row = IntentRecognitionLog.builder()
+                    .userId(userId)
+                    .sessionId(sessionId)
+                    .text(text)
+                    .recognizedIntent(recognition.getIntent())
+                    .confidence(toBigDecimal(recognition.getConfidence()))
+                    .entities(entities == null || entities.isEmpty()
+                            ? null
+                            : com.alibaba.fastjson2.JSON.toJSONString(entities))
+                    .processingTimeMs(processingTimeMs)
+                    .build();
+            intentRecognitionLogRepository.save(row);
+        } catch (Exception e) {
+            log.error("意图识别日志落库失败（已降级为不落库）- userId: {}, sessionId: {}",
+                    userId, sessionId, e);
+        }
+    }
+
+    @Override
+    public Feedback submitFeedback(Feedback feedback) {
+        if (feedback == null) {
+            throw new IllegalArgumentException("反馈内容不能为空");
+        }
+        if (feedback.getUserId() == null) {
+            throw new IllegalArgumentException("反馈用户ID不能为空");
+        }
+        String type = feedback.getFeedbackType();
+        if (type == null || type.isBlank()) {
+            throw new IllegalArgumentException("反馈类型不能为空");
+        }
+        // 📌 归一化 + 白名单校验：DB 里 feedback_type 是 VARCHAR(20)，
+        //    塞进去任意字符串会让「按类型统计」失去意义（出现第 4、第 5 种类型）。
+        String normalized = type.trim().toLowerCase(Locale.ROOT);
+        if (!ALLOWED_FEEDBACK_TYPES.contains(normalized)) {
+            throw new IllegalArgumentException(
+                    "反馈类型必须是 " + ALLOWED_FEEDBACK_TYPES + " 之一，实际: " + type);
+        }
+        Integer rating = feedback.getRating();
+        if (rating != null && (rating < 1 || rating > 5)) {
+            throw new IllegalArgumentException("评分必须在 1~5 之间，实际: " + rating);
+        }
+
+        UserFeedback entity = UserFeedback.builder()
+                .userId(feedback.getUserId())
+                .sessionId(feedback.getSessionId())
+                .messageId(feedback.getMessageId())
+                .feedbackType(normalized)
+                .rating(rating)
+                .comment(feedback.getComment())
+                .build();
+        UserFeedback saved = userFeedbackRepository.save(entity);
+
+        feedback.setId(saved.getId());
+        feedback.setFeedbackType(normalized);
+        feedback.setCreateTime(saved.getCreateTime());
+
+        log.info("用户反馈已落库 - userId: {}, type: {}, id: {}",
+                feedback.getUserId(), normalized, saved.getId());
+
+        return feedback;
     }
 
     @Override
@@ -1059,6 +1251,25 @@ public class AIAssistantServiceImpl implements AIAssistantService {
         k.setPriority(row.getPriority());
         k.setActive(row.getActive() == null || row.getActive());
         return k;
+    }
+
+    /**
+     * Double → BigDecimal（用于 DECIMAL 列落库）。
+     *
+     * <p>📌 **2026-11-20 新增**：{@code sentiment_analysis_log.confidence/score}
+     *    和 {@code intent_recognition_log.confidence} 都是 {@code DECIMAL(5,4)}。
+     * <p>📌 为什么必须显式转：{@code new BigDecimal(double)} 会带上二进制浮点的尾巴
+     *    （{@code new BigDecimal(0.1)} → {@code 0.1000000000000000055511151231257827}）
+     *    → 再塞进 DECIMAL(5,4) → Hibernate 会做舍入，但**舍入前的中间值**已经很难看；
+     *    更糟的是某些路径下会直接抛「精度超限」。
+     * <p>📌 用 {@code BigDecimal.valueOf(double)} —— 它走 {@code Double.toString}，
+     *    得到「人能读懂的短表示」（{@code 0.1}），这才是我们要的。</p>
+     *
+     * @param v 源值（可空）
+     * @return BigDecimal（null 原样返回）
+     */
+    private BigDecimal toBigDecimal(Double v) {
+        return v == null ? null : BigDecimal.valueOf(v);
     }
 
     // ========== 统计方法 ==========

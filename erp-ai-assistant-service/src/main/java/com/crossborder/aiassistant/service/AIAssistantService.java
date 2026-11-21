@@ -63,12 +63,83 @@ public interface AIAssistantService {
     SentimentAnalysis analyzeSentiment(String text);
 
     /**
+     * 分析情感<b>并落库</b>（可带上下文）
+     *
+     * <p>📌 **2026-11-20 新增**：原 {@link #analyzeSentiment(String)} 只算不存 →
+     * {@code sentiment_analysis_log} 表<b>永远 0 行</b>。
+     * 这个重载把 {@code userId} / {@code sessionId} 一起带上并落库。</p>
+     *
+     * @param text     文本
+     * @param userId   用户ID（可空）
+     * @param sessionId 会话ID（可空）
+     * @return 情感分析结果
+     */
+    SentimentAnalysis analyzeSentiment(String text, Long userId, String sessionId);
+
+    /**
      * 识别意图
      *
      * @param text 用户输入
      * @return 意图识别结果
      */
     IntentRecognition recognizeIntent(String text);
+
+    /**
+     * 识别意图<b>并落库</b>（可带上下文）
+     *
+     * <p>📌 **2026-11-20 新增**：原 {@link #recognizeIntent(String)} 只算不存 →
+     * {@code intent_recognition_log} 表<b>永远 0 行</b>。</p>
+     *
+     * @param text      用户输入
+     * @param userId    用户ID（可空）
+     * @param sessionId 会话ID（可空）
+     * @return 意图识别结果
+     */
+    IntentRecognition recognizeIntent(String text, Long userId, String sessionId);
+
+    /**
+     * 提交用户反馈（落库）
+     *
+     * <p>📌 **2026-11-20 新增**：{@code user_feedback} 表<b>有 DDL 没代码</b> → 永远 0 行。
+     * 提交「有帮助」反馈时还会同步累加对应知识的 {@code helpful_count}。</p>
+     *
+     * @param feedback 反馈内容
+     * @return 落库后的反馈（含自增主键）
+     */
+    Feedback submitFeedback(Feedback feedback);
+
+    /**
+     * 用户反馈 —— 落库实体
+     */
+    class Feedback {
+        private Long id;
+        private Long userId;
+        private String sessionId;
+        private Long messageId;
+        /** helpful / not_helpful / incorrect */
+        private String feedbackType;
+        /** 1~5 */
+        private Integer rating;
+        private String comment;
+        private java.time.LocalDateTime createTime;
+
+        public Long getId() { return id; }
+        public void setId(Long id) { this.id = id; }
+        public Long getUserId() { return userId; }
+        public void setUserId(Long userId) { this.userId = userId; }
+        public String getSessionId() { return sessionId; }
+        public void setSessionId(String sessionId) { this.sessionId = sessionId; }
+        public Long getMessageId() { return messageId; }
+        public void setMessageId(Long messageId) { this.messageId = messageId; }
+        public String getFeedbackType() { return feedbackType; }
+        public void setFeedbackType(String feedbackType) { this.feedbackType = feedbackType; }
+        public Integer getRating() { return rating; }
+        public void setRating(Integer rating) { this.rating = rating; }
+        public String getComment() { return comment; }
+        public void setComment(String comment) { this.comment = comment; }
+        public java.time.LocalDateTime getCreateTime() { return createTime; }
+        public void setCreateTime(java.time.LocalDateTime createTime) { this.createTime = createTime; }
+    }
 
     /**
      * 添加知识库条目

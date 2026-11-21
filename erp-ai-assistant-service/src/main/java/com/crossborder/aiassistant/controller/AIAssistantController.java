@@ -2,6 +2,8 @@ package com.crossborder.aiassistant.controller;
 
 import com.crossborder.aiassistant.dto.ChatRequest;
 import com.crossborder.aiassistant.dto.ChatResponse;
+import com.crossborder.aiassistant.dto.IntentRequest;
+import com.crossborder.aiassistant.dto.SentimentRequest;
 import com.crossborder.aiassistant.dto.ServiceStatistics;
 import com.crossborder.aiassistant.service.AIAssistantService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -59,10 +61,32 @@ public class AIAssistantController {
         return aiAssistantService.analyzeSentiment(text);
     }
 
+    @Operation(summary = "分析情感并落库（带用户/会话上下文）")
+    @PostMapping("/sentiment/with-context")
+    public AIAssistantService.SentimentAnalysis analyzeSentimentWithContext(
+            @RequestBody SentimentRequest request) {
+        return aiAssistantService.analyzeSentiment(
+                request.getText(), request.getUserId(), request.getSessionId());
+    }
+
     @Operation(summary = "识别意图")
     @PostMapping("/intent")
     public AIAssistantService.IntentRecognition recognizeIntent(@RequestBody String text) {
         return aiAssistantService.recognizeIntent(text);
+    }
+
+    @Operation(summary = "识别意图并落库（带用户/会话上下文）")
+    @PostMapping("/intent/with-context")
+    public AIAssistantService.IntentRecognition recognizeIntentWithContext(
+            @RequestBody IntentRequest request) {
+        return aiAssistantService.recognizeIntent(
+                request.getText(), request.getUserId(), request.getSessionId());
+    }
+
+    @Operation(summary = "提交用户反馈")
+    @PostMapping("/feedback")
+    public AIAssistantService.Feedback submitFeedback(@RequestBody AIAssistantService.Feedback feedback) {
+        return aiAssistantService.submitFeedback(feedback);
     }
 
     @Operation(summary = "添加知识库")

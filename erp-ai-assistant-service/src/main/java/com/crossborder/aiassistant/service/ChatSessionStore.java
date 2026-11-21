@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 /**
  * 对话历史存储（<b>Redis</b>）
@@ -42,6 +41,14 @@ public class ChatSessionStore {
 
     /** 每个会话最多保留的消息条数（超出丢最旧的） */
     public static final int MAX_MESSAGES_PER_SESSION = 50;
+
+    /**
+     * SCAN 每批拉取的 key 数量。
+     *
+     * <p>📌 太小 → 往返次数暴涨（网络 RTT × 批数）；太大 → 单次占用连接过久。
+     * 1000 是 Redis 社区常用值。</p>
+     */
+    private static final int SCAN_BATCH_SIZE = 1000;
 
     private final StringRedisTemplate redisTemplate;
 
@@ -108,13 +115,28 @@ public class ChatSessionStore {
     /**
      * 活跃会话数（统计用）。
      *
-     * <p>📌 用 SCAN 而不是 KEYS —— {@code KEYS} 在大库上会**阻塞 Redis**
-     * （生产事故级操作）。</p>
+     * <p>📌 **2026-11-20 修正（真实缺陷）**：原实现是
+     * {@code redisTemplate.keys(KEY_PREFIX + "*")} —— 而**注释却写着「用 SCAN 而不是 KEYS」**。
+     * 代码和注释说的根本不是一回事：
+     * <ul>
+     *   <li>{@code KEYS} 在 Redis 上是 <b>O(N) 且阻塞主线程</b>：遍历全部 key 期间，
+     *       Redis <b>不处理任何其他命令</b> → 大库上一个慢查询就把整个 Redis 拖死
+     *       （生产事故级操作）；</li>
+     *   <li>本项目 Redis 是<b>共享实例</b>（database 2，但同实例还有其他 db/服务），
+     *       {@code KEYS *} 的代价由<b>所有业务方</b>共同承担。</li>
+     * </ul>
+     * → 现在改成 {@link #scanKeys()}：用 {@code SCAN} 游标分批取，
+     *   每批只短暂持有连接，<b>不阻塞 Redis 主线程</b>。</p>
      */
     public long countActiveSessions() {
         try {
-            Set<String> keys = redisTemplate.keys(KEY_PREFIX + "*");
-            return keys == null ? 0L : keys.size();
+            long count = 0L;
+            for (String k : scanKeys()) {
+                if (k != null) {
+                    count++;
+                }
+            }
+            return count;
         } catch (Exception e) {
             log.error("统计活跃会话失败（Redis 不可用？）", e);
             return 0L;
@@ -126,12 +148,11 @@ public class ChatSessionStore {
      */
     public long countActiveUsers() {
         try {
-            Set<String> keys = redisTemplate.keys(KEY_PREFIX + "*");
-            if (keys == null || keys.isEmpty()) {
-                return 0L;
-            }
             java.util.Set<String> users = new java.util.HashSet<>();
-            for (String k : keys) {
+            for (String k : scanKeys()) {
+                if (k == null) {
+                    continue;
+                }
                 // key 形如 erp:ai:chat:{sessionId}:{userId}
                 int idx = k.lastIndexOf(':');
                 if (idx > 0) {
@@ -143,6 +164,35 @@ public class ChatSessionStore {
             log.error("统计活跃用户失败（Redis 不可用？）", e);
             return 0L;
         }
+    }
+
+    /**
+     * 用 SCAN 游标分批扫描本服务前缀下的 key（<b>不阻塞 Redis</b>）。
+     *
+     * <p>📌 用 {@code redisTemplate.execute(RedisCallback)} 走底层连接拿
+     * {@code SCAN} + {@code COUNT}，而不是 Spring 的 {@code scan()} 抽象
+     * —— 后者每批都要新建一次回调、且默认 count 太小（10）→ 往返次数暴涨。</p>
+     */
+    private List<String> scanKeys() {
+        List<String> all = new ArrayList<>();
+        redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<Object>) connection -> {
+            try (org.springframework.data.redis.connection.RedisConnection c = connection) {
+                // SCAN cursor MATCH pattern COUNT batchSize
+                org.springframework.data.redis.core.Cursor<byte[]> cursor = c.scan(
+                        org.springframework.data.redis.core.ScanOptions.scanOptions()
+                                .match(KEY_PREFIX + "*")
+                                .count(SCAN_BATCH_SIZE)
+                                .build());
+                while (cursor.hasNext()) {
+                    byte[] raw = cursor.next();
+                    if (raw != null) {
+                        all.add(new String(raw, java.nio.charset.StandardCharsets.UTF_8));
+                    }
+                }
+            }
+            return null;
+        });
+        return all;
     }
 
     private String key(Long userId, String sessionId) {
