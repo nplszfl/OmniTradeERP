@@ -10,6 +10,7 @@
 - [AI功能介绍](AI-Features.md) - AI能力说明
 - [部署文档](Deployment.md) - Docker/K8s部署指南
 - [API文档](API-Documentation.md) - 接口说明
+- [枚举校验](ENUM-VALIDATION.md) - 枚举字段写库校验（脏值静默入库的修复）
 - [常见问题](FAQ.md) - 常见问题解答
 
 ## 🎯 项目简介

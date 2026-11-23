@@ -302,6 +302,26 @@ jobs:
     - name: 部署通知诚实性（没部署 ≠ 部署成功）
       run: python3 scripts/check-deploy-notification-honesty.py
 
+    # 📌 **「枚举定义了合法取值，写库前却没人校验」**（第 80 道闸门）——
+    #    🔴 **真实缺陷（2026-11-21 实测并已修）**：
+    #       `erp-warehouse-service` 的 `wms_inbound_order.inbound_type` /
+    #       `wms_outbound_order.outbound_type` 是 `VARCHAR(30)`，
+    #       **没有 ENUM / CHECK 约束**；而 `InboundType` / `OutboundType`
+    #       在 `WarehouseServiceImpl` 里**只被 import、从不被使用**
+    #       → 一条拼错的 `'RETRUN'`（RETURN 的错字）**静默入库**，
+    #         后续所有按类型分组的库存报表 / 对账 / 审计**漏掉这条单据**，
+    #         而且**全程没有任何报错**。
+    #    📌 **为什么编译器不报**：unused import 在 Java 里**不是错误**
+    #       → 这类缺陷能一路编译通过、通过全部单测、上线，只有数据脏了才暴露。
+    #    📌 判据 = 「ServiceImpl import 了同模块的枚举，但正文里从不用它」
+    #       （**不是**「有没有 setter 调用」—— 缺陷态里字段是 Jackson 直绑的，
+    #        根本没有 setter 调用 → 用 setter 判据会**假绿**）。
+    #    📌 **「正文」= 剥掉 import / 行注释 / 块注释 / 字符串字面量后的代码**
+    #       （第一版没剥注释 → 文件里一句 `// TODO: 应该校验 InboundType`
+    #        就能骗过闸门 → 假绿；已修，判据见脚本 docstring）。
+    - name: 枚举字段写库校验（枚举定义了取值却没人校验 → 脏值静默入库）
+      run: python3 scripts/check-enum-field-validated.py --strict
+
     - name: API 契约（前端 ↔ 网关 ↔ 后端）
       run: python3 scripts/check-api-contract.py --strict
 

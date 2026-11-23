@@ -382,6 +382,77 @@ public class WarehouseServiceImpl implements WarehouseService {
 
     // ==================== 入库管理 ====================
 
+    /**
+     * 🔴 校验入库类型是合法枚举值，并**归一化**后写回。
+     *
+     * <p>为什么必须校验：{@code wms_inbound_order.inbound_type} 是
+     * {@code VARCHAR(30)}，<b>没有 ENUM / CHECK 约束</b>；而
+     * {@code InboundType} 枚举定义了合法取值
+     * （{@code PURCHASE/RETURN/TRANSFER/PRODUCTION/OTHER}）。
+     * 不校验的话，拼错的值（如 {@code RETRUN}）会<b>静默入库</b>，
+     * 后续按类型分组的库存报表/对账/审计全部漏掉这条单据，且无任何报错。</p>
+     *
+     * <p>📌 <b>空值不报错，落 OTHER</b>：DDL 里该列可空，且平台同步
+     * 建单时本来就不带类型（见 {@code WarehouseRequiredFieldTest}
+     * 「空明细是允许的 —— 拦掉会打断平台同步」）。所以
+     * <b>null/空白 → 归到 OTHER</b>（OTHER 本来就是枚举里的「其他」兜底桶），
+     * 这样每行都有合法类型、按类型分组的报表不会漏行；
+     * 而<b>非空但不合法</b>（拼写错误）才是真错误，直接拒绝。</p>
+     *
+     * <p>📌 <b>必须写回归一化后的值</b>（本方法的返回值要赋回实体）：
+     * {@code InboundType.getByCode} 是<b>精确匹配</b>（{@code type.code.equals(code)}），
+     * 而校验时我们做的是 {@code toUpperCase()} → 若只校验不写回，
+     * 前端传 {@code "purchase"} 会**通过校验**、然后以**小写**落库
+     * → 后续任何 {@code getByCode("purchase")} 都返回 null
+     * → 按类型分组的报表**照样漏掉这条单据** ——
+     * 校验变成了「放行但没治好」，比不校验更坏（它让人以为已经防住了）。
+     * → 所以这里返回归一化后的 code，由调用方写回实体。</p>
+     *
+     * @param inboundType 入库类型编码（可为空）
+     * @return 归一化后的入库类型编码（永不为 null）
+     * @throws BusinessException 非空但不在枚举内
+     */
+    private String normalizeInboundType(String inboundType) {
+        if (inboundType == null || inboundType.trim().isEmpty()) {
+            log.warn("入库单未指定入库类型，按 OTHER（其他入库）处理");
+            return InboundType.OTHER.getCode();
+        }
+        String normalized = inboundType.trim().toUpperCase(Locale.ROOT);
+        if (InboundType.getByCode(normalized) == null) {
+            throw new BusinessException("入库类型不合法：" + inboundType
+                    + "（可选：" + Arrays.stream(InboundType.values())
+                    .map(InboundType::getCode).collect(Collectors.joining("/")) + "）");
+        }
+        return normalized;
+    }
+
+    /**
+     * 🔴 校验出库类型是合法枚举值，并**归一化**后写回。
+     *
+     * <p>理由同 {@link #normalizeInboundType(String)}：
+     * {@code wms_outbound_order.outbound_type} 同样只有 VARCHAR 约束，
+     * 拼错的值会静默入库，导致退货出库/报损出库等单据从统计里消失；
+     * 而 {@code OutboundType.getByCode} 同样是精确匹配 →
+     * 不写回归一化值的话，小写值会「通过校验但仍查不出来」。</p>
+     *
+     * @param outboundType 出库类型编码（可为空）
+     * @return 归一化后的出库类型编码（永不为 null）
+     * @throws BusinessException 非空但不在枚举内
+     */
+    private String normalizeOutboundType(String outboundType) {
+        if (outboundType == null || outboundType.trim().isEmpty()) {
+            log.warn("出库单未指定出库类型，按 OTHER（其他出库）处理");
+            return OutboundType.OTHER.getCode();
+        }
+        String normalized = outboundType.trim().toUpperCase(Locale.ROOT);
+        if (OutboundType.getByCode(normalized) == null) {
+            throw new BusinessException("出库类型不合法：" + outboundType
+                    + "（可选：" + Arrays.stream(OutboundType.values())
+                    .map(OutboundType::getCode).collect(Collectors.joining("/")) + "）");
+        }
+        return normalized;
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createInboundOrder(InboundOrder order, List<InboundDetail> details) {
@@ -398,6 +469,15 @@ public class WarehouseServiceImpl implements WarehouseService {
             //    空明细的入库单是允许的，不属于本次要修的 NOT NULL 缺陷。
             throw new BusinessException("入库明细不能为空");
         }
+        // 🔴 入库类型必须是合法枚举值。
+        //    `wms_inbound_order.inbound_type` 是 VARCHAR(30)，**没有 ENUM/CHECK 约束**，
+        //    而入库类型直接决定「库存怎么动」：RETURN(退货入库) 必须让库存增加，
+        //    PURCHASE 走采购结算链路。一条拼错的 'RETRUN' 落到表里 →
+        //    后续所有按类型分组的库存报表/对账/审计都**静默漏掉这条单据**，
+        //    而且**没有任何报错**。这里补上前置校验，把脏数据挡在库外。
+        // 📌 校验结果**必须写回实体**：归一化后的值才是「后面查得到」的值
+        //    （getByCode 是精确匹配，小写落库照样查不出来）。
+        order.setInboundType(normalizeInboundType(order.getInboundType()));
         for (InboundDetail detail : details) {
             if (detail.getProductId() == null) {
                 throw new BusinessException("入库明细的商品不能为空");
@@ -544,6 +624,9 @@ public class WarehouseServiceImpl implements WarehouseService {
         if (details == null) {
             throw new BusinessException("出库明细不能为空");
         }
+        // 🔴 出库类型必须是合法枚举值（理由同入库类型校验）。
+        // 📌 同样**必须写回归一化后的值**（getByCode 是精确匹配）。
+        order.setOutboundType(normalizeOutboundType(order.getOutboundType()));
         for (OutboundDetail detail : details) {
             if (detail.getProductId() == null) {
                 throw new BusinessException("出库明细的商品不能为空");
