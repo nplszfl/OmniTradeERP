@@ -11,6 +11,7 @@
 - [部署文档](Deployment.md) - Docker/K8s部署指南
 - [API文档](API-Documentation.md) - 接口说明
 - [枚举校验](ENUM-VALIDATION.md) - 枚举字段写库校验（脏值静默入库的修复）
+- [引用悬空巡检](DANGLING-REGISTRY-REF.md) - 代码硬编码的登记表 ID 库里不存在（悬空引用的修复）
 - [常见问题](FAQ.md) - 常见问题解答
 
 ## 🎯 项目简介

@@ -229,7 +229,10 @@ class ProductDescriptionPersistenceTest {
         request.setBulletPoints(List.of("主动降噪", "30 小时续航"));
         request.setLanguage("zh");
         request.setPlatform("amazon");
-        request.setTemplateId("amazon_product_template");
+        // 📌 **2026-11-26 改**：原来是 `amazon_product_template` —— 那个值
+        //    **库里根本不存在**（库里真实的是 `amazon_template`）→ 悬空引用。
+        //    修完模板接线后，前端回传的 templateId 来自真实模板 → 这里同步改成真值。
+        request.setTemplateId("amazon_template");
         request.setGenerationTime(1234L);
 
         FrontendDescriptionSaveResponse response =

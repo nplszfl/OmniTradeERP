@@ -54,7 +54,10 @@ class DescriptionGenerationTaskAccountingTest {
         when(taskService.countSuccess(any())).thenReturn(3);
 
         service = new ProductDescriptionServiceImpl(
-                new LLMConfig(), recordService, catalogService, taskService);
+                new LLMConfig(), recordService, catalogService, taskService,
+                // 📌 2026-11-26：模板服务（2026-11-24 引入）—— 本测试只关心任务记账粒度。
+                mock(com.crossborder.productdescription.service.DescriptionTemplateService.class),
+                mock(com.crossborder.productdescription.service.DescriptionTemplateRenderer.class));
     }
 
     private DescriptionGenerationRequest req(Long id) {

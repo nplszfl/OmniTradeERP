@@ -349,13 +349,31 @@ def find_claims():
                 out.append((f, lineno, m.group(1), int(m.group(2)), line.strip(),
                             "显式断言"))
             # (b) 同句里点了表名 + 给了条数
+            # 📌 **2026-11-26 修**：原来用 `\bproduct\b` 找表名 ——
+            #    但 `\b` 只认「非单词字符」作边界，而 **`-` 和 `_` 是单词字符**，
+            #    → `product-description`（服务路径 `/api/v1/product-description/...`）
+            #      里的 `product` **被当成了表名 `product`** → 假阳性。
+            #    实测：一句「返回的是写死的 4 条元数据」+ 路径里有 `product-description`
+            #    → 被判成「product 表声明了 4 条，实际 5 条」→ **文档在骗人**（假的）。
+            #    → 改成「表名两侧都不能再接字母/数字/下划线/连字符」：
+            #      既认 `product 表` / `` `product` `` / `product 有 5 条`，
+            #      又不认 `product-description` / `erp_product.t_product`。
             for table in KNOWN_TABLES:
-                if not re.search(r"\b" + re.escape(table) + r"\b", line):
+                if not re.search(table_ref_re(table), line):
                     continue
                 for m in N_ROWS.finditer(line):
                     out.append((f, lineno, table, int(m.group(1)), line.strip(),
                                 "句中带表名"))
     return out
+
+
+def table_ref_re(table):
+    """表名引用正则：表名两侧都不能再接字母/数字/`_`/`-`。
+
+    📌 **为什么要自己写而不用 `\\b`**：`\\b` 把 `-` 和 `_` 当单词字符，
+      → `product-description`、`t_product` 里的片段会被误认成表名引用。
+    """
+    return r"(?<![A-Za-z0-9_-])" + re.escape(table) + r"(?![A-Za-z0-9_-])"
 
 
 KNOWN_TABLES: set = set()

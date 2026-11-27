@@ -322,6 +322,26 @@ jobs:
     - name: 枚举字段写库校验（枚举定义了取值却没人校验 → 脏值静默入库）
       run: python3 scripts/check-enum-field-validated.py --strict
 
+    # 📌 **第 81 道闸门**：登记表引用悬空（代码引用的 ID 库里根本不存在）
+    #    2026-11-24/26 实测踩出来：product-description 的「描述模板」是张登记表
+    #    （description_template.template_id 有 UNIQUE 约束 + 4 条种子），
+    #    但代码里硬编码的是**另一套值**：
+    #      templates.put("amazon", "amazon_product_template");   ← 库里没有这个
+    #    库里真实的是 amazon_template / ebay_template / … —— **一个都对不上**。
+    #    📌 **为什么编译通过 + 单测全绿 + 前 80 道闸门全绿都发现不了**：
+    #       · 编译通过：字符串字面量，编译器不管它存不存在
+    #       · 单测全绿：Mockito 把 Mapper mock 掉了 → **查库那步根本没执行**
+    #       · 闸门全绿：前面没有一道闸门查「引用是否悬空」
+    #    🔴 真正的危害：落库的 template_id 是**悬空引用** → 追溯不到来源；
+    #       且模板正文压根没进过 prompt → 运营改模板对生成结果**零影响**。
+    #    📌 判据：从 database/*.sql 推导「登记表 + 合法值集合」，
+    #       再扫 Java 里同形状的字面量，逐个核对是否在集合内。
+    #       **注释要挖空**（说明历史不是引用）→ 否则报一堆噪音 → 闸门变哑。
+    - name: 登记表引用悬空巡检（引用的 ID 库里不存在）
+      run: |
+        python3 scripts/check-dangling-registry-ref.py --self-test
+        python3 scripts/check-dangling-registry-ref.py --strict
+
     - name: API 契约（前端 ↔ 网关 ↔ 后端）
       run: python3 scripts/check-api-contract.py --strict
 

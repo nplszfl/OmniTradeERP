@@ -51,7 +51,11 @@ class ProductDescriptionNoFakeDataTest {
 
         service = new ProductDescriptionServiceImpl(
                 new LLMConfig(), recordService, catalogService,
-                mock(com.crossborder.productdescription.service.DescriptionGenerationTaskService.class));
+                mock(com.crossborder.productdescription.service.DescriptionGenerationTaskService.class),
+                // 📌 2026-11-26：模板服务（2026-11-24 引入）—— 本测试不关心模板，
+                //    给 mock（Mockito 只允许出现在 src/test）。
+                mock(com.crossborder.productdescription.service.DescriptionTemplateService.class),
+                mock(com.crossborder.productdescription.service.DescriptionTemplateRenderer.class));
     }
 
     /** 让 id → (商品名, 描述) 的映射可配 */

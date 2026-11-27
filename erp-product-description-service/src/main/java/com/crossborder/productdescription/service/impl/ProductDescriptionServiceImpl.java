@@ -8,9 +8,12 @@ import com.crossborder.productdescription.dto.FrontendDescriptionRequest;
 import com.crossborder.productdescription.dto.FrontendDescriptionResponse;
 import com.crossborder.productdescription.dto.FrontendDescriptionSaveRequest;
 import com.crossborder.productdescription.dto.FrontendDescriptionSaveResponse;
+import com.crossborder.productdescription.entity.DescriptionTemplate;
 import com.crossborder.productdescription.entity.ProductBrief;
 import com.crossborder.productdescription.entity.ProductDescription;
 import com.crossborder.productdescription.service.DescriptionGenerationTaskService;
+import com.crossborder.productdescription.service.DescriptionTemplateRenderer;
+import com.crossborder.productdescription.service.DescriptionTemplateService;
 import com.crossborder.productdescription.service.ProductCatalogService;
 import com.crossborder.productdescription.service.ProductDescriptionRecordService;
 import com.crossborder.productdescription.service.ProductDescriptionService;
@@ -88,8 +91,19 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
             "bullet", "bullets", "points", "search", "features", "benefits",
             "highlights", "specifications", "specs", "overview", "details", "keywords");
 
-    // 模拟描述模板
-    private final Map<String, String> templates = new HashMap<>();
+    // 📌 **2026-11-24 移除内存 templates Map** —— 原来这里是
+    //    `private final Map<String, String> templates = new HashMap<>();`，
+    //    由 `initTemplates()` 硬编码 4 条：
+    //        amazon → "amazon_product_template"
+    //        ebay   → "ebay_product_template"
+    //        shopee → "shopee_product_template"
+    //        general→ "general_product_template"
+    //    🔴 **这三个 ID 库里一个都不存在** —— 表 `description_template` 里种的是
+    //    `amazon_template` / `ebay_template` / `shopee_template` / `general_template`。
+    //    → 落库到 `product_description.template_id` 的值**永远是一条悬空引用**，
+    //      任何「这条描述用了哪个模板」的追溯都查不出来。
+    //    → 现在模板来自**数据库**（见 `DescriptionTemplateService`），
+    //      内存里**不再有第二套真相**。
 
     // 📌 **2026-11-14 移除内存 history** —— 原来这里是
     //    `private final CopyOnWriteArrayList<DescriptionGenerationResponse> history`，
@@ -116,18 +130,37 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
      */
     private final DescriptionGenerationTaskService descriptionGenerationTaskService;
 
+    /**
+     * 描述模板（表 {@code description_template}）
+     *
+     * <p>📌 **2026-11-24 新增**：之前模板是**内存硬编码**，
+     * 表 {@code description_template} 从来没人读过 → 运营改模板零效果。</p>
+     */
+    private final DescriptionTemplateService descriptionTemplateService;
+
+    /**
+     * 模板渲染（把 {@code {占位符}} 换成真实商品事实）
+     *
+     * <p>📌 **2026-11-24 新增**：之前模板正文**压根没进过 prompt**，
+     * {@code useTemplate} / {@code templateId} 是两个死参数。</p>
+     */
+    private final DescriptionTemplateRenderer descriptionTemplateRenderer;
+
     private final RestTemplate restTemplate = new RestTemplate();
 
     public ProductDescriptionServiceImpl(
             LLMConfig llmConfig,
             ProductDescriptionRecordService productDescriptionRecordService,
             ProductCatalogService productCatalogService,
-            DescriptionGenerationTaskService descriptionGenerationTaskService) {
+            DescriptionGenerationTaskService descriptionGenerationTaskService,
+            DescriptionTemplateService descriptionTemplateService,
+            DescriptionTemplateRenderer descriptionTemplateRenderer) {
         this.llmConfig = llmConfig;
         this.productDescriptionRecordService = productDescriptionRecordService;
         this.productCatalogService = productCatalogService;
         this.descriptionGenerationTaskService = descriptionGenerationTaskService;
-        initTemplates();
+        this.descriptionTemplateService = descriptionTemplateService;
+        this.descriptionTemplateRenderer = descriptionTemplateRenderer;
     }
 
     @Override
@@ -182,8 +215,22 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         response.setCreateTime(LocalDateTime.now());
 
         try {
+            // 📌 **2026-11-24 新增：解析「这次实际用哪个模板」**
+            //    🔴 修它之前，`product_description.template_id` 存的是
+            //    `amazon_product_template` 这种**库里根本不存在的值** → 悬空引用。
+            //    → 现在写**真实用到的模板标识**（没有模板就留 null，不编）。
+            // 📌 **只解析一次**：模板既进 prompt，也写进响应 → 不重复查库。
+            //    📌 **2026-11-25 修**：原来 `buildPrompt(request)` 内部又调了一次
+            //    `resolveTemplate(request)` → **同一个请求查了两遍模板表**
+            //    （而且两次可能查到不同的行 —— 模板表在两次查询之间被改的话，
+            //    「写进响应的 templateId」和「真正进 prompt 的模板」会**对不上**）。
+            DescriptionTemplate usedTemplate = resolveTemplate(request);
+            if (usedTemplate != null) {
+                response.setTemplateId(usedTemplate.getTemplateId());
+            }
+
             // 1. 构建提示词
-            String prompt = buildPrompt(request);
+            String prompt = buildPrompt(request, usedTemplate);
 
             // 2. 调用LLM API
             LLMAnswer answer = callLLMAPI(prompt, request);
@@ -610,38 +657,56 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     }
 
     /**
-     * 初始化模板
+     * 列出可用描述模板
+     *
+     * <p>🔴 <b>2026-11-24 修：以前这里返回的是「写死的假数据」</b> ——
+     * 4 条硬编码的模板元数据（{@code initTemplates()} + {@code template(...)}），
+     * <b>从来没查过库</b> → 表 {@code description_template} 里运营维护的模板
+     * <b>在这个接口里一个都看不到</b>。</p>
+     *
+     * <p>📌 <b>现在真查库</b>：模板 ID 取自 {@code description_template.template_id}
+     * （{@code amazon_template} 这种<b>库里真实存在</b>的值），
+     * 不再是 {@code amazon_product_template} 那种<b>悬空 ID</b>。</p>
      */
-    private void initTemplates() {
-        templates.put("amazon", "amazon_product_template");
-        templates.put("ebay", "ebay_product_template");
-        templates.put("shopee", "shopee_product_template");
-        templates.put("general", "general_product_template");
-    }
-
     @Override
     public List<Map<String, Object>> listTemplates() {
-        List<Map<String, Object>> list = new ArrayList<>();
-        list.add(template("amazon", "Amazon Listing", "zh", "professional",
-                "标题 + 五点描述 + 描述段落，符合 Amazon A10 规范"));
-        list.add(template("ebay", "eBay Listing", "en", "concise",
-                "标题 + 简短描述 + 商品属性，适合快速浏览"));
-        list.add(template("shopee", "Shopee Listing", "en", "friendly",
-                "强调卖点与促销信息，贴合东南亚买家的短文案习惯"));
-        list.add(template("general", "通用描述", "auto", "balanced",
-                "跨平台通用描述，按目标语言自动适配"));
+        List<DescriptionTemplate> rows =
+                descriptionTemplateService.listEnabled(null, null);
+        if (rows.isEmpty()) {
+            // 📌 库里没有启用中的模板 → **返回空列表**（不编 4 条假的）
+            log.info("描述模板表里没有启用中的模板 —— 返回空列表");
+            return List.of();
+        }
+        List<Map<String, Object>> list = new ArrayList<>(rows.size());
+        for (DescriptionTemplate row : rows) {
+            list.add(template(row));
+        }
         return list;
     }
 
-    private Map<String, Object> template(String id, String name, String language, String tone, String sample) {
+    /**
+     * 落库模板 → 前端视图
+     *
+     * <p>📌 <b>字段名保持和前端契约一致</b>（前端 {@code erp-web/src/api/ai.ts}
+     * 的 {@code descriptionApi.templates()} 拿到的就是这个形状）。</p>
+     */
+    private Map<String, Object> template(DescriptionTemplate row) {
         Map<String, Object> map = new LinkedHashMap<>();
-        map.put("id", id);
-        map.put("templateId", templates.getOrDefault(id, id + "_product_template"));
-        map.put("name", name);
-        map.put("platform", id);
-        map.put("language", language);
-        map.put("tone", tone);
-        map.put("sample", sample);
+        map.put("id", row.getTemplateId());
+        map.put("templateId", row.getTemplateId());
+        map.put("name", row.getName());
+        map.put("platform", row.getPlatform());
+        map.put("language", row.getLanguage());
+        // 📌 **2026-11-25 修：以前这里写的是 `map.put("tone", row.getLanguage())`**
+        //    → **把「语言」当成「语气」返回**（zh 被当成 tone）。
+        //    🔴 后果：前端拿到 `tone: "zh"` → 语气下拉框里是个语言代码，
+        //    而模板本身**根本没有 tone 这一列**（DDL 里只有 language）。
+        //    → 正确做法：**不编**（规则 72）—— 表里没有 tone 就别返回 tone，
+        //      让调用方知道「这个模板没有语气属性」，而不是给一个假值。
+        //      前端 `tone` 字段有自己的来源（请求里的 style 语气），与模板无关。
+        map.put("sample", row.getTemplateContent());
+        map.put("maxLength", row.getMaxLength());
+        map.put("variables", descriptionTemplateRenderer.parseVariables(row));
         return map;
     }
 
@@ -822,7 +887,7 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     /**
      * 构建提示词
      */
-    private String buildPrompt(DescriptionGenerationRequest request) {
+    private String buildPrompt(DescriptionGenerationRequest request, DescriptionTemplate template) {
         StringBuilder prompt = new StringBuilder();
 
         // 系统提示
@@ -854,6 +919,21 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         if (request.getKeywords() != null && !request.getKeywords().isEmpty()) {
             prompt.append("\n关键词: ");
             prompt.append(String.join(", ", request.getKeywords()));
+            prompt.append("\n");
+        }
+
+        // 📌 **2026-11-24 新增：模板正文真正进 prompt**
+        //    🔴 **修它之前，模板是一个「装饰品」**：
+        //    `DescriptionGenerationRequest.useTemplate` / `templateId`
+        //    两个入参**从头到尾没人读过** → 运营在 `description_template`
+        //    表里改模板，对生成结果**零影响**（表本身也没人读）。
+        //    → 现在按「请求指定 → 平台默认」的顺序取模板，
+        //      把渲染后的正文作为**结构要求**交给 LLM。
+        // 📌 **2026-11-25**：模板由调用方**传入**（不再在这里重新解析）
+        //    → 保证「进 prompt 的模板」与「写进响应 templateId 的模板」**永远是同一个**。
+        String templateSection = buildTemplateSection(request, template);
+        if (!templateSection.isBlank()) {
+            prompt.append("\n").append(templateSection);
         }
 
         // 自定义提示词
@@ -865,6 +945,101 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         prompt.append("描述要突出产品的核心卖点和优势。");
 
         return prompt.toString();
+    }
+
+    /**
+     * 构建「模板要求」段落（{@code 2026-11-24 新增}）
+     *
+     * <p>🔴 <b>这个方法存在的理由</b>：模板正文<b>从来没进过 prompt</b> ——
+     * {@code useTemplate} / {@code templateId} 是两个死参数，
+     * 表 {@code description_template} 里的模板内容是「装饰品」。</p>
+     *
+     * <p>📌 <b>取模板的顺序</b>：
+     * <ol>
+     *   <li>{@code useTemplate == false} → <b>不用模板</b>（尊重调用方）；</li>
+     *   <li>请求指定了 {@code templateId} → 按它取；<b>取不到就明确记 warn</b>
+     *       （不静默换模板 —— 否则调用方以为自己用了 A 模板，实际用了 B）；</li>
+     *   <li>没指定 → 按<b>目标平台</b>取默认模板。</li>
+     * </ol>
+     *
+     * <p>📌 <b>取不到模板 → 返回空字符串</b>（不编模板正文），
+     * 这一次的生成就按「无模板」走 —— 但**留痕**，因为
+     * 「模板没生效」是需要有人知道的事。</p>
+     */
+    private String buildTemplateSection(DescriptionGenerationRequest request, DescriptionTemplate template) {
+        if (Boolean.FALSE.equals(request.getUseTemplate())) {
+            return "";
+        }
+        if (template == null) {
+            return "";
+        }
+        String rendered = descriptionTemplateRenderer.render(template, templateVariables(request));
+        if (rendered == null || rendered.isBlank()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("请严格按下面的模板结构撰写描述（保留各段落标题，填入真实商品信息）：\n");
+        sb.append(rendered);
+        return sb.toString();
+    }
+
+    /**
+     * 按「请求指定 → 平台默认」的顺序取模板。
+     */
+    private DescriptionTemplate resolveTemplate(DescriptionGenerationRequest request) {
+        String requestedId = request.getTemplateId();
+        if (requestedId != null && !requestedId.isBlank()) {
+            try {
+                return descriptionTemplateService.findByTemplateId(requestedId).orElse(null);
+            } catch (Exception e) {
+                // 📌 模板表不可用 → 记 error，**不静默**（模板表挂了要有人知道）
+                log.error("读取描述模板失败（templateId={}）：{}", requestedId, e.getMessage());
+                return null;
+            }
+        }
+        try {
+            return descriptionTemplateService
+                    .findDefault(request.getTargetPlatform(), request.getTargetLanguage())
+                    .orElse(null);
+        } catch (Exception e) {
+            log.error("读取默认描述模板失败（platform={}）：{}",
+                    request.getTargetPlatform(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 模板变量取值（把占位符换成<b>真实商品事实</b>）
+     *
+     * <p>📌 取不到的值<b>不放进 map</b> → 渲染器会<b>原样保留占位符</b>，
+     * 而不是编一个假值填进去（规则 72）。</p>
+     */
+    private Map<String, String> templateVariables(DescriptionGenerationRequest request) {
+        Map<String, String> vars = new LinkedHashMap<>();
+        putIfPresent(vars, "产品名称", request.getProductName());
+        putIfPresent(vars, "产品介绍", request.getProductName());
+        putIfPresent(vars, "核心卖点", joinFeatures(request.getFeatures()));
+        putIfPresent(vars, "产品特性", joinFeatures(request.getFeatures()));
+        putIfPresent(vars, "亮点列表", joinFeatures(request.getFeatures()));
+        putIfPresent(vars, "适用场景", joinKeywords(request.getKeywords()));
+        putIfPresent(vars, "SEO关键词", joinKeywords(request.getKeywords()));
+        putIfPresent(vars, "产品特点", joinFeatures(request.getFeatures()));
+        putIfPresent(vars, "核心优势", joinFeatures(request.getFeatures()));
+        return vars;
+    }
+
+    private static void putIfPresent(Map<String, String> vars, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            vars.put(key, value);
+        }
+    }
+
+    private static String joinFeatures(List<String> features) {
+        return features == null || features.isEmpty() ? null : String.join("、", features);
+    }
+
+    private static String joinKeywords(List<String> keywords) {
+        return keywords == null || keywords.isEmpty() ? null : String.join("、", keywords);
     }
 
     /**

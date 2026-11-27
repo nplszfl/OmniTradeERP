@@ -33,7 +33,10 @@ class ProductDescriptionServiceImplKeywordTest {
                 mock(LLMConfig.class),
                 mock(ProductDescriptionRecordService.class),
                 mock(ProductCatalogService.class),
-                mock(DescriptionGenerationTaskService.class));
+                mock(DescriptionGenerationTaskService.class),
+                // 📌 2026-11-26：模板服务（2026-11-24 引入）—— 关键词抽取是纯函数，与模板无关。
+                mock(com.crossborder.productdescription.service.DescriptionTemplateService.class),
+                mock(com.crossborder.productdescription.service.DescriptionTemplateRenderer.class));
         return ReflectionTestUtils.invokeMethod(service, "extractKeywords", text);
     }
 
