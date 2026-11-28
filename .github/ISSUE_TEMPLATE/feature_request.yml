@@ -1,0 +1,57 @@
+name: Feature request
+description: Suggest an improvement or a new capability
+labels: ["enhancement", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Please describe the problem you're trying to solve.
+
+        💡 **What makes a strong request**: describe the *problem* and *who* has it, not just the solution you're imagining.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe your workflow and where it breaks down today.
+      placeholder: |
+        Today I have to ... manually, which breaks when ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      description: Your proposed solution — optional, but helpful.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Which area?
+      options:
+        - Orders
+        - Products / Listings
+        - Inventory / Warehouse
+        - Pricing
+        - Finance
+        - AI services
+        - Analytics / Reporting
+        - Platform integrations
+        - DevOps / Deployment
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: I searched existing issues and this hasn't been requested
+          required: true
+        - label: This would help other sellers too, not just my own setup
+          required: false

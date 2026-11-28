@@ -2,13 +2,16 @@
 
 <div align="center">
 
+[🌐 English](README.en.md) · [📖 详细文档](docs/Home.md) · [💬 交流群](#-交流与支持) · [🚀 快速开始](#-5分钟快速启动)
+
 [![Java](https://img.shields.io/badge/Java-21-brightgreen.svg)](https://www.oracle.com/java/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.5-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![Vue.js](https://img.shields.io/badge/Vue.js-3.4-brightgreen.svg)](https://vuejs.org/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/nplszfl/OmniTradeERP?style=flat)](https://github.com/nplszfl/OmniTradeERP/stargazers)
 [![Forks](https://img.shields.io/github/forks/nplszfl/OmniTradeERP?style=flat)](https://github.com/nplszfl/OmniTradeERP/network)
 [![Last Commit](https://img.shields.io/github/last-commit/nplszfl/OmniTradeERP)](https://github.com/nplszfl/OmniTradeERP/commits/master)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 </div>
 
@@ -20,7 +23,7 @@
 
 ### "这是你见过最硬核的跨境电商开源ERP"
 
-[📖 详细文档](docs/Home.md) · [💬 交流群](#-交流与支持) · [🚀 快速开始](#-快速开始)
+[📖 详细文档](docs/Home.md) · [💬 交流群](#-交流与支持) · [🚀 快速开始](#-5分钟快速启动)
 
 </div>
 

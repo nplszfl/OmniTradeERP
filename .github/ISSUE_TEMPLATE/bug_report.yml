@@ -1,0 +1,87 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill in the sections below.
+
+        💡 **Before filing**: please search [existing issues](https://github.com/nplszfl/OmniTradeERP/issues?q=is%3Aissue) — the bug may already be known.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What did you observe, and what did you expect to happen instead?
+      placeholder: |
+        When I call `POST /api/v1/product-description/seo-optimize` ...
+        I expected ... but instead ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, reproducible steps — commands or requests are ideal.
+      placeholder: |
+        1. Start the service with ...
+        2. Call ...
+        3. See the error
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit or release
+      description: The commit SHA or release tag you were running.
+      placeholder: "e.g. 74c2607 or v1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Which module?
+      options:
+        - erp-gateway
+        - erp-order-service
+        - erp-product-service
+        - erp-product-description-service
+        - erp-pricing-service
+        - erp-inventory-service
+        - erp-inventory-prediction-service
+        - erp-inventory-alert-service
+        - erp-ai-assistant-service
+        - erp-reporting-service
+        - erp-purchase-service
+        - erp-anomaly-detection-service
+        - erp-product-recommendation-service
+        - erp-finance-service
+        - erp-warehouse-service
+        - erp-user-service
+        - erp-web (frontend)
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error logs
+      description: The relevant stack trace, if any. Please redact API keys and tokens.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: I searched existing issues and this hasn't been reported
+          required: true
+        - label: I read the docs and believe this is a genuine bug, not a missing feature
+          required: true
