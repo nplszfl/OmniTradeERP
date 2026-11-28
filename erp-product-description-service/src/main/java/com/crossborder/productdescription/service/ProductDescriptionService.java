@@ -1,11 +1,14 @@
 package com.crossborder.productdescription.service;
 
+import com.crossborder.productdescription.dto.AbTestOutcomeRequest;
+import com.crossborder.productdescription.dto.AbTestStartRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
 import com.crossborder.productdescription.dto.FrontendDescriptionRequest;
 import com.crossborder.productdescription.dto.FrontendDescriptionResponse;
 import com.crossborder.productdescription.dto.FrontendDescriptionSaveRequest;
 import com.crossborder.productdescription.dto.FrontendDescriptionSaveResponse;
+import com.crossborder.productdescription.entity.AbTestResult;
 
 import java.util.List;
 import java.util.Map;
@@ -80,6 +83,38 @@ public interface ProductDescriptionService {
     List<DescriptionGenerationResponse> generateABTestVersions(
             Long productId,
             Integer versionCount);
+
+    /**
+     * 开启一个 A/B 测试（表 {@code ab_test_result}）
+     *
+     * <p>📌 <b>2026-11-28 新增</b>：这张表<b>早有 DDL</b>，连「获胜版本（A、B、TIE）」
+     * 「置信度」「测试天数」这些字段都设计好了，<b>却没有任何代码往里写</b>
+     * → 运营想比「A 版和 B 版哪个 CTR 高」→ <b>表里没数据，问不出来</b>。</p>
+     *
+     * <p>📌 <b>开测时指标值一定是空的</b>：CTR 要等真实流量跑出来才有 → <b>不编</b>。</p>
+     *
+     * @param request 开测请求
+     * @return 落库后的测试记录
+     */
+    AbTestResult startAbTest(AbTestStartRequest request);
+
+    /**
+     * 回填 A/B 测试结果（指标实测值 → 胜者由系统判定）
+     *
+     * @param abTestId 测试记录ID
+     * @param request  指标结果
+     * @return 更新后的测试记录
+     */
+    AbTestResult recordAbTestOutcome(Long abTestId, AbTestOutcomeRequest request);
+
+    /**
+     * 查某个商品的 A/B 测试记录（按开始时间倒序）
+     *
+     * @param productId 商品ID
+     * @param limit     返回条数上限
+     * @return A/B 测试记录（查不到就是空列表）
+     */
+    List<AbTestResult> listAbTestResults(Long productId, int limit);
 
     /**
      * 保存描述到数据库

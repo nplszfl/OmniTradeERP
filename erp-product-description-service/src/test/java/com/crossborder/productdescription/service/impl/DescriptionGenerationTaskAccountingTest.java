@@ -57,7 +57,10 @@ class DescriptionGenerationTaskAccountingTest {
                 new LLMConfig(), recordService, catalogService, taskService,
                 // 📌 2026-11-26：模板服务（2026-11-24 引入）—— 本测试只关心任务记账粒度。
                 mock(com.crossborder.productdescription.service.DescriptionTemplateService.class),
-                mock(com.crossborder.productdescription.service.DescriptionTemplateRenderer.class));
+                mock(com.crossborder.productdescription.service.DescriptionTemplateRenderer.class),
+                // 📌 2026-11-28：分析结果落库服务（SEO/亮点/A-B 三张表接线）——
+                //    本测试只关心任务记账粒度，不关心落库，给 mock。
+                mock(com.crossborder.productdescription.service.DescriptionAnalysisRecordService.class));
     }
 
     private DescriptionGenerationRequest req(Long id) {

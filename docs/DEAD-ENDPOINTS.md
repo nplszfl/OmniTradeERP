@@ -5,11 +5,11 @@
 
 ## 统计
 
-- 后端 HTTP 接口：**477** 个
+- 后端 HTTP 接口：**482** 个
 - 前端代码真正调用：**208** 处
 - 服务间引用：**2** 处
 - 网关路由：**36** 条
-- 疑似死接口：**261** 个
+- 疑似死接口：**266** 个
 
 ## 怎么读这份清单
 
@@ -283,20 +283,25 @@
 | GET | `/api/v1/pricing/info/{productId}` | 该模块有 `@Scheduled`，可能内部触发 |
 | POST | `/api/v1/pricing/manual-adjust` | 该模块有 `@Scheduled`，可能内部触发 |
 
-### erp-product-description-service（12 个）
+### erp-product-description-service（17 个）
 
 | 方法 | 路径 | 备注 |
 |---|---|---|
 | POST | `/api/v1/product-description/ab-test` |  |
+| GET | `/api/v1/product-description/ab-test/list/{productId}` |  |
+| POST | `/api/v1/product-description/ab-test/start` |  |
+| POST | `/api/v1/product-description/ab-test/{abTestId}/outcome` |  |
 | POST | `/api/v1/product-description/batch-generate` |  |
 | POST | `/api/v1/product-description/batch-import` |  |
 | POST | `/api/v1/product-description/generate/internal` |  |
 | GET | `/api/v1/product-description/health` |  |
+| GET | `/api/v1/product-description/highlight-history/{descriptionId}` |  |
 | GET | `/api/v1/product-description/highlights/{productId}` |  |
 | GET | `/api/v1/product-description/history` |  |
 | GET | `/api/v1/product-description/list/{productId}` |  |
 | POST | `/api/v1/product-description/multi-language` |  |
 | POST | `/api/v1/product-description/save/internal` |  |
+| GET | `/api/v1/product-description/seo-history/{descriptionId}` |  |
 | POST | `/api/v1/product-description/seo-optimize` |  |
 | GET | `/api/v1/product-description/templates` |  |
 

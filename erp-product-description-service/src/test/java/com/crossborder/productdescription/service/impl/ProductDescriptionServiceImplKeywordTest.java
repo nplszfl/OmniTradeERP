@@ -36,7 +36,9 @@ class ProductDescriptionServiceImplKeywordTest {
                 mock(DescriptionGenerationTaskService.class),
                 // 📌 2026-11-26：模板服务（2026-11-24 引入）—— 关键词抽取是纯函数，与模板无关。
                 mock(com.crossborder.productdescription.service.DescriptionTemplateService.class),
-                mock(com.crossborder.productdescription.service.DescriptionTemplateRenderer.class));
+                mock(com.crossborder.productdescription.service.DescriptionTemplateRenderer.class),
+                // 📌 2026-11-28：分析结果落库服务 —— 关键词抽取是纯函数，与落库无关。
+                mock(com.crossborder.productdescription.service.DescriptionAnalysisRecordService.class));
         return ReflectionTestUtils.invokeMethod(service, "extractKeywords", text);
     }
 

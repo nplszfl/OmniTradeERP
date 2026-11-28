@@ -55,7 +55,10 @@ class ProductDescriptionNoFakeDataTest {
                 // 📌 2026-11-26：模板服务（2026-11-24 引入）—— 本测试不关心模板，
                 //    给 mock（Mockito 只允许出现在 src/test）。
                 mock(com.crossborder.productdescription.service.DescriptionTemplateService.class),
-                mock(com.crossborder.productdescription.service.DescriptionTemplateRenderer.class));
+                mock(com.crossborder.productdescription.service.DescriptionTemplateRenderer.class),
+                // 📌 2026-11-28：分析结果落库服务（SEO/亮点/A-B 三张表接线）——
+                //    本测试关心「不编数据」，落库给 mock。
+                mock(com.crossborder.productdescription.service.DescriptionAnalysisRecordService.class));
     }
 
     /** 让 id → (商品名, 描述) 的映射可配 */

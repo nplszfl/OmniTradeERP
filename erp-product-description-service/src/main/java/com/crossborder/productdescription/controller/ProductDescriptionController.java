@@ -1,11 +1,17 @@
 package com.crossborder.productdescription.controller;
 
+import com.crossborder.productdescription.dto.AbTestOutcomeRequest;
+import com.crossborder.productdescription.dto.AbTestStartRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
 import com.crossborder.productdescription.dto.FrontendDescriptionRequest;
 import com.crossborder.productdescription.dto.FrontendDescriptionResponse;
 import com.crossborder.productdescription.dto.FrontendDescriptionSaveRequest;
 import com.crossborder.productdescription.dto.FrontendDescriptionSaveResponse;
+import com.crossborder.productdescription.entity.AbTestResult;
+import com.crossborder.productdescription.entity.ProductHighlight;
+import com.crossborder.productdescription.entity.SeoOptimization;
+import com.crossborder.productdescription.service.DescriptionAnalysisRecordService;
 import com.crossborder.productdescription.service.ProductDescriptionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,6 +32,14 @@ import java.util.Map;
 public class ProductDescriptionController {
 
     private final ProductDescriptionService productDescriptionService;
+
+    /**
+     * 描述分析结果落库服务（历史 SEO / 亮点 / A-B 查询）
+     *
+     * <p>📌 <b>2026-11-28 新增</b>：以前「查历史」这件事<b>没有任何地方存过</b>
+     * → 现在补上三个查询端点，让运营能翻回当时的评分与结果。</p>
+     */
+    private final DescriptionAnalysisRecordService descriptionAnalysisRecordService;
 
     @Operation(summary = "生成产品描述（前端接口）")
     @PostMapping("/generate")
@@ -154,6 +168,71 @@ public class ProductDescriptionController {
             @RequestParam(required = false) Long productId,
             @RequestParam(defaultValue = "20") Integer limit) {
         return productDescriptionService.listHistory(productId, limit == null ? 20 : limit);
+    }
+
+    /**
+     * 查询某条描述的历史 SEO 优化结果（表 {@code seo_optimization}）
+     *
+     * <p>📌 <b>2026-11-28 新增</b>：在这之前，{@code POST /seo-optimize} 算出的分数
+     * <b>只活在一次 HTTP 响应里</b> → 运营事后问「上周那条文案当时打了几分？」
+     * → <b>无处可查</b>。现在算一次存一次，这里能翻历史。</p>
+     *
+     * <p>查不到就是<b>空列表</b>（不是 null、不报错）——
+     * 「还没优化过」是正常状态。</p>
+     */
+    @Operation(summary = "查询历史SEO优化结果")
+    @GetMapping("/seo-history/{descriptionId}")
+    public List<SeoOptimization> seoHistory(
+            @PathVariable Long descriptionId,
+            @RequestParam(defaultValue = "20") Integer limit) {
+        return descriptionAnalysisRecordService.listSeoOptimizations(
+                descriptionId, limit == null ? 20 : limit);
+    }
+
+    /**
+     * 查询某条描述的历史产品亮点（表 {@code product_highlights}）
+     *
+     * <p>📌 提炼出的亮点之前也是算完就丢，现在能翻回去看。</p>
+     */
+    @Operation(summary = "查询历史产品亮点")
+    @GetMapping("/highlight-history/{descriptionId}")
+    public List<ProductHighlight> highlightHistory(@PathVariable Long descriptionId) {
+        return descriptionAnalysisRecordService.listHighlights(descriptionId);
+    }
+
+    /**
+     * 开启一个 A/B 测试（表 {@code ab_test_result}）
+     *
+     * <p>📌 <b>2026-11-28 新增</b>：{@code POST /ab-test} 之前只是「生成几个版本给你看看」，
+     * 生成完<b>什么都不留</b> → 没法真正跑一次 A/B（没有起点、没有版本 ID、没有指标记录）。
+     * 现在开测会落一条记录：<b>指标值留空</b>（要等真实流量才有 → 不编）。</p>
+     */
+    @Operation(summary = "开启A/B测试")
+    @PostMapping("/ab-test/start")
+    public AbTestResult startAbTest(@Valid @RequestBody AbTestStartRequest request) {
+        return productDescriptionService.startAbTest(request);
+    }
+
+    /**
+     * 回填 A/B 测试结果（指标实测值 → 系统判定胜者）
+     */
+    @Operation(summary = "回填A/B测试结果")
+    @PostMapping("/ab-test/{abTestId}/outcome")
+    public AbTestResult recordAbTestOutcome(
+            @PathVariable Long abTestId,
+            @Valid @RequestBody AbTestOutcomeRequest request) {
+        return productDescriptionService.recordAbTestOutcome(abTestId, request);
+    }
+
+    /**
+     * 查询某商品的 A/B 测试历史（表 {@code ab_test_result}）
+     */
+    @Operation(summary = "查询A/B测试历史")
+    @GetMapping("/ab-test/list/{productId}")
+    public List<AbTestResult> listAbTestResults(
+            @PathVariable Long productId,
+            @RequestParam(defaultValue = "20") Integer limit) {
+        return productDescriptionService.listAbTestResults(productId, limit == null ? 20 : limit);
     }
 
     @Operation(summary = "健康检查")

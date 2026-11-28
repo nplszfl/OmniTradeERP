@@ -2,15 +2,19 @@ package com.crossborder.productdescription.service.impl;
 
 import com.crossborder.erp.common.exception.BizException;
 import com.crossborder.productdescription.config.LLMConfig;
+import com.crossborder.productdescription.dto.AbTestOutcomeRequest;
+import com.crossborder.productdescription.dto.AbTestStartRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationRequest;
 import com.crossborder.productdescription.dto.DescriptionGenerationResponse;
 import com.crossborder.productdescription.dto.FrontendDescriptionRequest;
 import com.crossborder.productdescription.dto.FrontendDescriptionResponse;
 import com.crossborder.productdescription.dto.FrontendDescriptionSaveRequest;
 import com.crossborder.productdescription.dto.FrontendDescriptionSaveResponse;
+import com.crossborder.productdescription.entity.AbTestResult;
 import com.crossborder.productdescription.entity.DescriptionTemplate;
 import com.crossborder.productdescription.entity.ProductBrief;
 import com.crossborder.productdescription.entity.ProductDescription;
+import com.crossborder.productdescription.service.DescriptionAnalysisRecordService;
 import com.crossborder.productdescription.service.DescriptionGenerationTaskService;
 import com.crossborder.productdescription.service.DescriptionTemplateRenderer;
 import com.crossborder.productdescription.service.DescriptionTemplateService;
@@ -141,10 +145,20 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
     /**
      * 模板渲染（把 {@code {占位符}} 换成真实商品事实）
      *
-     * <p>📌 **2026-11-24 新增**：之前模板正文**压根没进过 prompt**，
+     * <p>📌 <b>2026-11-24 新增</b>：之前模板正文**压根没进过 prompt**，
      * {@code useTemplate} / {@code templateId} 是两个死参数。</p>
      */
     private final DescriptionTemplateRenderer descriptionTemplateRenderer;
+
+    /**
+     * 描述分析结果落库（表 {@code seo_optimization} / {@code product_highlights} / {@code ab_test_result}）
+     *
+     * <p>📌 <b>2026-11-28 新增</b>：这三张表<b>早有 DDL、有索引</b>，
+     * 但<b>全仓没有任何一行代码往里写</b> →
+     * {@code optimizeSEO()} / {@code extractHighlights()} 每次都<b>现算一遍就丢掉</b> →
+     * 运营事后回看「当时打了几分」「当时提炼了什么」→ <b>一个都查不到</b>。</p>
+     */
+    private final DescriptionAnalysisRecordService descriptionAnalysisRecordService;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -154,13 +168,15 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
             ProductCatalogService productCatalogService,
             DescriptionGenerationTaskService descriptionGenerationTaskService,
             DescriptionTemplateService descriptionTemplateService,
-            DescriptionTemplateRenderer descriptionTemplateRenderer) {
+            DescriptionTemplateRenderer descriptionTemplateRenderer,
+            DescriptionAnalysisRecordService descriptionAnalysisRecordService) {
         this.llmConfig = llmConfig;
         this.productDescriptionRecordService = productDescriptionRecordService;
         this.productCatalogService = productCatalogService;
         this.descriptionGenerationTaskService = descriptionGenerationTaskService;
         this.descriptionTemplateService = descriptionTemplateService;
         this.descriptionTemplateRenderer = descriptionTemplateRenderer;
+        this.descriptionAnalysisRecordService = descriptionAnalysisRecordService;
     }
 
     @Override
@@ -371,7 +387,84 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         String description = getProductDescription(productId);
         String productName = getProductNameById(productId);
 
-        return optimizeSEO(description, productName, platform);
+        DescriptionGenerationResponse.SEOResult result =
+                optimizeSEO(description, productName, platform);
+
+        // 📌 **2026-11-28 新增：把 SEO 结果落库**（表 {@code seo_optimization}）
+        //    🔴 修它之前：这张表**有 DDL、有索引**，但**全仓没有任何一行代码往里写**
+        //    → 算出来的分数只活在这一次 HTTP 响应里 → 运营事后问
+        //    「上周那条文案当时打了几分？」→ **表里是空的，查不到**。
+        //    ✅ 现在：算完就落库 → 有事实来源。
+        //    📌 **落不到就不算失败**：SEO 优化是「只读分析」，
+        //    分析结果已经返回给调用方了 → 落库失败只 log.error 留痕，
+        //    绝不让「写不进去」把整个分析接口打成 500（那才是真的帮倒忙）。
+        //    ⚠️ 但**绝不静默**：log.error 里写明表名和原因。
+        persistSeoOptimization(productId, platform, result);
+
+        return result;
+    }
+
+    /**
+     * 把 SEO 优化结果落库（失败只留痕，不影响分析结果返回）
+     *
+     * <p>📌 <b>为什么用「找不到描述就跳过」而不是报错</b>：
+     * {@code seo_optimization.description_id} 是 NOT NULL 外键指向
+     * {@code product_description.id} —— 而 SEO 优化**可以针对一个还没保存过描述的商品**做
+     * （接口是「拿商品主数据里的描述」去算的）。这时<b>没有可关联的描述行</b> →
+     * 强行写一条悬空引用 = 制造一条<b>指向不存在行的数据</b>（规则 72）。
+     * → 所以：没有描述行 → <b>不写</b>（并 log.warn 说明），不编一个 descriptionId。</p>
+     */
+    private void persistSeoOptimization(Long productId,
+                                        String platform,
+                                        DescriptionGenerationResponse.SEOResult result) {
+        try {
+            Long descriptionId = resolveDescriptionId(productId, platform);
+            if (descriptionId == null) {
+                log.warn("商品 {} 还没有落库的描述记录 —— 本次 SEO 结果不落库"
+                        + "（seo_optimization.description_id 必填，不能写悬空引用）", productId);
+                return;
+            }
+            descriptionAnalysisRecordService.saveSeoOptimization(
+                    descriptionId, productId, result, null);
+        } catch (Exception e) {
+            // 📌 落库失败**不影响**已经算出来的分析结果（它已经返回给调用方了）
+            //    → log.error 留痕（表名 + 原因），**不静默**。
+            log.error("SEO优化结果落库失败（表 seo_optimization，productId={}）：{}",
+                    productId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 解析「这条描述在 {@code product_description} 里的 id」
+     *
+     * <p>📌 <b>按 (商品, 语言, 平台) 定位</b>：唯一键就是这三列
+     * （{@code uk_pd_product_lang_platform}）→ 一条描述唯一确定。</p>
+     *
+     * <p>📌 <b>平台匹配忽略大小写</b>：库里种的是 {@code Amazon}，
+     * 请求传的是 {@code amazon} → 必须显式忽略大小写
+     * （与 {@code DescriptionTemplateServiceImpl} 同一个坑、同一套解法）。</p>
+     *
+     * @return 描述行 id；<b>没有对应描述行就返回 null</b>（= 没有可关联的描述）
+     */
+    private Long resolveDescriptionId(Long productId, String platform) {
+        if (productId == null) {
+            return null;
+        }
+        List<ProductDescription> rows =
+                productDescriptionRecordService.listByProductId(productId);
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        for (ProductDescription row : rows) {
+            if (platform == null || platform.isBlank()) {
+                return row.getId();
+            }
+            if (row.getPlatform() != null
+                    && row.getPlatform().trim().equalsIgnoreCase(platform.trim())) {
+                return row.getId();
+            }
+        }
+        return null;
     }
 
     @Override
@@ -381,7 +474,44 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         log.info("提炼产品亮点 - 产品ID: {}, 最大数量: {}", productId, maxHighlights);
 
         List<String> features = getProductFeatures(productId);
-        return extractHighlights(features, maxHighlights);
+        List<DescriptionGenerationResponse.Highlight> highlights =
+                extractHighlights(features, maxHighlights);
+
+        // 📌 **2026-11-28 新增：把亮点落库**（表 {@code product_highlights}）
+        //    🔴 修它之前：这张表**有 DDL、有索引**，但**全仓没有任何一行代码往里写**
+        //    → 提炼出的亮点只活在这一次 HTTP 响应里 → 运营事后问
+        //    「这条商品上次提炼的亮点是什么？」→ **表里是空的，查不到**。
+        //    ✅ 现在：提炼完就落库 → 有事实来源。
+        persistHighlights(productId, highlights);
+
+        return highlights;
+    }
+
+    /**
+     * 把产品亮点落库（失败只留痕，不影响提炼结果返回）
+     *
+     * <p>📌 与 {@link #persistSeoOptimization} 同理：
+     * 提炼结果已经返回给调用方了 → 落库失败只 log.error 留痕，
+     * <b>不让「写不进去」把整个接口打成 500</b>。</p>
+     */
+    private void persistHighlights(Long productId,
+                                   List<DescriptionGenerationResponse.Highlight> highlights) {
+        if (highlights == null || highlights.isEmpty()) {
+            // 📌 没有真实特性 → 提炼不出亮点 → **不写库**（不编 5 条假亮点）
+            return;
+        }
+        try {
+            Long descriptionId = resolveDescriptionId(productId, null);
+            if (descriptionId == null) {
+                log.warn("商品 {} 还没有落库的描述记录 —— 本次亮点不落库"
+                        + "（product_highlights.description_id 必填，不能写悬空引用）", productId);
+                return;
+            }
+            descriptionAnalysisRecordService.saveHighlights(descriptionId, productId, highlights);
+        } catch (Exception e) {
+            log.error("产品亮点落库失败（表 product_highlights，productId={}）：{}",
+                    productId, e.getMessage(), e);
+        }
     }
 
     @Override
@@ -422,6 +552,47 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
                     System.currentTimeMillis() - begin, e.getMessage());
             throw e;
         }
+    }
+
+    /**
+     * 开启一个 A/B 测试（表 {@code ab_test_result}）
+     *
+     * <p>📌 <b>2026-11-28 新增</b>：{@link #generateABTestVersions} 每次都<b>现生成几个版本就丢掉</b>
+     * → 运营事后想比「A 版和 B 版哪个 CTR 高」→ <b>没有任何地方存过这件事</b>。
+     * 现在开测就落一条记录，指标值<b>留空</b>（CTR 要等真实流量跑出来才有 → <b>不编</b>）。</p>
+     */
+    @Override
+    public AbTestResult startAbTest(AbTestStartRequest request) {
+        log.info("开启A/B测试 - 商品ID: {}, 测试名称: {}, 指标: {}",
+                request == null ? null : request.getProductId(),
+                request == null ? null : request.getTestName(),
+                request == null ? null : request.getMetricName());
+        return descriptionAnalysisRecordService.startAbTest(request);
+    }
+
+    /**
+     * 回填 A/B 测试结果（指标实测值 → 胜者由系统判定）
+     *
+     * <p>📌 <b>胜者是「算出来的」不是「传进来的」</b>：请求体里只给
+     * A/B 两版的<b>实测指标值</b>，谁赢由系统比较得出 → 避免调用方
+     * 自己填一个和指标矛盾的 {@code winner} 写进库里。</p>
+     */
+    @Override
+    public AbTestResult recordAbTestOutcome(Long abTestId, AbTestOutcomeRequest request) {
+        log.info("回填A/B测试结果 - 测试ID: {}", abTestId);
+        return descriptionAnalysisRecordService.recordAbTestOutcome(abTestId, request);
+    }
+
+    /**
+     * 查某个商品的 A/B 测试记录（按开始时间倒序）
+     *
+     * <p>📌 查不到就是<b>空列表</b>，不是 null、也不是报错 ——
+     * 「这个商品还没开过测」是一个正常状态，不是异常。</p>
+     */
+    @Override
+    public List<AbTestResult> listAbTestResults(Long productId, int limit) {
+        log.info("查询A/B测试记录 - 商品ID: {}, 条数上限: {}", productId, limit);
+        return descriptionAnalysisRecordService.listAbTestResults(productId, limit);
     }
 
     /**
@@ -1539,7 +1710,13 @@ public class ProductDescriptionServiceImpl implements ProductDescriptionService 
         for (int i = 0; i < count; i++) {
             DescriptionGenerationResponse.Highlight highlight = new DescriptionGenerationResponse.Highlight();
             highlight.setId("highlight-" + (i + 1));
-            highlight.setTitle("核心优势 " + (i + 1));
+            // 🔴 **2026-11-28 修**：标题原来写死成 "核心优势 1" / "核心优势 2" ——
+            //    那是**占位符，不是真实特性**。
+            //    后果：`product_highlights.highlight_title` 是 NOT NULL 列，
+            //    亮点落库后表里全是「核心优势 1/2/3」→ 运营翻历史记录看到的是
+            //    一堆无意义的编号，而不是「这个商品的卖点到底是什么」。
+            //    ✅ 现在标题直接用**真实特性文本**（与 description/feature 同一个来源）。
+            highlight.setTitle(features.get(i));
             highlight.setDescription(features.get(i));
             highlight.setImportance(5 - i); // 重要性递减
             highlight.setFeature(features.get(i));

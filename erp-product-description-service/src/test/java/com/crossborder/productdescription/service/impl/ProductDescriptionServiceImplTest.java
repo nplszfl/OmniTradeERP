@@ -55,7 +55,9 @@ class ProductDescriptionServiceImplTest {
                 mock(com.crossborder.productdescription.service.DescriptionGenerationTaskService.class),
                 // 📌 2026-11-26：模板服务（2026-11-24 引入）—— 本测试不关心模板。
                 mock(com.crossborder.productdescription.service.DescriptionTemplateService.class),
-                mock(com.crossborder.productdescription.service.DescriptionTemplateRenderer.class));
+                mock(com.crossborder.productdescription.service.DescriptionTemplateRenderer.class),
+                // 📌 2026-11-28：分析结果落库服务（SEO/亮点/A-B 三张表接线）。
+                mock(com.crossborder.productdescription.service.DescriptionAnalysisRecordService.class));
     }
 
     private ProductBrief productBrief(Long id) {
